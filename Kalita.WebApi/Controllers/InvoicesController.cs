@@ -8,29 +8,21 @@ namespace Kalita.WebApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class ExpensesController : KalitaBaseController
+public class InvoicesController : KalitaBaseController
 {
-    private readonly ExpenseService _service;
-    public ExpensesController(ExpenseService service) => _service = service;
+    private readonly InvoiceService _service;
+    public InvoicesController(InvoiceService service) => _service = service;
 
     [HttpGet]
-    public ActionResult<List<Expense>> Get() => _service.GetExpenses();
+    public ActionResult<List<Invoice>> Get() => _service.GetInvoices();
 
     [HttpGet("{id}")]
-    public ActionResult<Expense?> Get(Guid id) => _service.GetExpense(id);
-
-    [HttpGet("/api/estimates/{estimateId}/expenses")]
-    public IActionResult GetByEstimate(Guid estimateId)
-    {
-        var expenses = _service.GetByEstimate(estimateId);
-        return Ok(expenses);
-    }
-
+    public ActionResult<Invoice?> Get(Guid id) => _service.GetInvoice(id);
 
     [HttpPost]
-    public IActionResult Create([FromBody] CreateExpenseRequest request)
+    public IActionResult Create([FromBody] CreateInvoiceRequest request)
     {
-        var result = _service.CreateExpense(
+        var result = _service.CreateInvoice(
             request.Name,
             request.Amount,
             request.Status,
@@ -41,8 +33,23 @@ public class ExpensesController : KalitaBaseController
         if (!result.Success)
             return BadRequest(result.Error);
 
-        return Ok(result.Expense);
+        return Ok(result.Invoice);
     }
+
+    [HttpGet("/api/estimates/{estimateId}/invoices")]
+    public IActionResult GetByEstimate(Guid estimateId)
+    {
+        var invoices = _service.GetByEstimate(estimateId); // Реализуй в InvoiceService
+        return Ok(invoices);
+    }
+
+    [HttpGet("{invoiceId}/lines")]
+    public IActionResult GetLines(Guid invoiceId)
+    {
+        var lines = _service.GetLines(invoiceId);
+        return Ok(lines);
+    }
+
 
     [HttpPost("{id}/transition")]
     public IActionResult Transition(Guid id, [FromBody] TransitionRequest request)
@@ -51,14 +58,13 @@ public class ExpensesController : KalitaBaseController
         string userFio = "Test User";
         string error;
 
-        // Не забывай передавать все параметры, включая out error!
         if (_service.TryTransition(
             id,
             request.NextStatus,
             userId,
             userFio,
             request.Comment ?? "",
-            request.UserRole,   // <-- если добавил проверку по роли
+            request.UserRole,
             out error))
             return Ok();
         return BadRequest(error);

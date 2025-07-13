@@ -14,6 +14,11 @@ public class AppDbContext : DbContext
     public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<Counterparty> Counterparties => Set<Counterparty>();
     public DbSet<BudgetCategory> BudgetCategories => Set<BudgetCategory>();
+    public DbSet<EstimateLine> EstimateLines { get; set; }
+    public DbSet<Contractor> Contractors { get; set; }
+    public DbSet<DictionaryType> DictionaryTypes { get; set; }
+    public DbSet<DictionaryItem> DictionaryItems { get; set; }
+
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 }

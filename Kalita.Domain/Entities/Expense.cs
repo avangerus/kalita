@@ -4,5 +4,7 @@ public class Expense
     public string Name { get; set; } = string.Empty;
     public decimal Amount { get; set; }
     public string Status { get; set; } = "Draft";
-    // Можно добавить другие поля, если хочешь
+    public Guid EstimateId { get; set; }
+
+    public List<EstimateLine> Lines { get; set; } = new();
 }

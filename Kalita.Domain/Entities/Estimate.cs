@@ -5,5 +5,6 @@ public class Estimate
     public decimal Amount { get; set; }
     public decimal Margin { get; set; }
     public string Status { get; set; } = "Draft";
-    // НЕ добавляй сюда List<WorkflowStepHistory>
+    public string CreatedByUserId { get; set; } = "";
+    public Guid ProjectId { get; set; }
 }

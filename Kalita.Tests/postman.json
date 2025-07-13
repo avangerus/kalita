@@ -1,0 +1,214 @@
+{
+  "info": {
+    "name": "Kalita Workflow API (Full)",
+    "_postman_id": "cb61f278-9aeb-4e23-bc71-77c364edbb20",
+    "description": "Полная коллекция тестов для Kalita Workflow API (с созданием сущностей)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Create Estimate",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"id\": \"{{estimateId}}\",\n    \"name\": \"Тестовая смета\",\n    \"amount\": 12345,\n    \"status\": \"Draft\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:5189/api/estimates",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "estimates" ]
+        }
+      }
+    },
+    {
+      "name": "Get All Estimates",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5189/api/workflowentities/Estimate",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "workflowentities", "Estimate" ]
+        }
+      }
+    },
+    {
+      "name": "Transition Estimate (Draft -> OnApproval)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"nextStatus\": \"OnApproval\",\n    \"comment\": \"Отправляю на согласование\",\n    \"userRole\": \"role:Manager\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:5189/api/workflowentities/Estimate/{{estimateId}}/transition",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "workflowentities", "Estimate", "{{estimateId}}", "transition" ]
+        }
+      }
+    },
+    {
+      "name": "Get Estimate History",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5189/api/workflowentities/Estimate/{{estimateId}}/history",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "workflowentities", "Estimate", "{{estimateId}}", "history" ]
+        }
+      }
+    },
+    {
+      "name": "Create Expense",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"id\": \"{{expenseId}}\",\n    \"name\": \"Тестовый расход\",\n    \"amount\": 3210,\n    \"status\": \"Draft\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:5189/api/expenses",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "expenses" ]
+        }
+      }
+    },
+    {
+      "name": "Get All Expenses",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5189/api/workflowentities/Expense",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "workflowentities", "Expense" ]
+        }
+      }
+    },
+    {
+      "name": "Transition Expense",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"nextStatus\": \"OnApproval\",\n    \"comment\": \"Переход по маршруту\",\n    \"userRole\": \"role:Manager\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:5189/api/workflowentities/Expense/{{expenseId}}/transition",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "workflowentities", "Expense", "{{expenseId}}", "transition" ]
+        }
+      }
+    },
+    {
+      "name": "Get Expense History",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5189/api/workflowentities/Expense/{{expenseId}}/history",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "workflowentities", "Expense", "{{expenseId}}", "history" ]
+        }
+      }
+    },
+    {
+      "name": "Create Invoice",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"id\": \"{{invoiceId}}\",\n    \"name\": \"Тестовый счет\",\n    \"amount\": 9999,\n    \"status\": \"Draft\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:5189/api/invoices",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "invoices" ]
+        }
+      }
+    },
+    {
+      "name": "Get All Invoices",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5189/api/workflowentities/Invoice",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "workflowentities", "Invoice" ]
+        }
+      }
+    },
+    {
+      "name": "Transition Invoice",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"nextStatus\": \"OnApproval\",\n    \"comment\": \"Согласование счета\",\n    \"userRole\": \"role:Accountant\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:5189/api/workflowentities/Invoice/{{invoiceId}}/transition",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "workflowentities", "Invoice", "{{invoiceId}}", "transition" ]
+        }
+      }
+    },
+    {
+      "name": "Get Invoice History",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5189/api/workflowentities/Invoice/{{invoiceId}}/history",
+          "protocol": "http",
+          "host": [ "localhost" ],
+          "port": "5189",
+          "path": [ "api", "workflowentities", "Invoice", "{{invoiceId}}", "history" ]
+        }
+      }
+    }
+  ]
+}

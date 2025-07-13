@@ -9,5 +9,9 @@ public class Invoice
     public decimal Amount { get; set; }
     public DateTime IssuedAt { get; set; }
     public string Status { get; set; } = "Draft";
-    public List<WorkflowStepHistory> WorkflowHistory { get; set; } = new();
+    public string Name { get; set; }
+    public Guid EstimateId { get; set; }
+    public Guid? ContractorId { get; set; }
+    public Contractor? Contractor { get; set; }
+    public List<EstimateLine> Lines { get; set; } = new(); // или IEnumerable, если нужно
 }
