@@ -1,0 +1,46 @@
+{
+  "entity": "Estimate",
+  "statuses": [
+    "Draft",
+    "OnApproval",
+    "Approved",
+    "ToPayment",
+    "Paid",
+    "Rejected"
+  ],
+  "steps": [
+    {
+      "name": "Формирование сметы",
+      "type": "Input",
+      "status": "Draft",
+      "actors": [ "role:ProjectManager" ],
+      "fieldsRequired": [ "Amount", "Margin" ]
+    },
+    {
+      "name": "Согласование руководителем",
+      "type": "Approve",
+      "status": "OnApproval",
+      "actors": [ "role:ProjectDirector" ]
+    },
+    {
+      "name": "Согласование финдиректором",
+      "type": "Approve",
+      "status": "OnApproval",
+      "actors": [ "role:FinancialDirector" ],
+      "condition": "Estimate.Amount > 1000000"
+    },
+    {
+      "name": "Утверждение бухгалтером",
+      "type": "Decision",
+      "status": "Approved",
+      "actors": [ "role:Accountant" ]
+    }
+  ],
+  "transitions": [
+    { "from": "Draft", "to": "OnApproval", "condition": "FieldsFilled" },
+    { "from": "OnApproval", "to": "Approved", "condition": "AllApprovalsDone" },
+    { "from": "Approved", "to": "ToPayment" },
+    { "from": "ToPayment", "to": "Paid", "condition": "PaymentConfirmed" },
+    { "from": "Any", "to": "Rejected", "condition": "RejectedByAny" }
+  ]
+}
