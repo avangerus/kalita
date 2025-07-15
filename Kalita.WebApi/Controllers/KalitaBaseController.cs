@@ -8,5 +8,6 @@ namespace Kalita.WebApi.Controllers
         // Свойства для быстрого доступа к UserId и UserRole из любого контроллера
         protected string? UserId => (string?)HttpContext.Items["UserId"];
         protected string? UserRole => (string?)HttpContext.Items["UserRole"];
+        protected string? UserFio => HttpContext.Request.Headers["X-User-Fio"];
     }
 }

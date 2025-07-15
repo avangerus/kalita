@@ -13,4 +13,12 @@ public class WorkflowStepConfig
     public string? EventKey { get; set; }
     public string? ApproveMode { get; set; }
     public List<string>? FieldsRequired { get; set; }
+    public List<WorkflowSubStep>? SubSteps { get; set; }
+}
+
+
+public class WorkflowSubStep
+{
+    public string Name { get; set; } = "";     // Например, "Руководитель отдела"
+    public string Actor { get; set; } = "";    // Например, "role:ProjectDirector"
 }

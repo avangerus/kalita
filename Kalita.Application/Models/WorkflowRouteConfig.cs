@@ -15,6 +15,7 @@ public class WorkflowStep
     public string Status { get; set; } = "";
     public List<string> Actors { get; set; } = new();
     public List<string>? FieldsRequired { get; set; }
+    public List<WorkflowSubStep>? SubSteps { get; set; }
 }
 
 public class WorkflowTransition

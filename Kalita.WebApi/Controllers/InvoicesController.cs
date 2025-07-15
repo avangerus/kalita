@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Kalita.Domain.Entities;
 using Kalita.Application.Services;
-using Kalita.Application.Models;
 using Kalita.WebApi.DTO;
 
 namespace Kalita.WebApi.Controllers;
@@ -11,18 +10,37 @@ namespace Kalita.WebApi.Controllers;
 public class InvoicesController : KalitaBaseController
 {
     private readonly InvoiceService _service;
-    public InvoicesController(InvoiceService service) => _service = service;
+    private readonly WorkflowEntityService _workflowService;
 
+    public InvoicesController(InvoiceService service, WorkflowEntityService workflowService)
+    {
+        _service = service;
+        _workflowService = workflowService;
+    }
+
+
+
+    // Получить все счета
     [HttpGet]
-    public ActionResult<List<Invoice>> Get() => _service.GetInvoices();
+    public ActionResult<List<Invoice>> Get()
+    {
+        var invoices = _workflowService.GetAll("Invoice").Cast<Invoice>().ToList();
+        return Ok(invoices);
+    }
 
     [HttpGet("{id}")]
-    public ActionResult<Invoice?> Get(Guid id) => _service.GetInvoice(id);
+    public IActionResult GetOne(Guid id)
+    {
+        var result = _service.GetInvoiceWithDetails(id);
+        if (result == null) return NotFound();
+        return Ok(result);
+    }
 
+    // Создать счет
     [HttpPost]
     public IActionResult Create([FromBody] CreateInvoiceRequest request)
     {
-        var result = _service.CreateInvoice(
+        var result = _workflowService.CreateInvoice(
             request.Name,
             request.Amount,
             request.Status,
@@ -36,43 +54,42 @@ public class InvoicesController : KalitaBaseController
         return Ok(result.Invoice);
     }
 
+    // Все счета по смете
     [HttpGet("/api/estimates/{estimateId}/invoices")]
     public IActionResult GetByEstimate(Guid estimateId)
     {
-        var invoices = _service.GetByEstimate(estimateId); // Реализуй в InvoiceService
+        var invoices = _workflowService.GetInvoicesByEstimate(estimateId);
         return Ok(invoices);
     }
 
-    [HttpGet("{invoiceId}/lines")]
-    public IActionResult GetLines(Guid invoiceId)
+    // Все строки по счету (EstimateLines)
+    [HttpGet("{id}/lines")]
+    public IActionResult GetLines(Guid id)
     {
-        var lines = _service.GetLines(invoiceId);
+        var lines = _workflowService.GetLinesByInvoice(id);
         return Ok(lines);
     }
 
-
+    // Переход по маршруту
     [HttpPost("{id}/transition")]
     public IActionResult Transition(Guid id, [FromBody] TransitionRequest request)
     {
-        Guid userId = Guid.NewGuid();
-        string userFio = "Test User";
         string error;
-
-        if (_service.TryTransition(
-            id,
-            request.NextStatus,
-            userId,
-            userFio,
-            request.Comment ?? "",
-            request.UserRole,
-            out error))
+        if (_workflowService.TryTransition(
+                "Invoice",
+                id,
+                request.NextStatus,
+                UserId!,
+                UserFio!,
+                request.Comment ?? "",
+                request.UserRole,
+                out error))
             return Ok();
         return BadRequest(error);
     }
 
+    // История маршрута
     [HttpGet("{id}/history")]
     public ActionResult<List<WorkflowStepHistory>> GetHistory(Guid id) =>
-        _service.GetHistory(id);
+        _workflowService.GetHistory("Invoice", id);
 }
-
-

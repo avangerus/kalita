@@ -36,7 +36,7 @@ public class WorkflowEntitiesController : KalitaBaseController
     [HttpPost("{entityType}/{id}/transition")]
     public IActionResult Transition(string entityType, Guid id, [FromBody] TransitionRequest request)
     {
-        Guid userId = Guid.NewGuid();   // заменить на авторизацию, если нужно
+        string userId = Guid.NewGuid().ToString();   // заменить на авторизацию, если нужно
         string userFio = "Test User";
         string error;
         if (_service.TryTransition(entityType, id, request.NextStatus, userId, userFio, request.Comment ?? "", request.UserRole ?? "role:Test", out error))
@@ -44,9 +44,16 @@ public class WorkflowEntitiesController : KalitaBaseController
         return BadRequest(error);
     }
 
+
+
+
+
+
     [HttpGet("{entityType}/{id}/history")]
     public ActionResult<List<WorkflowStepHistory>> GetHistory(string entityType, Guid id)
         => Ok(_service.GetHistory(entityType, id));
+
+    
 }
 
 public class TransitionRequest

@@ -1,0 +1,61 @@
+{
+  "entity": "Estimate",
+  "steps": [
+    {
+      "name": "Создание",
+      "type": "Input",
+      "status": "Draft",
+      "actors": ["role:ProjectManager"],
+      "fieldsRequired": ["Amount", "Margin"]
+    },
+    {
+      "name": "Согласование директором",
+      "type": "Approve",
+      "status": "DirectorApproval",
+      "actors": ["role:ProjectDirector"]
+    },
+    {
+      "name": "Параллельное согласование (фин/юрист)",
+      "type": "Parallel",
+      "status": "ParallelApproval",
+      "subSteps": [
+        {
+          "name": "Согласование финдиректором",
+          "type": "Approve",
+          "actors": ["role:FinancialDirector"]
+        },
+        {
+          "name": "Согласование юристом",
+          "type": "Approve",
+          "actors": ["role:Legal"]
+        }
+      ]
+    },
+    {
+      "name": "Автоматическое уведомление",
+      "type": "Pusher",
+      "trigger": "ParallelApproved"
+    },
+    {
+      "name": "Утверждение бухгалтером",
+      "type": "Approve",
+      "status": "AccountantApproval",
+      "actors": ["role:Accountant"],
+      "condition": "Estimate.Amount > 500000"
+    },
+    {
+      "name": "Оплата",
+      "type": "SystemAction",
+      "status": "ToPayment",
+      "action": "CreatePaymentRequest"
+    }
+  ],
+  "transitions": [
+    { "from": "Draft", "to": "DirectorApproval", "condition": "FieldsFilled" },
+    { "from": "DirectorApproval", "to": "ParallelApproval", "condition": "Approved" },
+    { "from": "ParallelApproval", "to": "AccountantApproval", "condition": "AllParallelApproved" },
+    { "from": "AccountantApproval", "to": "ToPayment", "condition": "Approved" },
+    { "from": "ToPayment", "to": "Paid", "condition": "PaymentConfirmed" },
+    { "from": "Any", "to": "Rejected", "condition": "RejectedByAny" }
+  ]
+}

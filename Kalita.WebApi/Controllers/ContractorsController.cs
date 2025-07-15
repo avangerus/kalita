@@ -1,40 +1,74 @@
 using Microsoft.AspNetCore.Mvc;
-using Kalita.WebApi.DTO;
 using Kalita.Application.Services;
 using Kalita.Domain.Entities;
+using Kalita.WebApi.DTO;
 
-namespace Kalita.WebApi.Controllers
+namespace Kalita.WebApi.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class ContractorsController : KalitaBaseController
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    public class ContractorsController : KalitaBaseController
+    private readonly WorkflowEntityService _service;
+
+    public ContractorsController(WorkflowEntityService service)
     {
-        private readonly ContractorService _service;
-        public ContractorsController(ContractorService service) => _service = service;
+        _service = service;
+    }
 
-        [HttpPost]
-        public IActionResult Create([FromBody] CreateContractorRequest req)
-        {
-            var c = _service.Create(req.Name, req.Inn, req.Kpp, req.Address);
-            return Ok(c);
-        }
+    [HttpGet]
+    public ActionResult<List<Contractor>> GetAll()
+    {
+        var contractors = _service.GetAll("Contractor").Cast<Contractor>().ToList();
+        return Ok(contractors);
+    }
 
-        [HttpGet]
-        public IActionResult GetAll() => Ok(_service.GetAll());
+    [HttpGet("{id}")]
+    public ActionResult<Contractor?> Get(Guid id)
+    {
+        var contractor = _service.Get("Contractor", id) as Contractor;
+        if (contractor == null) return NotFound();
+        return Ok(contractor);
+    }
 
-        [HttpGet("{id}")]
-        public IActionResult Get(Guid id)
-        {
-            var c = _service.Get(id);
-            if (c == null) return NotFound();
-            return Ok(c);
-        }
+    [HttpPost]
+    public IActionResult Create([FromBody] CreateContractorRequest request)
+    {
+        var result = _service.CreateContractor(
+            request.Name,
+            request.Inn,
+            request.Kpp,
+            request.Address,
+            request.Type,
+            request.Phone,
+            request.Email
+        );
+        if (!result.Success) return BadRequest(result.Error);
+        return Ok(result.Contractor);
+    }
 
-        [HttpDelete("{id}")]
-        public IActionResult Delete(Guid id)
-        {
-            _service.Delete(id);
-            return NoContent();
-        }
+    [HttpPut("{id}")]
+    public IActionResult Update(Guid id, [FromBody] UpdateContractorRequest request)
+    {
+        var result = _service.UpdateContractor(
+            id,
+            request.Name,
+            request.Inn,
+            request.Kpp,
+            request.Address,
+            request.Type,
+            request.Phone,
+            request.Email
+        );
+        if (!result.Success) return BadRequest(result.Error);
+        return Ok(result.Contractor);
+    }
+
+    [HttpDelete("{id}")]
+    public IActionResult Delete(Guid id)
+    {
+        var result = _service.DeleteContractor(id);
+        if (!result.Success) return BadRequest(result.Error);
+        return Ok();
     }
 }

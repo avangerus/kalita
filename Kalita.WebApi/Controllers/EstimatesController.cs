@@ -1,106 +1,175 @@
 using Microsoft.AspNetCore.Mvc;
-using Kalita.Domain.Entities;
 using Kalita.Application.Services;
-using Kalita.Application.Models;
+using Kalita.Infrastructure.Persistence;
+using Kalita.Domain.Entities;
+using Kalita.WebApi.DTO;
+using Kalita.Application.Workflow;
 
-namespace Kalita.WebApi.Controllers;
-
-[ApiController]
-[Route("api/[controller]")]
-public class EstimatesController : KalitaBaseController
+namespace Kalita.WebApi.Controllers
 {
-    private readonly EstimateService _service;
-    public EstimatesController(EstimateService service) => _service = service;
-
-    // [HttpGet]
-    // public ActionResult<List<Estimate>> Get() => _service.GetEstimates();
-
-    [HttpGet("{id}")]
-    public ActionResult<Estimate?> Get(Guid id) => _service.GetEstimate(id);
-
-
-    [HttpPost]
-    public IActionResult Create([FromBody] CreateEstimateRequest req)
+    [ApiController]
+    [Route("api/[controller]")]
+    public class EstimatesController : KalitaBaseController
     {
-        // Подставляем текущего пользователя (UserId из базового контроллера)
-        var estimate = _service.CreateEstimate(req.Name, req.Amount, req.Margin, UserId!);
-        return Ok(estimate);
-    }
+        private readonly AppDbContext _db;
+        private readonly WorkflowEntityService _workflowService;
 
-    [HttpGet("/api/projects/{projectId}/estimates")]
-    public IActionResult GetByProject(Guid projectId)
-    {
-        var estimates = _service.GetByProject(projectId);
-        return Ok(estimates);
-    }
+        private readonly WorkflowEngine _workflow;
 
-    [HttpGet("{estimateId}/report")]
-    public IActionResult GetReport(Guid estimateId)
-    {
-        var report = _service.GetReport(estimateId);
-        return Ok(report);
-    }
+        public EstimatesController(
+            AppDbContext db,
+            WorkflowEntityService workflowService,
+            WorkflowEngine workflow)
+        {
+            _db = db;
+            _workflowService = workflowService;
+            _workflow = workflow;
+        }
+
+        // Создание сметы — НЕ через _workflowService!
+        [HttpPost]
+        public IActionResult Create([FromBody] CreateEstimateRequest req)
+        {
+            var estimate = new Estimate
+            {
+                Id = Guid.NewGuid(),
+                Name = req.Name,
+                Amount = req.Amount,
+                Margin = req.Margin,
+                Status = "Draft",
+                CreatedByUserId = UserId!
+            };
+            _db.Estimates.Add(estimate);
+            _db.SaveChanges();
+            return Ok(estimate);
+        }
+
+        // Получить одну смету
+        [HttpGet("{id}")]
+        public IActionResult Get(Guid id)
+        {
+            var estimate = _workflowService.Get("Estimate", id) as Estimate;
+            if (estimate == null)
+                return NotFound();
+            return Ok(estimate);
+        }
+
+        // Получить все сметы
+        [HttpGet]
+        public IActionResult GetAll()
+        {
+            var estimates = _workflowService.GetAll("Estimate")
+                                            .Cast<Estimate>()
+                                            .ToList();
+            return Ok(estimates);
+        }
+
+        [HttpGet("{id}/invoices")]
+        public IActionResult GetInvoices(Guid id)
+        {
+            var invoices = _db.Invoices.Where(i => i.EstimateId == id).ToList();
+            return Ok(invoices);
+        }
+
+        [HttpGet("{id}/expenses")]
+        public IActionResult GetExpenses(Guid id)
+        {
+            var expenses = _db.Expenses.Where(e => e.EstimateId == id).ToList();
+            return Ok(expenses);
+        }
+
+        [HttpGet("{id}/lines")]
+        public IActionResult GetEstimateLines(Guid id)
+        {
+            var lines = _db.EstimateLines.Where(l => l.EstimateId == id).ToList();
+            return Ok(lines);
+        }
 
 
+        [HttpPost("{id}/approve-parallel")]
+        public IActionResult ApproveParallel(Guid id, [FromBody] ApproveParallelRequest req)
+        {
+            var estimate = _workflowService.Get("Estimate", id) as Estimate;
+            if (estimate == null) return NotFound();
 
-    [HttpGet]
-    public IActionResult GetAll()
-    {
-        var query = _service.Query();
-        // Проверяем роль
-        if (UserRole == "User" || UserRole == "Contractor" || UserRole == "Employee")
-            query = query.Where(x => x.CreatedByUserId == UserId);
+            var step = _workflow.GetCurrentStep("Estimate", estimate.Status);
+            if (step?.Type != "Parallel") return BadRequest("Not a parallel step");
 
-        var result = query.ToList();
-        return Ok(result);
-    }
+            // Запись в историю
+            _db.WorkflowStepHistories.Add(new WorkflowStepHistory
+            {
+                Id = Guid.NewGuid(),
+                EntityId = id,
+                EntityType = "Estimate",
+                StepName = step.Name,
+                SubStepName = req.SubStepName,
+                Status = estimate.Status,
+                UserId = UserId,
+                UserFio = UserFio,
+                DateTime = DateTime.UtcNow,
+                Action = "Approve",
+                Comment = req.Comment,
+                Result = "Success",
+                UserRole = req.UserRole
+            });
+            _db.SaveChanges();
 
-    [HttpPut("{id}")]
-    public IActionResult Update(Guid id, [FromBody] Estimate updated)
-    {
-        var estimate = _service.GetEstimate(id);
-        if (estimate == null)
-            return NotFound();
-
-        // Пример: обновим только нужные поля
-        estimate.Margin = updated.Margin;
-        estimate.Amount = updated.Amount;
-        estimate.Name = updated.Name ?? estimate.Name;
-        // ...добавь по необходимости
-
-        _service.Update(estimate); // Реализуй Update в сервисе если его нет, или сохраняй напрямую в БД
-
-        return Ok(estimate);
-    }
-
-
-
-
-    // Новый эндпоинт для перехода по маршруту
-    [HttpPost("{id}/transition")]
-    public IActionResult Transition(Guid id, [FromBody] TransitionRequest request)
-    {
-        Guid userId = Guid.NewGuid();
-        string userFio = "Test User";
-        string error;
-
-        // Не забывай передавать все параметры, включая out error!
-        if (_service.TryTransition(
-            id,
-            request.NextStatus,
-            userId,
-            userFio,
-            request.Comment ?? "",
-            request.UserRole,   // <-- если добавил проверку по роли
-            out error))
+            // Проверка — все ли согласовали?
+            var allRoles = step.SubSteps.Select(s => s.Actor).ToList();
+            if (_workflow.IsAllParallelApproved(id, "Estimate", step.Name, allRoles))
+            {
+                estimate.Status = "AccountantApproval";
+                _db.SaveChanges();
+            }
             return Ok();
-        return BadRequest(error);
+        }
+
+
+
+        // Согласование
+        [HttpPost("{id}/approve")]
+        public IActionResult Approve(Guid id, [FromBody] WorkflowActionRequest req)
+        {
+            var result = _workflowService.TryTransition(
+                "Estimate", id, "Approved", UserId!, UserFio!, req.Comment ?? "", UserRole!, out var error);
+            if (!result) return BadRequest(error);
+            return Ok();
+        }
+
+        // Отказ
+        [HttpPost("{id}/reject")]
+        public IActionResult Reject(Guid id, [FromBody] WorkflowActionRequest req)
+        {
+            var result = _workflowService.TryTransition(
+                "Estimate", id, "Rejected", UserId!, UserFio!, req.Comment ?? "", UserRole!, out var error);
+            if (!result) return BadRequest(error);
+            return Ok();
+        }
+
+        // Возврат на доработку (например, в Draft)
+        [HttpPost("{id}/return")]
+        public IActionResult Return(Guid id, [FromBody] WorkflowActionRequest req)
+        {
+            var result = _workflowService.TryTransition(
+                "Estimate", id, "Draft", UserId!, UserFio!, req.Comment ?? "", UserRole!, out var error);
+            if (!result) return BadRequest(error);
+            return Ok();
+        }
+
+        // История маршрута
+        [HttpGet("{id}/history")]
+        public IActionResult GetHistory(Guid id)
+        {
+            var history = _workflowService.GetHistory("Estimate", id);
+            return Ok(history);
+        }
+
+        // Текущий маршрут (шаги и переходы)
+        [HttpGet("{id}/route")]
+        public IActionResult GetRoute(Guid id)
+        {
+            var route = _workflowService.GetWorkflowRoute("Estimate", id);
+            return Ok(route);
+        }
     }
-
-    // Для истории
-    [HttpGet("{id}/history")]
-    public ActionResult<List<WorkflowStepHistory>> GetHistory(Guid id) =>
-        _service.GetHistory(id);
 }
-
-// DTO для перехода

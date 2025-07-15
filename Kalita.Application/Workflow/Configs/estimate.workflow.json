@@ -2,44 +2,63 @@
   "entity": "Estimate",
   "statuses": [
     "Draft",
-    "OnApproval",
-    "Approved",
+    "DirectorApproval",
+    "ParallelApproval",
+    "AccountantApproval",
     "ToPayment",
     "Paid",
     "Rejected"
   ],
   "steps": [
     {
-      "name": "Формирование сметы",
+      "name": "Создание",
       "type": "Input",
       "status": "Draft",
-      "actors": [ "role:ProjectManager" ],
-      "fieldsRequired": [ "Amount", "Margin" ]
+      "actors": ["role:ProjectManager"],
+      "fieldsRequired": ["Amount", "Margin"]
     },
     {
-      "name": "Согласование руководителем",
+      "name": "Согласование директором",
       "type": "Approve",
-      "status": "OnApproval",
-      "actors": [ "role:ProjectDirector" ]
+      "status": "DirectorApproval",
+      "actors": ["role:ProjectDirector"]
     },
     {
-      "name": "Согласование финдиректором",
+      "name": "Параллельное согласование финдиректор/юрист",
+      "type": "Parallel",
+      "status": "ParallelApproval",
+      "subSteps": [
+        {
+          "name": "Финансовый директор",
+          "type": "Approve",
+          "actor": "role:FinancialDirector"
+        },
+        {
+          "name": "Юрист",
+          "type": "Approve",
+          "actor": "role:Legal"
+        }
+      ]
+    },
+    {
+      "name": "Согласование бухгалтером",
       "type": "Approve",
-      "status": "OnApproval",
-      "actors": [ "role:FinancialDirector" ],
-      "condition": "Estimate.Amount > 1000000"
+      "status": "AccountantApproval",
+      "actors": ["role:Accountant"],
+      "condition": "Estimate.Amount > 500000"
     },
     {
-      "name": "Утверждение бухгалтером",
-      "type": "Decision",
-      "status": "Approved",
-      "actors": [ "role:Accountant" ]
+      "name": "Оплата",
+      "type": "SystemAction",
+      "status": "ToPayment",
+      "action": "CreatePaymentRequest"
     }
   ],
   "transitions": [
-    { "from": "Draft", "to": "OnApproval", "condition": "FieldsFilled" },
-    { "from": "OnApproval", "to": "Approved", "condition": "AllApprovalsDone" },
-    { "from": "Approved", "to": "ToPayment" },
+    { "from": "Draft", "to": "DirectorApproval", "condition": "FieldsFilled" },
+    { "from": "DirectorApproval", "to": "ParallelApproval", "condition": "Approved" },
+    { "from": "ParallelApproval", "to": "AccountantApproval", "condition": "AllParallelApproved" },
+    { "from": "AccountantApproval", "to": "ToPayment", "condition": "Approved" },
     { "from": "ToPayment", "to": "Paid", "condition": "PaymentConfirmed" },
     { "from": "Any", "to": "Rejected", "condition": "RejectedByAny" }
   ]

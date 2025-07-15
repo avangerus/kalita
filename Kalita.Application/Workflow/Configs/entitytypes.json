@@ -1,0 +1,98 @@
+[
+    {
+        "Code": "estimate",
+        "Name": "Смета",
+        "Fields": [
+            {
+                "Code": "name",
+                "Name": "Название",
+                "FieldType": "string",
+                "IsRequired": true
+            },
+            {
+                "Code": "amount",
+                "Name": "Сумма",
+                "FieldType": "decimal",
+                "IsRequired": true
+            },
+            {
+                "Code": "currencyId",
+                "Name": "Валюта",
+                "FieldType": "dictionary",
+                "ReferenceTypeCode": "currency",
+                "IsRequired": true
+            },
+            {
+                "Code": "projectId",
+                "Name": "Проект",
+                "FieldType": "reference",
+                "ReferenceTypeCode": "project",
+                "IsRequired": true
+            },
+            {
+                "Code": "lines",
+                "Name": "Позиции",
+                "FieldType": "collection",
+                "ReferenceTypeCode": "estimateline",
+                "IsCollection": true
+            }
+        ]
+    },
+    {
+        "Code": "estimeline",
+        "Name": "Строка сметы",
+        "Fields": [
+            {
+                "Code": "name",
+                "Name": "Название",
+                "FieldType": "string"
+            },
+            {
+                "Code": "type",
+                "Name": "Тип",
+                "FieldType": "dictionary",
+                "ReferenceTypeCode": "estimelinetype"
+            },
+            {
+                "Code": "quantity",
+                "Name": "Количество",
+                "FieldType": "decimal"
+            },
+            {
+                "Code": "unitId",
+                "Name": "Ед.изм.",
+                "FieldType": "dictionary",
+                "ReferenceTypeCode": "unit"
+            },
+            {
+                "Code": "price",
+                "Name": "Цена",
+                "FieldType": "decimal"
+            },
+            {
+                "Code": "total",
+                "Name": "Сумма",
+                "FieldType": "decimal"
+            }
+        ]
+    },
+    {
+        "Code": "project",
+        "Name": "Проект",
+        "Description": "",
+        "Fields": [
+            {
+                "Code": "name",
+                "Name": "Название",
+                "FieldType": "string",
+                "IsRequired": true
+            },
+            {
+                "Code": "customer",
+                "Name": "Заказчик",
+                "FieldType": "string",
+                "IsRequired": false
+            }
+        ]
+    }
+]

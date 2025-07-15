@@ -18,6 +18,10 @@ public class AppDbContext : DbContext
     public DbSet<Contractor> Contractors { get; set; }
     public DbSet<DictionaryType> DictionaryTypes { get; set; }
     public DbSet<DictionaryItem> DictionaryItems { get; set; }
+    public DbSet<EntityType> EntityTypes { get; set; }
+    public DbSet<EntityField> EntityFields { get; set; }
+    public DbSet<DynamicEntityRecord> DynamicEntityRecords { get; set; }
+    public DbSet<DynamicEntity> DynamicEntities { get; set; }
 
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }

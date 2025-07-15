@@ -1,14 +1,17 @@
 using System.Text.Json;
 using Kalita.Application.Workflow;
+using Kalita.Infrastructure.Persistence; // Для доступа к БД
 
 namespace Kalita.Application.Workflow
 {
     public class WorkflowEngine
     {
         private readonly Dictionary<string, WorkflowRouteConfig> _configs = new();
+        private readonly AppDbContext _db; // Добавь DI в конструктор
 
-        public WorkflowEngine(string configsDirPath)
+        public WorkflowEngine(AppDbContext db, string configsDirPath)
         {
+            _db = db;
             // Подгружаем ВСЕ json-файлы из папки configs
             foreach (var file in Directory.GetFiles(configsDirPath, "*.workflow.json"))
             {
@@ -22,6 +25,21 @@ namespace Kalita.Application.Workflow
                              ?? throw new Exception("Workflow config not found or invalid.");
                 _configs[config.Entity] = config; // Entity должен быть в json-конфиге!
             }
+        }
+
+        public bool IsAllParallelApproved(Guid entityId, string entityType, string stepName, List<string> roles)
+        {
+            var approvals = _db.WorkflowStepHistories
+                .Where(h => h.EntityId == entityId
+                    && h.EntityType == entityType
+                    && h.StepName == stepName
+                    && h.Action == "Approve")
+                .Select(h => h.UserRole)
+                .Distinct()
+                .ToList();
+
+            // Все роли из substeps должны быть среди approvals
+            return roles.All(r => approvals.Contains(r));
         }
 
         public WorkflowRouteConfig GetConfig(string entityType)
@@ -71,5 +89,7 @@ namespace Kalita.Application.Workflow
             var _config = GetConfig(entityType);
             return _config.Steps.FirstOrDefault(s => s.Status == status);
         }
+
+
     }
 }
