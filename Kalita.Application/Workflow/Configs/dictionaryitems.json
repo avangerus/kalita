@@ -1,0 +1,17 @@
+[
+  {
+    "TypeCode": "ProjectType",
+    "Code": "BUILDING",
+    "Value": "Строительство"
+  },
+  {
+    "TypeCode": "ProjectType",
+    "Code": "RENOVATION",
+    "Value": "Ремонт"
+  },
+  {
+    "TypeCode": "ProjectType",
+    "Code": "DESIGN",
+    "Value": "Дизайн"
+  }
+]s

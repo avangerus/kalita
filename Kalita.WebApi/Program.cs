@@ -29,31 +29,42 @@ builder.Services.AddDbContext<AppDbContext>(
 //     new Kalita.Application.Workflow.WorkflowEngine("../Kalita.Application/Workflow/Configs/expense.workflow.json"));
 // builder.Services.AddScoped<Kalita.Application.Services.ExpenseService>();
 
-
+builder.Services.AddScoped<EntityTypeService>();
 builder.Services.AddSingleton<WorkflowEngine>(provider =>
 {
     var db = provider.GetRequiredService<AppDbContext>();
     return new WorkflowEngine(db, "../Kalita.Application/Workflow/Configs/");
 });
 
-builder.Services.AddSingleton(new EntityTypeMetadataService("../Kalita.Application/Workflow/Configs/entitytypes.json"));
 
-builder.Services.AddSingleton(new DictionaryMetadataService(
-    Path.Combine(AppContext.BaseDirectory, "../Kalita.Application/Workflow/Configs/dictionarytypes.json")
-));
+// builder.Services.AddSingleton(new EntityTypeMetadataService("../Kalita.Application/Workflow/Configs/entitytypes.json"));
 
-// builder.Services.AddSingleton(new EntityMetadataService(
-//     Path.Combine(AppContext.BaseDirectory, "../Kalita.Application/Workflow/Configs/entitytypes.json")
+// builder.Services.AddSingleton(new DictionaryMetadataService(
+//     Path.Combine(AppContext.BaseDirectory, "../Kalita.Application/Workflow/Configs/dictionarytypes.json")
 // ));
 
-var entityMetadataService = new EntityMetadataService();
-entityMetadataService.LoadFromJson("../Kalita.Application/Workflow/Configs/entitytypes.json"); // например, "../Kalita.Application/Workflow/Configs/entitytypes.json"
-builder.Services.AddSingleton(entityMetadataService);
+// // builder.Services.AddSingleton(new EntityMetadataService(
+// //     Path.Combine(AppContext.BaseDirectory, "../Kalita.Application/Workflow/Configs/entitytypes.json")
+// // ));
+
+// var entityMetadataService = new EntityMetadataService();
+// entityMetadataService.LoadFromJson("../Kalita.Application/Workflow/Configs/entitytypes.json"); // например, "../Kalita.Application/Workflow/Configs/entitytypes.json"
+// builder.Services.AddSingleton(entityMetadataService);
+
 
 
 builder.Services.AddScoped<Kalita.Application.Services.WorkflowEntityService>();
 builder.Services.AddScoped<DictionaryService>();
-builder.Services.AddScoped<DynamicEntityService>();
+builder.Services.AddScoped<EntityItemService>();
+builder.Services.AddScoped<ValidationService>();
+
+var db = builder.Services.BuildServiceProvider().GetRequiredService<AppDbContext>();
+var importer = new EntitySchemaImporter(db);
+
+var path = Path.Combine(AppContext.BaseDirectory, "Workflow", "Configs", "entitytypes.json");
+importer.ImportFromFile(path);
+
+
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -63,15 +74,15 @@ var app = builder.Build();
 
 app.UseSwagger();
 app.UseSwaggerUI();
-builder.Services.AddSingleton<DynamicEntityService>();
+
 
 
 // using (var scope = app.Services.CreateScope())
 // {
 //     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-//     var dynamicService = new DynamicEntityService(db);
+//     var flexService = new EntityItemService(db);
 
-//     dynamicService.LoadEntityTypesFromJson("../Kalita.Application/Workflow/Configs/entitytypes.json");
+//     flexService.LoadEntityTypesFromJson("../Kalita.Application/Workflow/Configs/entitytypes.json");
 // }
 
 

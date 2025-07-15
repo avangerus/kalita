@@ -4,9 +4,21 @@
     "name": "Валюта",
     "description": "Доступные валюты",
     "fields": [
-      { "name": "Value", "type": "string", "required": true },
-      { "name": "Code", "type": "string", "required": true },
-      { "name": "IsActive", "type": "bool", "required": false }
+      {
+        "name": "Value",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "Code",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "IsActive",
+        "type": "bool",
+        "required": false
+      }
     ]
   },
   {
@@ -14,8 +26,21 @@
     "name": "Единица измерения",
     "description": "Справочник единиц",
     "fields": [
-      { "name": "Value", "type": "string", "required": true },
-      { "name": "Code", "type": "string", "required": true }
+      {
+        "name": "Value",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "Code",
+        "type": "string",
+        "required": true
+      }
     ]
+  },
+  {
+    "Code": "ProjectType",
+    "Name": "Тип проекта",
+    "Description": "Категории проектов"
   }
 ]

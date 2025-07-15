@@ -1,10 +1,12 @@
+using Kalita.Application.Workflow;
 
-// namespace Kalita.Application.Workflow;
-
-// public class WorkflowRouteConfig
-// {
-//     public string Entity { get; set; } = string.Empty;
-//     public List<string> Statuses { get; set; } = new();
-//     public List<WorkflowStepConfig> Steps { get; set; } = new();
-//     public List<WorkflowTransitionConfig> Transitions { get; set; } = new();
-// }
+namespace Kalita.Application.Workflow
+{
+    public class WorkflowRouteConfig
+    {
+        public string Entity { get; set; } // Например, "Estimate"
+        public List<WorkflowStep> Steps { get; set; } = new();
+        public List<WorkflowTransition> Transitions { get; set; } = new();
+        // Можно добавить другие параметры, если нужны
+    }
+}

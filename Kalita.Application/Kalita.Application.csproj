@@ -10,4 +10,11 @@
     <ProjectReference Include="..\Kalita.Infrastructure\Kalita.Infrastructure.csproj" />
 </ItemGroup>
 
+<ItemGroup>
+  <None Update="Workflow/Configs/entitytypes.json">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  </None>
+</ItemGroup>
+
+
 </Project>

@@ -1,18 +1,23 @@
 using System.Text.Json;
+using Kalita.Infrastructure.Persistence; // Если тебе нужен db, оставь, если нет — убери
+using System.Collections.Generic;
 using Kalita.Application.Workflow;
-using Kalita.Infrastructure.Persistence; // Для доступа к БД
+
 
 namespace Kalita.Application.Workflow
 {
     public class WorkflowEngine
     {
+        private readonly Dictionary<string, WorkflowDefinition> _workflows = new();
+        // private readonly AppDbContext _db; // Можно убрать, если не используешь db тут
         private readonly Dictionary<string, WorkflowRouteConfig> _configs = new();
-        private readonly AppDbContext _db; // Добавь DI в конструктор
+        private readonly AppDbContext _db;
 
         public WorkflowEngine(AppDbContext db, string configsDirPath)
         {
             _db = db;
-            // Подгружаем ВСЕ json-файлы из папки configs
+
+            // примерная реализация
             foreach (var file in Directory.GetFiles(configsDirPath, "*.workflow.json"))
             {
                 var json = File.ReadAllText(file);
@@ -23,23 +28,21 @@ namespace Kalita.Application.Workflow
                 options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
                 var config = JsonSerializer.Deserialize<WorkflowRouteConfig>(json, options)
                              ?? throw new Exception("Workflow config not found or invalid.");
-                _configs[config.Entity] = config; // Entity должен быть в json-конфиге!
+                _configs[config.Entity] = config;
             }
         }
 
-        public bool IsAllParallelApproved(Guid entityId, string entityType, string stepName, List<string> roles)
+        public WorkflowDefinition GetWorkflow(string entityType)
         {
-            var approvals = _db.WorkflowStepHistories
-                .Where(h => h.EntityId == entityId
-                    && h.EntityType == entityType
-                    && h.StepName == stepName
-                    && h.Action == "Approve")
-                .Select(h => h.UserRole)
-                .Distinct()
-                .ToList();
+            if (_workflows.TryGetValue(entityType, out var definition))
+                return definition;
+            throw new Exception($"Workflow not found for entityType: {entityType}");
+        }
 
-            // Все роли из substeps должны быть среди approvals
-            return roles.All(r => approvals.Contains(r));
+        public WorkflowTransition? FindTransition(string entityType, string currentState, string action)
+        {
+            var workflow = GetWorkflow(entityType);
+            return workflow.Transitions.FirstOrDefault(t => t.From == currentState && t.Action == action);
         }
 
         public WorkflowRouteConfig GetConfig(string entityType)
@@ -49,47 +52,63 @@ namespace Kalita.Application.Workflow
             throw new Exception($"Workflow config for entity '{entityType}' not found.");
         }
 
-        // Теперь все методы принимают entityType и используют соответствующий config
-        public bool CanTransition(string entityType, string currentStatus, string nextStatus, object entity, string userRole)
-        {
-            var _config = GetConfig(entityType);
-
-            var transition = _config.Transitions
-                .FirstOrDefault(t => (t.From == currentStatus || t.From == "Any") && t.To == nextStatus);
-
-            if (transition == null) return false;
-
-            if (!string.IsNullOrEmpty(transition.Condition))
-            {
-                if (transition.Condition == "FieldsFilled")
-                {
-                    var step = _config.Steps.FirstOrDefault(s => s.Status == currentStatus);
-                    if (step?.FieldsRequired != null)
-                    {
-                        foreach (var field in step.FieldsRequired)
-                        {
-                            var prop = entity.GetType().GetProperty(field);
-                            if (prop == null || prop.GetValue(entity) == null)
-                                return false;
-                        }
-                    }
-                }
-            }
-            var stepNext = _config.Steps.FirstOrDefault(s => s.Status == nextStatus);
-            if (stepNext != null && stepNext.Actors.Any())
-            {
-                if (!stepNext.Actors.Contains(userRole))
-                    return false;
-            }
-            return true;
-        }
-
         public WorkflowStep? GetCurrentStep(string entityType, string status)
         {
             var _config = GetConfig(entityType);
             return _config.Steps.FirstOrDefault(s => s.Status == status);
         }
 
+        // Пример: Проверка, можно ли сделать переход
+        public bool CanTransition(string entityType, string currentState, string action, Dictionary<string, object?> entityData, string userRole, string? comment = null)
+        {
+            var transition = FindTransition(entityType, currentState, action);
+            if (transition == null) return false;
 
+            // Проверка ролей
+            if (transition.Roles != null && !transition.Roles.Contains(userRole))
+                return false;
+
+            // Проверка условий
+            if (transition.Conditions != null)
+            {
+                foreach (var cond in transition.Conditions)
+                {
+                    if (!CheckCondition(entityData, cond))
+                        return false;
+                }
+            }
+
+            // Проверка комментария
+            if (transition.CommentRequired == true && string.IsNullOrWhiteSpace(comment))
+                return false;
+
+            return true;
+        }
+
+        private bool CheckCondition(Dictionary<string, object?> entityData, WorkflowCondition cond)
+        {
+            if (!entityData.TryGetValue(cond.Field, out var value) || value == null)
+                return false;
+            try
+            {
+                switch (cond.Operator)
+                {
+                    case "<":
+                        return Convert.ToDecimal(value) < Convert.ToDecimal(cond.Value);
+                    case ">":
+                        return Convert.ToDecimal(value) > Convert.ToDecimal(cond.Value);
+                    case "==":
+                        return value.ToString() == cond.Value.ToString();
+                    case "!=":
+                        return value.ToString() != cond.Value.ToString();
+                    default:
+                        return false;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
     }
 }

@@ -4,21 +4,51 @@ using Microsoft.AspNetCore.Mvc;
 [Route("api/entitytypes")]
 public class EntityTypesController : ControllerBase
 {
-    private readonly EntityMetadataService _service;
+    private readonly EntityTypeService _service;
 
-    public EntityTypesController(EntityMetadataService service)
+    public EntityTypesController(EntityTypeService service)
     {
         _service = service;
     }
 
     [HttpGet]
-    public IActionResult GetAll() => Ok(_service.GetAllTypes());
+    public IActionResult GetAll()
+    {
+        var types = _service.GetAllTypes()
+            .Select(t => new {
+                t.Code,
+                t.DisplayName,
+                t.Description
+            })
+            .ToList();
+
+        return Ok(types);
+    }
 
     [HttpGet("{code}")]
     public IActionResult GetOne(string code)
     {
-        var meta = _service.GetTypeByCode(code);
-        if (meta == null) return NotFound();
-        return Ok(meta);
+        var type = _service.GetTypeByCode(code);
+        if (type == null) return NotFound();
+
+        var fields = _service.GetFieldsByTypeCode(code)
+            .Select(f => new {
+                f.Code,
+                f.DisplayName,
+                f.FieldType,
+                f.IsRequired,
+                f.LookupTypeCode,
+                f.IsMultiValue
+            })
+            .ToList();
+
+        var result = new {
+            type.Code,
+            type.DisplayName,
+            type.Description,
+            Fields = fields
+        };
+
+        return Ok(result);
     }
 }

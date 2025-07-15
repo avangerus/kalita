@@ -4,10 +4,10 @@ using Kalita.Domain.Entities;
 
 [ApiController]
 [Route("api/entities/{entityTypeCode}")]
-public class DynamicEntityController : ControllerBase
+public class EntityItemController : ControllerBase
 {
-    private readonly DynamicEntityService _service;
-    public DynamicEntityController(DynamicEntityService service) => _service = service;
+    private readonly EntityItemService _service;
+    public EntityItemController(EntityItemService service) => _service = service;
 
     [HttpGet]
     public IActionResult GetAll(string entityTypeCode)
