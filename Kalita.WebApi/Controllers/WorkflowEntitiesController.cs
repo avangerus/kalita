@@ -26,23 +26,31 @@ public class WorkflowEntitiesController : KalitaBaseController
         => Ok(_service.Get(entityType, id));
 
     [HttpPost("{entityType}")]
-    public IActionResult Create(string entityType, [FromBody] object entity)
+    public IActionResult Create(string entityType, [FromBody] object data)
     {
-        // Для простоты — через специфичные сервисы или AddEntity(entityType, entity)
-        // Можно расширить реализацию под разные типы сущностей
-        return Ok();
+        var result = _service.Create(entityType, data);
+        return Ok(result); // <= важно, чтобы здесь был объект (DTO), а не Ok() или Ok(null)
     }
 
     [HttpPost("{entityType}/{id}/transition")]
     public IActionResult Transition(string entityType, Guid id, [FromBody] TransitionRequest request)
     {
-        string userId = Guid.NewGuid().ToString();   // заменить на авторизацию, если нужно
-        string userFio = "Test User";
         string error;
-        if (_service.TryTransition(entityType, id, request.NextStatus, userId, userFio, request.Comment ?? "", request.UserRole ?? "role:Test", out error))
+
+        // Получаем сущность по id
+        var entity = _service.Get(entityType, id);
+        if (entity == null)
+            return NotFound("Entity not found");
+
+        // Здесь request.ActionCode, а не NextStatus!
+        string actionCode = request.ActionCode ?? ""; // или request.Action, если так поле называется
+
+        // Можно передавать data (если есть условия)
+        if (_service.TryTransition(entityType, id, actionCode, entity, request.UserRole ?? "role:Test", out error))
             return Ok();
         return BadRequest(error);
     }
+
 
 
 
@@ -53,7 +61,7 @@ public class WorkflowEntitiesController : KalitaBaseController
     public ActionResult<List<WorkflowStepHistory>> GetHistory(string entityType, Guid id)
         => Ok(_service.GetHistory(entityType, id));
 
-    
+
 }
 
 public class TransitionRequest
@@ -61,4 +69,5 @@ public class TransitionRequest
     public string NextStatus { get; set; } = "";
     public string? Comment { get; set; }
     public string? UserRole { get; set; }
+    public string ActionCode { get; set; } 
 }

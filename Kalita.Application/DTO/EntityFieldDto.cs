@@ -15,4 +15,5 @@ public class EntityFieldDto
     public string? DefaultValue { get; set; }
     public string? Description { get; set; }
     public List<string>? EnumOptions { get; set; }
+    public List<string>? Values { get; set; }
 }

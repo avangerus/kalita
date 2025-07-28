@@ -43,51 +43,52 @@ namespace Kalita.Application.Services
         public bool TryTransition(
             string entityType,
             Guid entityId,
-            string nextStatus,
-            string userId,
-            string userFio,
-            string comment,
+            string actionCode,
+            object? entityData,
             string userRole,
             out string error)
         {
-            var item = Get(entityType, entityId);
-            if (item == null)
+            error = "";
+
+            var entity = _db.EntityItems.FirstOrDefault(e => e.Id == entityId && e.TypeCode == entityType);
+            if (entity == null)
             {
-                error = $"{entityType} not found.";
+                error = $"Entity '{entityType}' with id '{entityId}' not found.";
                 return false;
             }
 
-            var currentStatus = item.Status ?? "";
-            var data = JsonSerializer.Deserialize<Dictionary<string, object?>>(item.DataJson ?? "{}");
+            var currentStatus = entity.Status ?? "draft";
 
-            if (!_workflow.CanTransition(entityType, currentStatus, nextStatus, data, userRole, comment))
+            if (!_workflow.CanTransition(entityType, currentStatus, actionCode, userRole, entityData))
             {
-                error = "Transition not allowed.";
+                error = $"Transition '{actionCode}' not allowed for role '{userRole}' in status '{currentStatus}'";
                 return false;
             }
 
-            // Сохраняем историю перехода
-            var history = new WorkflowStepHistory
-            {
-                Id = Guid.NewGuid(),
-                EntityId = entityId,
-                EntityType = entityType,
-                StepName = _workflow.GetCurrentStep(entityType, currentStatus)?.Name ?? currentStatus,
-                Status = nextStatus,
-                UserId = userId,
-                UserFio = userFio,
-                DateTime = DateTime.UtcNow,
-                Action = "Transition",
-                Comment = comment,
-                Result = "Success"
-            };
-            _db.WorkflowStepHistories.Add(history);
+            var workflow = _workflow.GetWorkflow(entityType);
+            var status = workflow.Statuses.FirstOrDefault(s => s.Code == currentStatus);
 
-            // Обновляем статус сущности
-            item.Status = nextStatus;
+            WorkflowAction? action = null;
+
+            if (status?.Actions != null)
+                action = status.Actions.FirstOrDefault(a => a.Code == actionCode);
+
+            if (action == null && workflow.GlobalActions != null)
+                action = workflow.GlobalActions
+                    .FirstOrDefault(a => a.Code == actionCode &&
+                        (a.FromStatuses == null || a.FromStatuses.Contains("Any") || a.FromStatuses.Contains(currentStatus)));
+
+            if (action == null)
+            {
+                error = $"Action '{actionCode}' not found in status '{currentStatus}' or global actions.";
+                return false;
+            }
+
+            entity.Status = action.ToStatus;
+            entity.UpdatedAt = DateTime.UtcNow;
+            entity.UpdatedBy = "system";
             _db.SaveChanges();
 
-            error = "";
             return true;
         }
 
@@ -164,6 +165,26 @@ namespace Kalita.Application.Services
                 .Where(h => h.EntityId == entityId && h.EntityType == entityType)
                 .OrderBy(h => h.DateTime)
                 .ToList();
+        }
+        public EntityItem Create(string entityType, object data)
+        {
+            // Сериализуем data в json
+            var dataJson = data is string s ? s : JsonSerializer.Serialize(data);
+
+            var item = new EntityItem
+            {
+                Id = Guid.NewGuid(),
+                TypeCode = entityType,
+                DataJson = dataJson,
+                Status = "draft", // или твой дефолтный статус
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                CreatedBy = "system",
+                UpdatedBy = "system"
+            };
+            _db.EntityItems.Add(item);
+            _db.SaveChanges();
+            return item;
         }
     }
 }

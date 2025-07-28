@@ -1,65 +1,141 @@
 {
-  "entity": "Estimate",
+  "type": "Estimate",
+  "displayName": "Смета",
+  "initialStatus": "draft",
   "statuses": [
-    "Draft",
-    "DirectorApproval",
-    "ParallelApproval",
-    "AccountantApproval",
-    "ToPayment",
-    "Paid",
-    "Rejected"
-  ],
-  "steps": [
     {
-      "name": "Создание",
-      "type": "Input",
-      "status": "Draft",
-      "actors": ["role:ProjectManager"],
-      "fieldsRequired": ["Amount", "Margin"]
-    },
-    {
-      "name": "Согласование директором",
-      "type": "Approve",
-      "status": "DirectorApproval",
-      "actors": ["role:ProjectDirector"]
-    },
-    {
-      "name": "Параллельное согласование финдиректор/юрист",
-      "type": "Parallel",
-      "status": "ParallelApproval",
-      "subSteps": [
+      "code": "draft",
+      "displayName": "Черновик",
+      "stage": "Создание",
+      "actions": [
         {
-          "name": "Финансовый директор",
-          "type": "Approve",
-          "actor": "role:FinancialDirector"
+          "code": "submit",
+          "displayName": "Отправить на согласование",
+          "roles": ["Author"],
+          "toStatus": "DirectorApproval"
+        }
+      ],
+      "editRights": ["Author"],
+      "viewRights": ["Author", "Admin"],
+      "uiMask": "edit_mode"
+    },
+    {
+      "code": "DirectorApproval",
+      "displayName": "Согласование директором",
+      "stage": "Согласование",
+      "actions": [
+        {
+          "code": "approve",
+          "displayName": "Согласовать",
+          "roles": ["Director"],
+          "toStatus": "ParallelApproval"
         },
         {
-          "name": "Юрист",
-          "type": "Approve",
-          "actor": "role:Legal"
+          "code": "reject",
+          "displayName": "Отклонить",
+          "roles": ["Director"],
+          "toStatus": "Rejected",
+          "requiresComment": true
         }
-      ]
+      ],
+      "editRights": [],
+      "viewRights": ["Author", "Director", "Admin"],
+      "uiMask": "approval_mode",
+      "modifiers": ["highlight"]
     },
     {
-      "name": "Согласование бухгалтером",
-      "type": "Approve",
-      "status": "AccountantApproval",
-      "actors": ["role:Accountant"],
-      "condition": "Estimate.Amount > 500000"
+      "code": "ParallelApproval",
+      "displayName": "Параллельное согласование",
+      "stage": "Согласование",
+      "actions": [
+        {
+          "code": "approve",
+          "displayName": "Согласовать",
+          "roles": ["Lawyer", "CFO"],
+          "toStatus": "AccountantApproval",
+          "allMustApprove": true
+        },
+        {
+          "code": "reject",
+          "displayName": "Отклонить",
+          "roles": ["Lawyer", "CFO"],
+          "toStatus": "Rejected",
+          "requiresComment": true
+        }
+      ],
+      "editRights": [],
+      "viewRights": ["Lawyer", "CFO", "Director", "Author", "Admin"],
+      "uiMask": "parallel_approval_mode"
     },
     {
-      "name": "Оплата",
-      "type": "SystemAction",
-      "status": "ToPayment",
-      "action": "CreatePaymentRequest"
+      "code": "AccountantApproval",
+      "displayName": "Согласование бухгалтером",
+      "stage": "Финансы",
+      "actions": [
+        {
+          "code": "approve",
+          "displayName": "Согласовать",
+          "roles": ["Accountant"],
+          "toStatus": "ToPayment"
+        }
+      ],
+      "conditions": [
+        {
+          "if": "amount > 500000",
+          "then": "show"
+        },
+        {
+          "if": "amount <= 500000",
+          "then": "skip"
+        }
+      ],
+      "editRights": [],
+      "viewRights": ["Accountant", "Director", "Author", "Admin"],
+      "uiMask": "finance_approval_mode"
+    },
+    {
+      "code": "ToPayment",
+      "displayName": "К оплате",
+      "stage": "Завершение",
+      "actions": [
+        {
+          "code": "pay",
+          "displayName": "Оплатить",
+          "roles": ["Treasurer"],
+          "toStatus": "Paid"
+        }
+      ],
+      "editRights": [],
+      "viewRights": ["Treasurer", "Accountant", "Director", "Author", "Admin"],
+      "uiMask": "payment_mode"
+    },
+    {
+      "code": "Paid",
+      "displayName": "Оплачено",
+      "stage": "Завершение",
+      "actions": [],
+      "editRights": [],
+      "viewRights": ["Author", "Admin", "Director"],
+      "uiMask": "readonly"
+    },
+    {
+      "code": "Rejected",
+      "displayName": "Отклонено",
+      "stage": "Завершение",
+      "actions": [],
+      "editRights": [],
+      "viewRights": ["Author", "Admin", "Director"],
+      "uiMask": "readonly"
     }
   ],
-  "transitions": [
-    { "from": "Draft", "to": "DirectorApproval", "condition": "FieldsFilled" },
-    { "from": "DirectorApproval", "to": "ParallelApproval", "condition": "Approved" },
-    { "from": "ParallelApproval", "to": "AccountantApproval", "condition": "AllParallelApproved" },
-    { "from": "AccountantApproval", "to": "ToPayment", "condition": "Approved" },
-    { "from": "ToPayment", "to": "Paid", "condition": "PaymentConfirmed" },
-    { "from": "Any", "to": "Rejected", "condition": "RejectedByAny" }
+  "globalActions": [
+    {
+      "code": "reject",
+      "displayName": "Отклонить",
+      "roles": ["Director", "CFO", "Lawyer", "Accountant", "Treasurer"],
+      "toStatus": "Rejected",
+      "requiresComment": true,
+      "fromStatuses": ["Any"]
+    }
   ]
 }

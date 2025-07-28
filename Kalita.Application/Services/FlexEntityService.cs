@@ -25,7 +25,9 @@ public class EntityItemService
         if (entityType == null)
             throw new Exception($"Unknown entity type code: {entityTypeCode}");
 
-        var entities = _db.EntityItems.Where(e => e.TypeCode == entityTypeCode).ToList();
+        var entities = _db.EntityItems
+            .Where(e => e.TypeCode == entityTypeCode && !e.IsDeleted)
+            .ToList();
         return entities
             .Select(e => JsonSerializer.Deserialize<Dictionary<string, object?>>(e.DataJson)!)
             .ToList();
@@ -37,7 +39,8 @@ public class EntityItemService
         if (entityType == null)
             throw new Exception($"Unknown entity type code: {entityTypeCode}");
 
-        var entity = _db.EntityItems.FirstOrDefault(e => e.TypeCode == entityTypeCode && e.Id == id);
+        var entity = _db.EntityItems
+            .FirstOrDefault(e => e.TypeCode == entityTypeCode && e.Id == id && !e.IsDeleted);
         return entity == null
             ? null
             : JsonSerializer.Deserialize<Dictionary<string, object?>>(entity.DataJson)!;
@@ -61,7 +64,6 @@ public class EntityItemService
                 DisplayName = f.DisplayName,
                 Type = f.FieldType,
                 Required = f.IsRequired,
-                // Добавь остальные поля, если они есть в EntityFieldDto
             }).ToList()
         };
 
@@ -69,10 +71,14 @@ public class EntityItemService
         {
             Id = Guid.NewGuid(),
             TypeCode = entityTypeCode,
-            DataJson = JsonSerializer.Serialize(data)
+            DataJson = JsonSerializer.Serialize(data),
+            CreatedBy = "system",
+            UpdatedBy = "system",
+            Status = "draft",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
 
-        // Предполагается, что у тебя есть ValidationService _validationService
         var (valid, error) = _validationService.Validate(entity, meta);
         if (!valid)
             throw new Exception("Validation failed: " + error);
@@ -82,6 +88,7 @@ public class EntityItemService
 
         return entity;
     }
+
 
     public bool Update(string entityTypeCode, Guid id, Dictionary<string, object?> data)
     {
@@ -109,10 +116,13 @@ public class EntityItemService
         var entity = _db.EntityItems.FirstOrDefault(e => e.TypeCode == entityTypeCode && e.Id == id);
         if (entity == null) return false;
 
-        _db.EntityItems.Remove(entity);
+        entity.IsDeleted = true;
+        entity.UpdatedAt = DateTime.UtcNow;
+        // entity.UpdatedBy = ... // если нужно, обнови пользователя
         _db.SaveChanges();
         return true;
     }
+
 
 
 }

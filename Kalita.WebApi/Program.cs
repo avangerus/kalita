@@ -29,13 +29,11 @@ builder.Services.AddDbContext<AppDbContext>(
 //     new Kalita.Application.Workflow.WorkflowEngine("../Kalita.Application/Workflow/Configs/expense.workflow.json"));
 // builder.Services.AddScoped<Kalita.Application.Services.ExpenseService>();
 
-builder.Services.AddScoped<EntityTypeService>();
-builder.Services.AddSingleton<WorkflowEngine>(provider =>
+builder.Services.AddScoped<WorkflowEngine>(provider =>
 {
     var db = provider.GetRequiredService<AppDbContext>();
     return new WorkflowEngine(db, "../Kalita.Application/Workflow/Configs/");
 });
-
 
 // builder.Services.AddSingleton(new EntityTypeMetadataService("../Kalita.Application/Workflow/Configs/entitytypes.json"));
 
@@ -58,11 +56,12 @@ builder.Services.AddScoped<DictionaryService>();
 builder.Services.AddScoped<EntityItemService>();
 builder.Services.AddScoped<ValidationService>();
 
-var db = builder.Services.BuildServiceProvider().GetRequiredService<AppDbContext>();
-var importer = new EntitySchemaImporter(db);
+// var db = builder.Services.BuildServiceProvider().GetRequiredService<AppDbContext>();
+// var importer = new EntitySchemaImporter(db);
 
-var path = Path.Combine(AppContext.BaseDirectory, "Workflow", "Configs", "entitytypes.json");
-importer.ImportFromFile(path);
+// var path = Path.Combine(AppContext.BaseDirectory, "Workflow", "Configs", "entitytypes.json");
+// importer.ImportFromFile(path);
+
 
 
 
@@ -71,6 +70,17 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddControllers();
 var app = builder.Build();
+
+
+// Инициализация entitytypes.json через scope
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var importer = new EntitySchemaImporter(db);
+
+    var path = Path.Combine(AppContext.BaseDirectory, "Workflow", "Configs", "entitytypes.json");
+    importer.ImportFromFile(path);
+}
 
 app.UseSwagger();
 app.UseSwaggerUI();

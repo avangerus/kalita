@@ -39,10 +39,11 @@ namespace Kalita.Application.Services
 
             foreach (var field in meta.Fields)
             {
-                // Проверка обязательных
+                // 1. Required
                 if (field.Required)
                 {
-                    if (!data.ContainsKey(field.Code) || data[field.Code] == null || string.IsNullOrWhiteSpace(data[field.Code]?.ToString()))
+                    if (!data.ContainsKey(field.Code) || data[field.Code] == null ||
+                        (data[field.Code] is string s && string.IsNullOrWhiteSpace(s)))
                         return (false, $"Поле \"{field.DisplayName ?? field.Code}\" обязательно для заполнения");
                 }
 
@@ -52,88 +53,74 @@ namespace Kalita.Application.Services
 
                 var value = data[field.Code];
 
-                // Типизация через JsonElement (если значение пришло из JSON)
-                JsonElement je = default;
-                if (value is JsonElement jeRaw)
-                    je = jeRaw;
-                else if (value is string s)
-                    je = JsonSerializer.Deserialize<JsonElement>($"\"{s}\"");
+                // 2. Multi/Collection
+                if (field.IsCollection == true || field.Type == "collection")
+                {
+                    if (value is JsonElement je && je.ValueKind == JsonValueKind.Array)
+                        continue;
+                    if (value is IEnumerable<object>)
+                        continue;
+                    return (false, $"Поле \"{field.DisplayName}\" должно быть массивом (списком)");
+                }
 
-                // Валидация по FieldType
+                // 3. Enum (AllowedValues)
+                if (field.Type == "enum" || (field.AllowedValues != null && field.AllowedValues.Any())
+                    || (field.EnumOptions != null && field.EnumOptions.Any())
+                    || (field.Values != null && field.Values.Any()))
+                {
+                    var allowed = field.AllowedValues
+                        ?? field.EnumOptions
+                        ?? field.Values
+                        ?? new List<string>();
+                    var str = value?.ToString() ?? "";
+                    if (allowed.Any() && !allowed.Contains(str))
+                        return (false, $"Поле \"{field.DisplayName}\" содержит недопустимое значение");
+                }
+
+                // 4. Lookup
+                if (field.Type == "lookup" || !string.IsNullOrEmpty(field.ReferenceTypeCode))
+                {
+                    if (string.IsNullOrWhiteSpace(value?.ToString()))
+                        return (false, $"Поле \"{field.DisplayName}\" должно содержать ссылку на другую сущность ({field.ReferenceTypeCode})");
+                    // Для MVP — просто не пустое значение, можно потом сделать проверку существования по БД
+                }
+
+                // 5. Типы
                 switch (field.Type)
                 {
+                    case "string":
+                    case "text":
+                        if (!(value is string) && !(value is JsonElement je1 && je1.ValueKind == JsonValueKind.String))
+                            return (false, $"Поле \"{field.DisplayName}\" должно быть строкой");
+                        break;
                     case "number":
+                    case "decimal":
                         if (value is JsonElement jeNum && jeNum.ValueKind == JsonValueKind.Number)
                             break;
-                        if (decimal.TryParse(value?.ToString(), out _))
-                            break;
-                        return (false, $"Поле \"{field.DisplayName ?? field.Code}\" должно быть числом");
+                        if (!decimal.TryParse(value?.ToString(), out _))
+                            return (false, $"Поле \"{field.DisplayName}\" должно быть числом");
+                        break;
                     case "bool":
+                    case "boolean":
                         if (value is JsonElement jeBool)
                         {
                             if (jeBool.ValueKind == JsonValueKind.True || jeBool.ValueKind == JsonValueKind.False)
                                 break;
                         }
-                        if (bool.TryParse(value?.ToString(), out _))
-                            break;
-                        return (false, $"Поле \"{field.DisplayName ?? field.Code}\" должно быть булевым значением");
-                    case "string":
-                        if (value is JsonElement jeStr && jeStr.ValueKind == JsonValueKind.String)
-                            break;
-                        if (value is string)
-                            break;
-                        return (false, $"Поле \"{field.DisplayName ?? field.Code}\" должно быть строкой");
+                        if (!bool.TryParse(value?.ToString(), out _))
+                            return (false, $"Поле \"{field.DisplayName}\" должно быть булевым значением");
+                        break;
                     case "date":
                         if (value is JsonElement jeDate && jeDate.ValueKind == JsonValueKind.String && DateTime.TryParse(jeDate.GetString(), out _))
                             break;
-                        if (DateTime.TryParse(value?.ToString(), out _))
-                            break;
-                        return (false, $"Поле \"{field.DisplayName ?? field.Code}\" должно быть датой");
-                    case "ref":
-                        // Для ref обычно ожидаем строку GUID или просто не пустое значение
-                        if (value is JsonElement jeRef && jeRef.ValueKind == JsonValueKind.String && Guid.TryParse(jeRef.GetString(), out _))
-                            break;
-                        if (Guid.TryParse(value?.ToString(), out _))
-                            break;
-                        return (false, $"Поле \"{field.DisplayName ?? field.Code}\" должно быть ссылкой (GUID)");
-                        // Можно добавить custom case для enum/справочник
-                }
-                if (field.Type == "string")
-                {
-                    var str = value?.ToString() ?? "";
-                    if (field.MinLength.HasValue && str.Length < field.MinLength.Value)
-                        return (false, $"Поле \"{field.DisplayName}\" должно содержать минимум {field.MinLength.Value} символов");
-                    if (field.MaxLength.HasValue && str.Length > field.MaxLength.Value)
-                        return (false, $"Поле \"{field.DisplayName}\" должно содержать не более {field.MaxLength.Value} символов");
-                    if (!string.IsNullOrEmpty(field.Pattern))
-                    {
-                        if (!Regex.IsMatch(str, field.Pattern))
-                            return (false, $"Поле \"{field.DisplayName}\" не соответствует формату");
-                    }
-                }
-                if (field.Type == "number" && decimal.TryParse(value?.ToString(), out var number))
-                {
-                    if (field.MinValue.HasValue && number < field.MinValue.Value)
-                        return (false, $"Поле \"{field.DisplayName}\" не может быть меньше {field.MinValue.Value}");
-                    if (field.MaxValue.HasValue && number > field.MaxValue.Value)
-                        return (false, $"Поле \"{field.DisplayName}\" не может быть больше {field.MaxValue.Value}");
-                }
-                if (field.AllowedValues != null && field.AllowedValues.Any() && !field.AllowedValues.Contains(value?.ToString()))
-                {
-                    return (false, $"Поле \"{field.DisplayName}\" содержит недопустимое значение");
+                        if (!DateTime.TryParse(value?.ToString(), out _))
+                            return (false, $"Поле \"{field.DisplayName}\" должно быть датой");
+                        break;
                 }
             }
 
-
-
-
-            // Пример: Бизнес-валидация для EstimateLine — обязательно должен быть GroupId
-            // if (meta.Code == "EstimateLine" && (!data.ContainsKey("GroupId") || data["GroupId"] == null))
-            //     return (false, "У EstimateLine обязательно должен быть GroupId");
-
-            // Можно добавить формулы, проверки на уникальность, пересечения и прочее здесь
-
             return (true, "");
         }
+
     }
 }
