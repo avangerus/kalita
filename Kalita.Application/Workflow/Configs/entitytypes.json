@@ -1,136 +1,134 @@
-{
-  "entities": [
-    {
-      "name": "Project",
-      "displayName": "Проект",
-      "fields": [
-        { "name": "name", "displayName": "Название проекта", "type": "string", "required": true },
-        { "name": "description", "displayName": "Описание", "type": "string" },
-        { "name": "client", "displayName": "Клиент", "type": "lookup", "ref": "Client", "required": true },
-        { "name": "brand", "displayName": "Бренд", "type": "lookup", "ref": "Brand" },
-        { "name": "dateStart", "displayName": "Дата начала", "type": "date" },
-        { "name": "dateEnd", "displayName": "Дата окончания", "type": "date" },
-        { "name": "companies", "displayName": "Компании-участники", "type": "multi-lookup", "ref": "Company" },
-        { "name": "profitRates", "displayName": "Нормы прибыли", "type": "collection", "ref": "ProfitRate" },
-        { "name": "team", "displayName": "Проектная команда", "type": "multi-lookup", "ref": "User" },
-        { "name": "manager", "displayName": "Менеджер проекта", "type": "lookup", "ref": "User" },
-        { "name": "status", "displayName": "Статус", "type": "lookup", "ref": "Status" },
-        { "name": "briefNumber", "displayName": "Номер брифа", "type": "string" },
-        { "name": "tenderFree", "displayName": "Без тендера", "type": "bool" },
-        { "name": "createdAt", "displayName": "Дата создания", "type": "datetime" },
-        { "name": "updatedAt", "displayName": "Дата изменения", "type": "datetime" }
-      ]
-    },
-    {
-      "name": "ProfitRate",
-      "displayName": "Норма прибыли (для компании в проекте)",
-      "fields": [
-        { "name": "company", "displayName": "Компания", "type": "lookup", "ref": "Company", "required": true },
-        { "name": "rate", "displayName": "Норма прибыли (%)", "type": "decimal", "required": true }
-      ]
-    },
-    {
-      "name": "Estimate",
-      "displayName": "Смета",
-      "fields": [
-        { "name": "project", "displayName": "Проект", "type": "lookup", "ref": "Project", "required": true },
-        { "name": "name", "displayName": "Название сметы", "type": "string", "required": true },
-        { "name": "currency", "displayName": "Валюта", "type": "lookup", "ref": "Currency" },
-        { "name": "vatRate", "displayName": "Ставка НДС", "type": "decimal" },
-        { "name": "blocks", "displayName": "Блоки", "type": "collection", "ref": "BudgetBlock" },
-        { "name": "sections", "displayName": "Разделы", "type": "collection", "ref": "Section" },
-        { "name": "lines", "displayName": "Строки сметы", "type": "collection", "ref": "EstimateLine" },
-        { "name": "totalAmount", "displayName": "Общая сумма", "type": "decimal" },
-        { "name": "totalVAT", "displayName": "Сумма НДС", "type": "decimal" }
-      ]
-    },
-    {
-      "name": "BudgetBlock",
-      "displayName": "Блок сметы",
-      "fields": [
-        { "name": "estimate", "displayName": "Смета", "type": "lookup", "ref": "Estimate" },
-        { "name": "name", "displayName": "Название блока", "type": "string" },
-        { "name": "amount", "displayName": "Сумма по блоку", "type": "decimal" },
-        { "name": "sections", "displayName": "Разделы", "type": "collection", "ref": "Section" }
-      ]
-    },
-    {
-      "name": "Section",
-      "displayName": "Раздел сметы",
-      "fields": [
-        { "name": "block", "displayName": "Блок", "type": "lookup", "ref": "BudgetBlock" },
-        { "name": "name", "displayName": "Название раздела", "type": "string" },
-        { "name": "amount", "displayName": "Сумма по разделу", "type": "decimal" },
-        { "name": "lines", "displayName": "Строки раздела", "type": "collection", "ref": "EstimateLine" }
-      ]
-    },
-    {
-      "name": "EstimateLine",
-      "displayName": "Строка сметы",
-      "fields": [
-        { "name": "block", "displayName": "Блок", "type": "lookup", "ref": "BudgetBlock" },
-        { "name": "section", "displayName": "Раздел", "type": "lookup", "ref": "Section" },
-        { "name": "number", "displayName": "№", "type": "int" },
-        { "name": "code", "displayName": "Код", "type": "string" },
-        { "name": "item", "displayName": "Наименование", "type": "string" },
-        { "name": "qty", "displayName": "Количество", "type": "decimal" },
-        { "name": "unit", "displayName": "Ед. изм.", "type": "lookup", "ref": "Unit" },
-        { "name": "unitCost", "displayName": "Цена за ед.", "type": "decimal" },
-        { "name": "subTotal", "displayName": "Сумма", "type": "decimal", "formula": "qty*unitCost" },
-        { "name": "tax", "displayName": "Ставка налога", "type": "decimal" },
-        { "name": "vat", "displayName": "Сумма НДС", "type": "decimal" },
-        { "name": "inLineNumber", "displayName": "In line #", "type": "string" },
-        { "name": "department", "displayName": "Департамент", "type": "string" },
-        { "name": "costType", "displayName": "Тип расхода", "type": "string" },
-        { "name": "subTotalRUB", "displayName": "Сумма RUB", "type": "decimal" },
-        { "name": "unitCostRUB", "displayName": "Цена за ед. RUB", "type": "decimal" },
-        { "name": "plPercent", "displayName": "PL%", "type": "decimal" },
-        { "name": "gross", "displayName": "Gross", "type": "decimal" },
-        { "name": "costs", "displayName": "Costs", "type": "decimal" },
-        { "name": "actPercent", "displayName": "Act%", "type": "decimal" },
-        { "name": "rest", "displayName": "Rest", "type": "decimal" }
-      ]
-    },
-    {
-      "name": "Company",
-      "displayName": "Компания",
-      "fields": [
-        { "name": "name", "displayName": "Название", "type": "string", "required": true },
-        { "name": "inn", "displayName": "ИНН", "type": "string" },
-        { "name": "kpp", "displayName": "КПП", "type": "string" },
-        { "name": "address", "displayName": "Адрес", "type": "string" }
-      ]
-    },
-    {
-      "name": "Client",
-      "displayName": "Клиент",
-      "fields": [
-        { "name": "name", "displayName": "Название", "type": "string", "required": true }
-      ]
-    },
-    {
-      "name": "Brand",
-      "displayName": "Бренд",
-      "fields": [
-        { "name": "name", "displayName": "Название", "type": "string", "required": true },
-        { "name": "client", "displayName": "Клиент", "type": "lookup", "ref": "Client" }
-      ]
-    },
-    {
-      "name": "Currency",
-      "displayName": "Валюта",
-      "fields": [
-        { "name": "code", "displayName": "Код валюты", "type": "string", "required": true },
-        { "name": "name", "displayName": "Название валюты", "type": "string" }
-      ]
-    },
-    {
-      "name": "Unit",
-      "displayName": "Единица измерения",
-      "fields": [
-        { "name": "code", "displayName": "Код", "type": "string" },
-        { "name": "name", "displayName": "Название", "type": "string", "required": true }
-      ]
-    }
-  ]
-}
+[
+  {
+    "Code": "Project",
+    "DisplayName": "Проект",
+    "Fields": [
+      { "Code": "name", "DisplayName": "Название проекта", "Type": "string", "Required": true },
+      { "Code": "description", "DisplayName": "Описание", "Type": "string" },
+      { "Code": "client", "DisplayName": "Клиент", "Type": "lookup", "Ref": "Client", "Required": true },
+      { "Code": "brand", "DisplayName": "Бренд", "Type": "lookup", "Ref": "Brand" },
+      { "Code": "dateStart", "DisplayName": "Дата начала", "Type": "date" },
+      { "Code": "dateEnd", "DisplayName": "Дата окончания", "Type": "date" },
+      { "Code": "companies", "DisplayName": "Компании-участники", "Type": "multi-lookup", "Ref": "Company" },
+      { "Code": "profitRates", "DisplayName": "Нормы прибыли", "Type": "collection", "Ref": "ProfitRate" },
+      { "Code": "team", "DisplayName": "Проектная команда", "Type": "multi-lookup", "Ref": "User" },
+      { "Code": "manager", "DisplayName": "Менеджер проекта", "Type": "lookup", "Ref": "User" },
+      { "Code": "status", "DisplayName": "Статус", "Type": "lookup", "Ref": "Status" },
+      { "Code": "briefNumber", "DisplayName": "Номер брифа", "Type": "string" },
+      { "Code": "tenderFree", "DisplayName": "Без тендера", "Type": "bool" },
+      { "Code": "createdAt", "DisplayName": "Дата создания", "Type": "datetime" },
+      { "Code": "updatedAt", "DisplayName": "Дата изменения", "Type": "datetime" }
+    ]
+  },
+  {
+    "Code": "ProfitRate",
+    "DisplayName": "Норма прибыли (для компании в проекте)",
+    "Fields": [
+      { "Code": "company", "DisplayName": "Компания", "Type": "lookup", "Ref": "Company", "Required": true },
+      { "Code": "rate", "DisplayName": "Норма прибыли (%)", "Type": "decimal", "Required": true }
+    ]
+  },
+  {
+    "Code": "Estimate",
+    "DisplayName": "Смета",
+    "Fields": [
+      { "Code": "project", "DisplayName": "Проект", "Type": "lookup", "Ref": "Project", "Required": true },
+      { "Code": "name", "DisplayName": "Название сметы", "Type": "string", "Required": true },
+      { "Code": "currency", "DisplayName": "Валюта", "Type": "lookup", "Ref": "Currency" },
+      { "Code": "vatRate", "DisplayName": "Ставка НДС", "Type": "decimal" },
+      { "Code": "blocks", "DisplayName": "Блоки", "Type": "collection", "Ref": "BudgetBlock" },
+      { "Code": "sections", "DisplayName": "Разделы", "Type": "collection", "Ref": "Section" },
+      { "Code": "lines", "DisplayName": "Строки сметы", "Type": "collection", "Ref": "EstimateLine" },
+      { "Code": "totalAmount", "DisplayName": "Общая сумма", "Type": "decimal" },
+      { "Code": "totalVAT", "DisplayName": "Сумма НДС", "Type": "decimal" }
+    ]
+  },
+  {
+    "Code": "BudgetBlock",
+    "DisplayName": "Блок сметы",
+    "Fields": [
+      { "Code": "estimate", "DisplayName": "Смета", "Type": "lookup", "Ref": "Estimate" },
+      { "Code": "name", "DisplayName": "Название блока", "Type": "string" },
+      { "Code": "amount", "DisplayName": "Сумма по блоку", "Type": "decimal" },
+      { "Code": "sections", "DisplayName": "Разделы", "Type": "collection", "Ref": "Section" }
+    ]
+  },
+  {
+    "Code": "Section",
+    "DisplayName": "Раздел сметы",
+    "Fields": [
+      { "Code": "block", "DisplayName": "Блок", "Type": "lookup", "Ref": "BudgetBlock" },
+      { "Code": "name", "DisplayName": "Название раздела", "Type": "string" },
+      { "Code": "amount", "DisplayName": "Сумма по разделу", "Type": "decimal" },
+      { "Code": "lines", "DisplayName": "Строки раздела", "Type": "collection", "Ref": "EstimateLine" }
+    ]
+  },
+  {
+    "Code": "EstimateLine",
+    "DisplayName": "Строка сметы",
+    "Fields": [
+      { "Code": "block", "DisplayName": "Блок", "Type": "lookup", "Ref": "BudgetBlock" },
+      { "Code": "section", "DisplayName": "Раздел", "Type": "lookup", "Ref": "Section" },
+      { "Code": "number", "DisplayName": "№", "Type": "int" },
+      { "Code": "code", "DisplayName": "Код", "Type": "string" },
+      { "Code": "item", "DisplayName": "Наименование", "Type": "string" },
+      { "Code": "qty", "DisplayName": "Количество", "Type": "decimal" },
+      { "Code": "unit", "DisplayName": "Ед. изм.", "Type": "lookup", "Ref": "Unit" },
+      { "Code": "unitCost", "DisplayName": "Цена за ед.", "Type": "decimal" },
+      { "Code": "subTotal", "DisplayName": "Сумма", "Type": "decimal", "Formula": "qty*unitCost" },
+      { "Code": "tax", "DisplayName": "Ставка налога", "Type": "decimal" },
+      { "Code": "vat", "DisplayName": "Сумма НДС", "Type": "decimal" },
+      { "Code": "inLineNumber", "DisplayName": "In line #", "Type": "string" },
+      { "Code": "department", "DisplayName": "Департамент", "Type": "string" },
+      { "Code": "costType", "DisplayName": "Тип расхода", "Type": "string" },
+      { "Code": "subTotalRUB", "DisplayName": "Сумма RUB", "Type": "decimal" },
+      { "Code": "unitCostRUB", "DisplayName": "Цена за ед. RUB", "Type": "decimal" },
+      { "Code": "plPercent", "DisplayName": "PL%", "Type": "decimal" },
+      { "Code": "gross", "DisplayName": "Gross", "Type": "decimal" },
+      { "Code": "costs", "DisplayName": "Costs", "Type": "decimal" },
+      { "Code": "actPercent", "DisplayName": "Act%", "Type": "decimal" },
+      { "Code": "rest", "DisplayName": "Rest", "Type": "decimal" }
+    ]
+  },
+  {
+    "Code": "Company",
+    "DisplayName": "Компания",
+    "Fields": [
+      { "Code": "name", "DisplayName": "Название", "Type": "string", "Required": true },
+      { "Code": "inn", "DisplayName": "ИНН", "Type": "string" },
+      { "Code": "kpp", "DisplayName": "КПП", "Type": "string" },
+      { "Code": "address", "DisplayName": "Адрес", "Type": "string" }
+    ]
+  },
+  {
+    "Code": "Client",
+    "DisplayName": "Клиент",
+    "Fields": [
+      { "Code": "name", "DisplayName": "Название", "Type": "string", "Required": true }
+    ]
+  },
+  {
+    "Code": "Brand",
+    "DisplayName": "Бренд",
+    "Fields": [
+      { "Code": "name", "DisplayName": "Название", "Type": "string", "Required": true },
+      { "Code": "client", "DisplayName": "Клиент", "Type": "lookup", "Ref": "Client" }
+    ]
+  },
+  {
+    "Code": "Currency",
+    "DisplayName": "Валюта",
+    "Fields": [
+      { "Code": "code", "DisplayName": "Код валюты", "Type": "string", "Required": true },
+      { "Code": "name", "DisplayName": "Название валюты", "Type": "string" }
+    ]
+  },
+  {
+    "Code": "Unit",
+    "DisplayName": "Единица измерения",
+    "Fields": [
+      { "Code": "code", "DisplayName": "Код", "Type": "string" },
+      { "Code": "name", "DisplayName": "Название", "Type": "string", "Required": true }
+    ]
+  }
+]

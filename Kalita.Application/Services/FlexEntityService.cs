@@ -51,18 +51,17 @@ public class EntityItemService
 
         var fields = _db.EntityFields.Where(f => f.EntityTypeId == entityType.Id).ToList();
 
-        // Собираем meta прямо здесь
         var meta = new EntityTypeDto
         {
             Code = entityType.Code,
-            Name = entityType.DisplayName,
+            DisplayName = entityType.DisplayName,
             Fields = fields.Select(f => new EntityFieldDto
             {
                 Code = f.Code,
-                Name = f.DisplayName,
-                FieldType = f.FieldType,
+                DisplayName = f.DisplayName,
+                Type = f.FieldType,
                 Required = f.IsRequired,
-                // Добавь другие поля если нужно
+                // Добавь остальные поля, если они есть в EntityFieldDto
             }).ToList()
         };
 

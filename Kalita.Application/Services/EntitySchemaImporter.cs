@@ -10,6 +10,7 @@ public class EntitySchemaImporter
     public void ImportFromFile(string path)
     {
         var json = File.ReadAllText(path);
+        
         var entities = JsonSerializer.Deserialize<List<EntityTypeDto>>(json);
 
         if (entities == null)
@@ -25,15 +26,16 @@ public class EntitySchemaImporter
                 {
                     Id = Guid.NewGuid(),
                     Code = dto.Code,
-                    DisplayName = dto.Name,
+                    DisplayName = dto.DisplayName,
                     Description = dto.Description ?? ""
                 };
+
                 _db.EntityTypes.Add(type);
                 _db.SaveChanges();
             }
             else
             {
-                type.DisplayName = dto.Name;
+                type.DisplayName = dto.DisplayName;
                 type.Description = dto.Description ?? "";
                 _db.SaveChanges();
             }
@@ -51,8 +53,8 @@ public class EntitySchemaImporter
                     Id = Guid.NewGuid(),
                     EntityTypeId = type.Id,
                     Code = fieldDto.Code,
-                    DisplayName = fieldDto.Name,
-                    FieldType = fieldDto.FieldType,
+                    DisplayName = fieldDto.DisplayName,
+                    FieldType = fieldDto.Type,
                     IsRequired = fieldDto.Required, // Исправлено!
                     IsMultiValue = fieldDto.IsCollection, // Или fieldDto.Collection
                     LookupTypeCode = fieldDto.ReferenceTypeCode ?? "",

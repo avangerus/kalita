@@ -43,7 +43,7 @@ namespace Kalita.Application.Services
                 if (field.Required)
                 {
                     if (!data.ContainsKey(field.Code) || data[field.Code] == null || string.IsNullOrWhiteSpace(data[field.Code]?.ToString()))
-                        return (false, $"Поле \"{field.Name ?? field.Code}\" обязательно для заполнения");
+                        return (false, $"Поле \"{field.DisplayName ?? field.Code}\" обязательно для заполнения");
                 }
 
                 // Если не заполнено — дальше не валидируем
@@ -60,14 +60,14 @@ namespace Kalita.Application.Services
                     je = JsonSerializer.Deserialize<JsonElement>($"\"{s}\"");
 
                 // Валидация по FieldType
-                switch (field.FieldType)
+                switch (field.Type)
                 {
                     case "number":
                         if (value is JsonElement jeNum && jeNum.ValueKind == JsonValueKind.Number)
                             break;
                         if (decimal.TryParse(value?.ToString(), out _))
                             break;
-                        return (false, $"Поле \"{field.Name ?? field.Code}\" должно быть числом");
+                        return (false, $"Поле \"{field.DisplayName ?? field.Code}\" должно быть числом");
                     case "bool":
                         if (value is JsonElement jeBool)
                         {
@@ -76,51 +76,51 @@ namespace Kalita.Application.Services
                         }
                         if (bool.TryParse(value?.ToString(), out _))
                             break;
-                        return (false, $"Поле \"{field.Name ?? field.Code}\" должно быть булевым значением");
+                        return (false, $"Поле \"{field.DisplayName ?? field.Code}\" должно быть булевым значением");
                     case "string":
                         if (value is JsonElement jeStr && jeStr.ValueKind == JsonValueKind.String)
                             break;
                         if (value is string)
                             break;
-                        return (false, $"Поле \"{field.Name ?? field.Code}\" должно быть строкой");
+                        return (false, $"Поле \"{field.DisplayName ?? field.Code}\" должно быть строкой");
                     case "date":
                         if (value is JsonElement jeDate && jeDate.ValueKind == JsonValueKind.String && DateTime.TryParse(jeDate.GetString(), out _))
                             break;
                         if (DateTime.TryParse(value?.ToString(), out _))
                             break;
-                        return (false, $"Поле \"{field.Name ?? field.Code}\" должно быть датой");
+                        return (false, $"Поле \"{field.DisplayName ?? field.Code}\" должно быть датой");
                     case "ref":
                         // Для ref обычно ожидаем строку GUID или просто не пустое значение
                         if (value is JsonElement jeRef && jeRef.ValueKind == JsonValueKind.String && Guid.TryParse(jeRef.GetString(), out _))
                             break;
                         if (Guid.TryParse(value?.ToString(), out _))
                             break;
-                        return (false, $"Поле \"{field.Name ?? field.Code}\" должно быть ссылкой (GUID)");
+                        return (false, $"Поле \"{field.DisplayName ?? field.Code}\" должно быть ссылкой (GUID)");
                         // Можно добавить custom case для enum/справочник
                 }
-                if (field.FieldType == "string")
+                if (field.Type == "string")
                 {
                     var str = value?.ToString() ?? "";
                     if (field.MinLength.HasValue && str.Length < field.MinLength.Value)
-                        return (false, $"Поле \"{field.Name}\" должно содержать минимум {field.MinLength.Value} символов");
+                        return (false, $"Поле \"{field.DisplayName}\" должно содержать минимум {field.MinLength.Value} символов");
                     if (field.MaxLength.HasValue && str.Length > field.MaxLength.Value)
-                        return (false, $"Поле \"{field.Name}\" должно содержать не более {field.MaxLength.Value} символов");
+                        return (false, $"Поле \"{field.DisplayName}\" должно содержать не более {field.MaxLength.Value} символов");
                     if (!string.IsNullOrEmpty(field.Pattern))
                     {
                         if (!Regex.IsMatch(str, field.Pattern))
-                            return (false, $"Поле \"{field.Name}\" не соответствует формату");
+                            return (false, $"Поле \"{field.DisplayName}\" не соответствует формату");
                     }
                 }
-                if (field.FieldType == "number" && decimal.TryParse(value?.ToString(), out var number))
+                if (field.Type == "number" && decimal.TryParse(value?.ToString(), out var number))
                 {
                     if (field.MinValue.HasValue && number < field.MinValue.Value)
-                        return (false, $"Поле \"{field.Name}\" не может быть меньше {field.MinValue.Value}");
+                        return (false, $"Поле \"{field.DisplayName}\" не может быть меньше {field.MinValue.Value}");
                     if (field.MaxValue.HasValue && number > field.MaxValue.Value)
-                        return (false, $"Поле \"{field.Name}\" не может быть больше {field.MaxValue.Value}");
+                        return (false, $"Поле \"{field.DisplayName}\" не может быть больше {field.MaxValue.Value}");
                 }
                 if (field.AllowedValues != null && field.AllowedValues.Any() && !field.AllowedValues.Contains(value?.ToString()))
                 {
-                    return (false, $"Поле \"{field.Name}\" содержит недопустимое значение");
+                    return (false, $"Поле \"{field.DisplayName}\" содержит недопустимое значение");
                 }
             }
 

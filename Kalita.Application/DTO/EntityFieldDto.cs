@@ -1,8 +1,8 @@
 public class EntityFieldDto
 {
     public string Code { get; set; }
-    public string Name { get; set; }
-    public string FieldType { get; set; }
+    public string DisplayName { get; set; }
+    public string Type { get; set; }
     public bool Required { get; set; }
     public int? MinLength { get; set; }
     public int? MaxLength { get; set; }
