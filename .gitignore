@@ -1,32 +1,61 @@
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
-# Binaries for programs and plugins
+# Go build artifacts
+/bin/
+/build/
+/dist/
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test binary, built with `go test -c`
 *.test
-
-# Code coverage profiles and other test artifacts
 *.out
-coverage.*
-*.coverprofile
-profile.cov
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Dependency directories
+/vendor/
 
-# Go workspace file
-go.work
-go.work.sum
+# Go module files (lock files — хранятся! go.mod, go.sum нужны!)
+# (ОСТАВЛЯЕМ go.mod и go.sum, их НЕ игнорировать)
 
-# env file
-.env
+# OS files
+.DS_Store
+Thumbs.db
 
-# Editor/IDE
-# .idea/
-# .vscode/
+# IDE/editor config
+.idea/
+.vscode/
+*.swp
+*.swo
+*.bak
+*~
+
+# Logs
+*.log
+/logs/
+/tmp/
+/temp/
+
+# Test data, coverage
+*.cover
+*.cov
+coverage.out
+/testdata/*.sqlite
+/testdata/*.db
+/testdata/*.log
+
+# Env/config (можно держать пример — .env.example)
+/.env
+.env.local
+.env.*
+/configs/*.local.yaml
+/configs/*.secrets.yaml
+
+# Uploaded/generated files (может быть каталог uploads, cache, и пр.)
+/uploads/
+/cache/
+/reference/*.bak.yaml
+/reference/*.tmp.yaml
+
+# Auto-generated docs/reports (если есть)
+/docs/*.html
+/docs/*.pdf
+/docs/gen/
