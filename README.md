@@ -149,12 +149,12 @@ report InvoicesPerMonth:
 
 **Current:**
 
-* [x] Declarative entities, enums, and validation via DSL
-* [x] Live REST API for all models
-* [x] Modular DSL structure (core, modules)
-* [x] Enum & reference YAML integration
-* [x] Workflow (state machine) DSL
-* [x] Role-based permissions in DSL
+* ✅ Declarative entities, enums, and validation via DSL
+* ✅ Live REST API for all models
+* ✅ Modular DSL structure (core, modules)
+* ✅ Enum & reference YAML integration
+* ✅ Workflow (state machine) DSL
+* ✅ Role-based permissions in DSL
 
 **Next:**
 
