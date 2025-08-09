@@ -1,52 +1,58 @@
-
-
-
 # Kalita
 
-**Kalita** is a next-generation low-code platform for rapid business app development.  
-Define your entire business system using simple DSL files — entities, workflows, permissions, integrations, reference data, and more.  
-Kalita instantly brings your models to life: REST API, validation, workflows, analytics and UI — with zero code.
+**Kalita** is a next-generation low-code platform for rapid business application development.  
+You describe your business system using simple DSL files — entities, workflows, permissions, integrations, reference data, analytics — and Kalita instantly turns them into a working application: REST API, validation, workflows, analytics, and UI.
 
 ---
 
-## ✨ Key Features
+## 💡 Why Kalita
 
-- **Declarative DSL for everything:** entities, workflows, permissions, reference, analytics
-- **Live REST API** for all entities, with instant validation
-- **Hot-reload modules:** plug and play business domains
-- **Workflow & approval engine:** describe status flows and processes in plain text
-- **Flexible permissions:** roles, policies, rules in DSL
-- **Reference data:** enums, directories, trees, valid-from-to support (yaml)
-- **Integration-ready:** REST, events, message bus, cross-instance sync
-- **Analytics-first:** BI, OLAP cubes and custom reports (roadmap)
-- **Extensible:** add modules, plugins, integrations with no downtime
+- **Everything is text** — entities, processes, rules, integrations are defined in human-readable DSL files.
+- **Single source of truth** — backend API, validation, workflows, and UI metadata are always in sync.
+- **Zero boilerplate** — no need to write controllers, validators, or SQL manually.
+- **Hot-reload modules** — plug in new business domains without downtime.
+- **Extensible by design** — add modules, plugins, and integrations on the fly.
+- **Analytics-first** — designed for OLAP, BI, and reporting from the start.
+
+---
+
+## ✨ Key Features (final vision)
+
+- **Declarative DSL for everything**: entities, workflows, permissions, reference data, analytics.
+- **Live REST API** for all entities, with instant validation and business rules.
+- **Workflow & approval engine**: describe processes and state flows in plain text.
+- **Flexible permissions**: roles, policies, rules, and conditions in DSL.
+- **Reference data**: enums, directories, trees, versioned data, valid-from-to support.
+- **Integration-ready**: REST, events, message bus, cross-instance sync.
+- **Analytics**: BI, OLAP cubes, and custom reports.
+- **Extensible**: add modules, plugins, integrations with no downtime.
 
 ---
 
 ## 📝 DSL Examples
 
-### **Entities**
-
+### Entities
 ```dsl
-entity User:
-    name: string required
-    email: string unique required
-    role: enum[Admin, Manager, Employee] default=Employee
-
 entity Project:
     name: string required
     status: enum[Draft, InWork, Closed] default=Draft
+    manager_id: ref[core.User] on_delete=set_null
+    member_ids: array[ref[core.User]] on_delete=set_null
+    company_id: ref[Company] on_delete=restrict
 
-entity Invoice:
-    number: string unique required
-    amount: float required
-    status: enum[Draft, Approved, Paid, Cancelled] default=Draft
-    issued_at: date
+entity ExchangeRate:
+    base: ref[Currency] required
+    quote: ref[Currency] required
+    rate: float required
+    date: date required
+
+constraints:
+    unique(base, quote, date)
 ````
 
 ---
 
-### **Workflow**
+### Workflow
 
 ```dsl
 workflow Invoice:
@@ -61,7 +67,7 @@ workflow Invoice:
 
 ---
 
-### **Permissions (RBAC / Policies)**
+### Permissions
 
 ```dsl
 role Admin:
@@ -73,32 +79,23 @@ role Manager:
         - Invoice: [view, approve]
     deny:
         - Invoice: [delete]
-
-role Employee:
-    allow:
-        - Project: [view]
-        - Invoice: [view]
 ```
 
 ---
 
-### **Reference Data (enums, directories, trees)**
-
-**YAML:**
+### Reference Data
 
 ```yaml
 # reference/enums/currency.yaml
 name: Currency
 items:
-  - code: RUB
-    name: Russian Ruble
   - code: USD
     name: US Dollar
   - code: EUR
     name: Euro
 ```
 
-**DSL (enum inline):**
+**Inline in DSL:**
 
 ```dsl
 status: enum[Draft, Approved, Paid, Cancelled] default=Draft
@@ -107,7 +104,7 @@ currency: ref[Currency]
 
 ---
 
-### **Integration (Events, REST, Sync)**
+### Integrations
 
 ```dsl
 integration InvoiceToERP:
@@ -121,7 +118,7 @@ integration InvoiceToERP:
 
 ---
 
-### **Events**
+### Events
 
 ```dsl
 event InvoicePaid:
@@ -133,7 +130,7 @@ event InvoicePaid:
 
 ---
 
-### **Analytics / Reports (future syntax)**
+### Reports (future syntax)
 
 ```dsl
 report InvoicesPerMonth:
@@ -145,43 +142,34 @@ report InvoicesPerMonth:
 
 ---
 
-## 🚦 Roadmap
+## 🛣 Roadmap to MVP
 
-**Current:**
+### ✅ Already implemented
 
-* ✅ Declarative entities, enums, and validation via DSL
-* ✅ Live REST API for all models
-* ✅ Modular DSL structure (core, modules)
-* ✅ Enum & reference YAML integration
-* ✅ Workflow (state machine) DSL
-* ✅ Role-based permissions in DSL
+* Entity DSL with field types: `string`, `int`, `float`, `money`, `bool`, `date`, `datetime`, `enum[...]`, `ref[...]`, `array[...]`.
+* Field attributes: `required`, `unique`, `default=...`, `readonly`.
+* Composite uniqueness with `constraints.unique(...)`.
+* Fully qualified references (`ref[module.Entity]`), arrays of references.
+* Delete policies for references: `on_delete=restrict` or `set_null`.
+* Validation: required fields, strict types, enum values, uniqueness, reference integrity, readonly/system field protection.
+* Optimistic locking with `version` + `ETag` and `If-Match` support.
+* Bulk operations: create, update, delete, restore.
+* Filtering & search: comparison operators (`__gt`, `__gte`, `__lt`, `__lte`), `in:`, full-text search `q=...`.
+* Pagination & multi-field sorting with `X-Total-Count`.
+* Meta API for UI auto-generation.
 
-**Next:**
+### 📍 Planned before MVP release
 
-* [ ] BI & OLAP cubes, analytics DSL
-* [ ] Advanced workflow engine (approvals, chains)
-* [ ] Pluggable integrations, event bus
-* [ ] UI auto-generation from DSL
-* [ ] Hot reload, module marketplace
-
----
-
-## 🚀 Get Started
-
-1. **Clone the repo:**
-   `git clone https://github.com/yourorg/kalita.git`
-2. **Describe your business in DSL:**
-   Edit `dsl/core/entities.dsl` and add modules in `dsl/modules/`
-3. **Run the server:**
-   `go run main.go` or `go run ./cmd/server/main.go`
-4. **Enjoy:**
-   Your REST API, validation, and workflows are live!
+* Finalize parser for fully qualified references (`ref[module.Entity]`).
+* Implement `on_delete` policy enforcement in delete operations.
+* Add admin endpoint for hot-reloading DSL without restart.
+* Extend DSL and validation for self-references in tree structures.
+* Prepare base modules for OLGA (core, finance, project, accounting).
+* Full test suite covering validation, constraints, references, and filters.
 
 ---
 
 > Kalita — **Business logic as text.**
-> Build powerful, secure enterprise apps at the speed of thought.
-
----
+> Models in text — API in life.
 
 

@@ -1,3 +1,4 @@
+// api/router.go
 package api
 
 import (
@@ -7,14 +8,29 @@ import (
 func RunServer(addr string, storage *Storage) {
 	r := gin.Default()
 
-	// Автоматически подключаем CRUD-роуты для всех сущностей
-	r.GET("/api/:entity", ListHandler(storage))
-	r.POST("/api/:entity", CreateHandler(storage))
-	r.GET("/api/:entity/:id", GetHandler(storage))
-	r.PUT("/api/:entity/:id", UpdateHandler(storage))
-	r.DELETE("/api/:entity/:id", DeleteHandler(storage))
+	apiGroup := r.Group("/api")
+	{
 
-	// Можно добавить route /api/meta для схем, списков сущностей и пр.
+		r.GET("/api/meta", MetaListHandler(storage))
+		r.GET("/api/meta/:module/:entity", MetaEntityHandler(storage))
+		// статические "служебные" маршруты — СНАЧАЛА
+		apiGroup.GET("/:module/:entity/count", CountHandler(storage))  // новый алиас
+		apiGroup.GET("/:module/:entity/_count", CountHandler(storage)) // твой текущий
+		apiGroup.POST("/:module/:entity/_bulk", BulkCreateHandler(storage))
+		apiGroup.PATCH("/:module/:entity/_bulk", BulkPatchHandler(storage))
+		apiGroup.POST("/:module/:entity/:id/restore", RestoreHandler(storage))
+		r.POST("/api/:module/:entity/_bulk_delete", BulkDeleteHandler(storage))
+		r.POST("/api/:module/:entity/_bulk_restore", BulkRestoreHandler(storage))
 
-	r.Run(addr)
+		// обычные CRUD
+		apiGroup.POST("/:module/:entity", CreateHandler(storage))
+		apiGroup.GET("/:module/:entity", ListHandler(storage))
+		apiGroup.GET("/:module/:entity/:id", GetOneHandler(storage))
+		apiGroup.PUT("/:module/:entity/:id", UpdateHandler(storage))
+		apiGroup.PATCH("/:module/:entity/:id", UpdatePartialHandler(storage))
+		apiGroup.DELETE("/:module/:entity/:id", DeleteHandler(storage))
+
+	}
+
+	_ = r.Run(addr)
 }

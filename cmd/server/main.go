@@ -1,3 +1,4 @@
+// cmd/server/main.go
 package main
 
 import (
@@ -11,25 +12,30 @@ import (
 )
 
 func main() {
-	// 1. Загружаем DSL-сущности (например, из dsl/core/entities.dsl)
-	//entities, err := dsl.LoadEntities("dsl/core/entities.dsl")
-	entities, err := dsl.LoadAllEntities("dsl")
+	// 1) Загружаем все *.dsl рекурсивно из папки dsl/
+	entityMap, err := dsl.LoadAllEntities("dsl")
 	if err != nil {
 		log.Fatalf("Ошибка загрузки DSL: %v", err)
 	}
-	fmt.Printf("Загружено сущностей: %d\n", len(entities))
+	fmt.Printf("Загружено сущностей: %d\n", len(entityMap))
 
-	// 2. Загружаем enum-справочники
+	// Преобразуем map[string]*Entity -> []*Entity для api.NewStorage
+	entities := make([]*dsl.Entity, 0, len(entityMap))
+	for _, e := range entityMap {
+		entities = append(entities, e)
+	}
+
+	// 2) Загружаем enum-справочники
 	enumCatalog, err := reference.LoadEnumCatalog("reference/enums/")
 	if err != nil {
 		log.Fatalf("Ошибка загрузки enum-справочников: %v", err)
 	}
 	fmt.Printf("Загружено enum-справочников: %d\n", len(enumCatalog))
 
-	// 3. Инициализируем in-memory хранилище
+	// 3) Инициализируем storage
 	storage := api.NewStorage(entities, enumCatalog)
 
-	// 4. Запускаем REST API сервер
+	// 4) Запускаем сервер (RunServer ничего не возвращает)
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
