@@ -236,7 +236,7 @@ i18n:
 2. Run the server:
 
    ```bash
-   go run main.go
+   go run ./cmd/server/main.go
    ```
 3. Try it out:
 
