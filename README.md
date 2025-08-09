@@ -248,29 +248,42 @@ i18n:
 
 ## 🛣 Roadmap to MVP
 
+
+
 ### ✅ Already implemented
 
-* Entity DSL with field types: `string`, `int`, `float`, `money`, `bool`, `date`, `datetime`, `enum[...]`, `ref[...]`, `array[...]`.
+
+
+* Entity DSL: `string`, `int`, `float`, `money`, `bool`, `date`, `datetime`, `enum[...]`, `ref[...]`, `array[...]`.
 * Field attributes: `required`, `unique`, `default=...`, `readonly`.
-* Composite uniqueness with `constraints.unique(...)`.
+* Composite uniqueness: `constraints.unique(...)`.
 * Fully qualified references (`ref[module.Entity]`), arrays of references.
-* Delete policies for references: `on_delete=restrict` or `set_null`.
-* Validation: required fields, strict types, enum values, uniqueness, reference integrity, readonly/system field protection.
-* Optimistic locking with `version` + `ETag` and `If-Match` support.
-* Bulk operations: create, update, delete, restore.
-* Filtering & search: comparison operators (`__gt`, `__gte`, `__lt`, `__lte`), `in:`, full-text search `q=...`.
-* Pagination & multi-field sorting with `X-Total-Count`.
-* Meta API for UI auto-generation.
+* Delete policies for references: `on_delete=restrict` / `set_null` (парсинг + валидация).
+* Validation: required fields, strict typing, enum values, composite & single-field uniqueness, reference integrity, readonly/system field protection.
+* Optimistic locking: `version` + `ETag`, `If-Match` support, `409 Conflict` on mismatch.
+* Bulk operations: create, update, delete, restore with partial success (`207 Multi-Status`).
+* Filtering & search: `__gt`, `__gte`, `__lt`, `__lte`, `in:`, full-text `q=...`.
+* Pagination & multi-field sorting, `X-Total-Count`.
+* Meta API: `/api/meta/entities` and `/api/meta/:module/:entity` for UI autogeneration.
+* FK protection on delete (restrict if referenced).
+
+
 
 ### 📍 Planned before MVP release
 
-* UI generation baseline (lists, forms, actions) from DSL + Meta.
-* Finalize parser for fully qualified references (`ref[module.Entity]`).
-* Enforce `on_delete` policies in delete operations.
-* Admin endpoint for hot-reloading DSL without restart.
-* Self-references & tree validation (e.g., `Account.parent_id`).
-* Base modules for OLGA (core, finance, project, accounting).
-* Test suite covering validation, constraints, references, filters, and UI metadata.
+
+* **UI DSL baseline**: describe pages, list views, forms, filters, actions, navigation in DSL; serve via Meta API.
+* **UI generation**: from UI DSL to ready-to-use admin screens (lists, forms, actions).
+* **`on_delete` enforcement**: actually apply policies on delete (set null / restrict).
+* **Hot-reload DSL**: `POST /api/admin/reload` without server restart.
+* **Self-references & tree validation**: detect cycles, enforce `on_delete` in hierarchies.
+* **Computed fields**: allow formula-like field definitions in DSL.
+* **Automation DSL**: events, triggers, scheduled jobs; minimal runtime support.
+* **Base OLGA modules**: core, finance, project, accounting (with real DSL and sample data).
+* **I18n**: DSL-driven labels, enums, and UI text translations.
+* **Extended test suite**: cover validation edge cases, unique constraints, reference checks, UI meta structure.
+
+
 
 ---
 
