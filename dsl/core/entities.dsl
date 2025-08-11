@@ -12,10 +12,8 @@ entity Project:
   manager_id: ref[core.User] on_delete=set_null
   member_ids: array[ref[User]]          # массив ссылок на User
   tags: array[string]                   # массив строк
-  budget: float
   start_date: date
   end_ts: datetime
-  status: enum[Draft, InWork, Closed] required
   attachments: array[ref[core.Attachment]]    
   status: string catalog=ProjectStatus default=Draft
   description: string max_len=20 pattern=^[A-Za-z0-9 _-]+$
@@ -29,7 +27,6 @@ entity Attachment:
   size: int
   storage: enum["local","s3"] required default="local"
   storage_key: string required
-  created_at: datetime
   constraints:
     unique(storage_key)
 

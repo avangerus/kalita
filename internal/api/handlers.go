@@ -145,6 +145,42 @@ func GetOneHandler(storage *Storage) gin.HandlerFunc {
 			return
 		}
 
+		// [1.2] handlers.go:GetOneHandler — parse expand/depth/full (generic)
+		full := c.DefaultQuery("full", "")
+		expRaw := strings.TrimSpace(c.DefaultQuery("_expand", ""))
+		depthStr := strings.TrimSpace(c.DefaultQuery("_depth", ""))
+
+		const MaxExpandDepth = 5
+		const MaxNestedItems = 10000
+
+		depth := 0
+		if full == "1" {
+			expRaw = "*"
+			depth = MaxExpandDepth
+		}
+		if depthStr != "" {
+			if v, err := strconv.Atoi(depthStr); err == nil {
+				if v < 0 {
+					v = 0
+				}
+				if v > MaxExpandDepth {
+					v = MaxExpandDepth
+				}
+				depth = v
+			}
+		}
+
+		expandAll := (expRaw == "*" || strings.EqualFold(expRaw, "all"))
+		expandSet := map[string]bool{}
+		if !expandAll && expRaw != "" {
+			for _, t := range strings.Split(expRaw, ",") {
+				t = strings.TrimSpace(t)
+				if t != "" {
+					expandSet[t] = true
+				}
+			}
+		}
+
 		storage.mu.RLock()
 		rec := storage.Data[fqn][id]
 		storage.mu.RUnlock()
@@ -153,7 +189,6 @@ func GetOneHandler(storage *Storage) gin.HandlerFunc {
 			return
 		}
 
-		// ⬇️ ВСТАВЬ ЭТО: If-None-Match поддержка
 		inm := strings.TrimSpace(c.GetHeader("If-None-Match"))
 		if inm != "" {
 			// допускаем варианты: 3, "3", W/"3"
@@ -170,7 +205,106 @@ func GetOneHandler(storage *Storage) gin.HandlerFunc {
 		}
 
 		c.Header("ETag", fmt.Sprintf(`"%d"`, rec.Version))
-		c.JSON(http.StatusOK, flatten(rec)) // ← как было
+		// [A] handlers.go:GetOneHandler — универсальный expand
+		base := flatten(rec)
+
+		if depth == 0 || (!expandAll && len(expandSet) == 0) {
+			// плоская запись, как раньше
+			c.Header("ETag", fmt.Sprintf(`"%d"`, rec.Version))
+			c.JSON(http.StatusOK, base)
+			return
+		}
+
+		parentFQN := fqn
+		schemas := storage.Schemas
+
+		type node struct {
+			FQN string
+			IDs []string
+		}
+		type key struct{ FQN, FK string }
+
+		resultChildren := map[string]map[string]map[string]any{} // FQN -> id -> obj
+		nestedCount := 0
+		truncated := false
+
+		queue := []node{{FQN: parentFQN, IDs: []string{id}}}
+		curDepth := 0
+
+		visitedNode := make(map[string]struct{}) // ключ: FQN:id
+
+		for len(queue) > 0 && curDepth < MaxExpandDepth && curDepth < depth && !truncated {
+			nextQueue := []node{}
+			need := make(map[key][]string)
+
+			for _, n := range queue {
+				children := discoverChildren(schemas, n.FQN, expandAll, expandSet)
+				for _, ch := range children {
+					k := key{FQN: ch.ChildFQN, FK: ch.FK}
+					need[k] = append(need[k], n.IDs...)
+				}
+			}
+
+			for k, ids := range need {
+				need[k] = uniqStrings(ids)
+			}
+
+			for k, parentIDs := range need {
+				children := batchByFK(storage, k.FQN, k.FK, parentIDs)
+				if len(children) == 0 {
+					continue
+				}
+
+				// храним детей без дублей: FQN -> id -> объект
+				if _, ok := resultChildren[k.FQN]; !ok {
+					resultChildren[k.FQN] = make(map[string]map[string]any, len(children))
+				}
+
+				childIDs := make([]string, 0, len(children))
+				for _, ch := range children {
+					cid := fmt.Sprint(ch["id"])
+					// сложим/перезапишем по id (убирает дубликаты из разных путей)
+					resultChildren[k.FQN][cid] = ch
+
+					// не добавляем в очередь один и тот же узел повторно
+					nodeKey := k.FQN + ":" + cid
+					if _, seen := visitedNode[nodeKey]; seen {
+						continue
+					}
+					visitedNode[nodeKey] = struct{}{}
+					childIDs = append(childIDs, cid)
+				}
+				if len(childIDs) > 0 {
+					nextQueue = append(nextQueue, node{FQN: k.FQN, IDs: childIDs})
+				}
+
+				nestedCount += len(children)
+				if nestedCount > MaxNestedItems {
+					truncated = true
+					break
+				}
+			}
+
+			queue = nextQueue
+			curDepth++
+		}
+		outChildren := make(map[string][]map[string]any, len(resultChildren))
+		for fqn, byID := range resultChildren {
+			arr := make([]map[string]any, 0, len(byID))
+			for _, obj := range byID {
+				arr = append(arr, obj)
+			}
+			outChildren[fqn] = arr
+		}
+		base["_children"] = outChildren
+
+		base["_expand_depth"] = curDepth
+		if truncated {
+			base["_truncated"] = true
+		}
+
+		c.Header("ETag", fmt.Sprintf(`"%d"`, rec.Version))
+		c.JSON(http.StatusOK, base)
 	}
 }
 
@@ -1442,5 +1576,149 @@ func MetaCatalogsHandler(storage *Storage) gin.HandlerFunc {
 			rows = append(rows, Row{Name: name, Codes: codes})
 		}
 		c.JSON(http.StatusOK, rows)
+	}
+}
+
+// [1.3] handlers.go — helpers (generic relations)
+
+// [B] handlers.go — discoverChildren с dsl и фильтром _expand
+type ChildSpec struct {
+	ChildFQN string // "<module>.<Entity>"
+	FK       string // имя поля-ссылки в дочке
+}
+
+// expandAll/expandSet — то, что разобрали из _expand=* или списка
+func discoverChildren(
+	schemas map[string]*dsl.Entity,
+	parentFQN string,
+	expandAll bool,
+	expandSet map[string]bool,
+) []ChildSpec {
+	var out []ChildSpec
+	for childFQN, sch := range schemas {
+		for _, f := range sch.Fields {
+			// одиночный ref: type=="ref" и указан RefTarget
+			if strings.EqualFold(f.Type, "ref") && f.RefTarget != "" {
+				tgt := f.RefTarget
+				if !strings.Contains(tgt, ".") {
+					tgt = sch.Module + "." + tgt
+				}
+				if equalFQN(tgt, parentFQN) {
+					// фильтр по _expand (если перечислены конкретные типы)
+					if !expandAll && len(expandSet) > 0 {
+						if !expandSet[childFQN] {
+							parts := strings.Split(childFQN, ".")
+							short := parts[len(parts)-1]
+							if !expandSet[short] {
+								continue
+							}
+						}
+					}
+					out = append(out, ChildSpec{ChildFQN: childFQN, FK: f.Name})
+				}
+			}
+			// массив ссылок: array + elemType==ref
+			if strings.EqualFold(f.Type, "array") && strings.EqualFold(f.ElemType, "ref") && f.RefTarget != "" {
+				tgt := f.RefTarget
+				if !strings.Contains(tgt, ".") {
+					tgt = sch.Module + "." + tgt
+				}
+				if equalFQN(tgt, parentFQN) {
+					if !expandAll && len(expandSet) > 0 {
+						if !expandSet[childFQN] {
+							parts := strings.Split(childFQN, ".")
+							short := parts[len(parts)-1]
+							if !expandSet[short] {
+								continue
+							}
+						}
+					}
+					out = append(out, ChildSpec{ChildFQN: childFQN, FK: f.Name})
+				}
+			}
+		}
+	}
+	return out
+}
+
+// equalFQN — сравнение FQN без учёта регистра и с доп. допусками формата
+func equalFQN(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
+/*
+batchByFK: вытащить все записи из childFQN, где FK in parents.
+Для in-memory — пробегаем storage.Data; для PG-режима тут можно
+подключить репозиторий с SELECT ... WHERE fk = ANY($1).
+*/
+func batchByFK(storage *Storage, childFQN, fk string, parentIDs []string) []map[string]any {
+	res := make([]map[string]any, 0, 32)
+	parentSet := map[string]bool{}
+	for _, id := range parentIDs {
+		parentSet[id] = true
+	}
+
+	// In-memory (текущий MVP):
+	storage.mu.RLock()
+	defer storage.mu.RUnlock()
+	table := storage.Data[childFQN]
+	for id, r := range table {
+		if r == nil || r.Deleted {
+			continue
+		}
+		if parentSet[fmt.Sprint(r.Data[fk])] {
+			obj := flatten(r)
+			obj["id"] = id
+			res = append(res, obj)
+		}
+	}
+	return res
+}
+
+// [1.1] handlers.go — uniq strings
+func uniqStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+// 2.2 handlers.go — BatchGetHandler
+func BatchGetHandler(storage *Storage) gin.HandlerFunc {
+	type req struct {
+		IDs []string `json:"ids"`
+	}
+	return func(c *gin.Context) {
+		mod := c.Param("module")
+		ent := c.Param("entity")
+		fqn, ok := storage.NormalizeEntityName(mod, ent)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
+			return
+		}
+
+		var body req
+		if err := c.ShouldBindJSON(&body); err != nil || len(body.IDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": `Invalid JSON: expected {"ids":[...]}`})
+			return
+		}
+
+		storage.mu.RLock()
+		defer storage.mu.RUnlock()
+
+		table := storage.Data[fqn]
+		out := make([]map[string]any, 0, len(body.IDs))
+		for _, id := range body.IDs {
+			if rec := table[id]; rec != nil && !rec.Deleted {
+				out = append(out, flatten(rec))
+			}
+		}
+		c.JSON(http.StatusOK, out)
 	}
 }

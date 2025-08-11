@@ -15,6 +15,44 @@ const (
 	OnDeleteSetNull  OnDeletePolicy = "SET NULL"
 )
 
+var reserved = map[string]struct{}{
+	"user": {}, "select": {}, "table": {}, "insert": {}, "update": {}, "delete": {},
+	"where": {}, "join": {}, "group": {}, "order": {}, "limit": {}, "offset": {},
+	"primary": {}, "foreign": {}, "key": {}, "constraint": {}, "default": {},
+	"from": {}, "into": {}, "values": {}, "unique": {}, "index": {}, "create": {},
+	"drop": {}, "alter": {}, "schema": {}, "grant": {}, "revoke": {},
+}
+
+func isReserved(s string) bool { _, ok := reserved[strings.ToLower(s)]; return ok }
+
+// элементарная плюрализация (достаточно для users, projects, ...)
+// при желании затем подключим инфлектор
+func plural(s string) string {
+	s = strings.ToLower(s)
+	if strings.HasSuffix(s, "s") {
+		return s
+	}
+	return s + "s"
+}
+
+// schema = module (lower), table = plural(entity) с защитой keyword'ов
+func safeSchema(module string) string { return strings.ToLower(module) }
+
+func safeTable(entity string) string {
+	t := plural(entity)
+	t = strings.ToLower(t)
+	if isReserved(t) {
+		// помечаем «опасное» имя префиксом
+		t = "e_" + t
+	}
+	return t
+}
+
+func fqn(mod, tbl string) string {
+	return fmt.Sprintf("%s.%s", strings.ToLower(mod), strings.ToLower(tbl))
+}
+
+// sqlIdent уже есть у тебя:
 func sqlIdent(s string) string { return `"` + strings.ToLower(s) + `"` }
 
 func mapType(f dsl.Field) (string, error) {
@@ -62,33 +100,60 @@ func onDeletePolicy(f dsl.Field) OnDeletePolicy {
 
 // GenerateDDL возвращает карту FQN -> SQL DDL (CREATE TABLE + индексы + FK)
 func GenerateDDL(entities map[string]*dsl.Entity) (map[string]string, error) {
-	out := make(map[string]string, len(entities))
+	out := make(map[string]string, len(entities)+2)
 
-	// стабильный порядок генерации
+	// стабильный порядок сущностей
 	keys := make([]string, 0, len(entities))
 	for k := range entities {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	for _, fqn := range keys {
-		e := entities[fqn]
+	// --- Phase A: schemas + tables + unique ---
+	var phaseASb strings.Builder
+	seenSchemas := map[string]struct{}{}
 
+	// соберём FK для второй фазы
+	type fkStmt struct {
+		mod, tbl, idxName, col, refMod, refTbl string
+		onDelete                               OnDeletePolicy
+	}
+	var fks []fkStmt
+
+	for _, fqnKey := range keys {
+		e := entities[fqnKey]
+
+		// безопасные имена
+		mod := safeSchema(e.Module)
+		tbl := safeTable(e.Name)
+
+		// schema
+		if _, ok := seenSchemas[mod]; !ok {
+			fmt.Fprintf(&phaseASb, "create schema if not exists %s;\n", sqlIdent(mod))
+			seenSchemas[mod] = struct{}{}
+		}
+
+		// системные колонки
 		var cols []string
-		// системные
 		cols = append(cols, `"id" text primary key`)
 		cols = append(cols, `"version" bigint not null`)
 		cols = append(cols, `"created_at" timestamp with time zone not null`)
 		cols = append(cols, `"updated_at" timestamp with time zone not null`)
 
-		// пользовательские
-		for _, f := range e.Fields {
-			name := sqlIdent(f.Name)
+		seen := map[string]struct{}{"id": {}, "version": {}, "created_at": {}, "updated_at": {}}
 
-			// массивы/сложные типы сразу в jsonb (кроме ref single)
+		// пользовательские поля
+		for _, f := range e.Fields {
+			nameLower := strings.ToLower(f.Name)
+			if _, exists := seen[nameLower]; exists {
+				return nil, fmt.Errorf("%s: field %q duplicates a system or duplicate column", fqnKey, f.Name)
+			}
+			seen[nameLower] = struct{}{}
+
+			name := sqlIdent(f.Name)
 			typ, err := mapType(f)
 			if err != nil {
-				return nil, fmt.Errorf("%s.%s: %w", fqn, f.Name, err)
+				return nil, fmt.Errorf("%s.%s: %w", fqnKey, f.Name, err)
 			}
 
 			null := "null"
@@ -97,39 +162,31 @@ func GenerateDDL(entities map[string]*dsl.Entity) (map[string]string, error) {
 					null = "not null"
 				}
 			}
-
-			// readonly/default можно потом оформить в DEFAULT/триггеры
 			def := ""
 			if f.Options != nil {
 				if dv, ok := f.Options["default"]; ok && strings.TrimSpace(dv) != "" {
-					// простейший случай: константы
 					def = " default " + fmt.Sprintf("'%s'", dv)
 				}
 			}
-
 			cols = append(cols, fmt.Sprintf("%s %s %s%s", name, typ, null, def))
 		}
 
-		var ddl strings.Builder
-		// схема = модуль
-		mod := strings.ToLower(e.Module)
-		tbl := strings.ToLower(e.Name)
-		fmt.Fprintf(&ddl, "create schema if not exists %s;\n", sqlIdent(mod))
-		fmt.Fprintf(&ddl, "create table if not exists %s.%s (\n  %s\n);\n",
+		// CREATE TABLE
+		fmt.Fprintf(&phaseASb, "create table if not exists %s.%s (\n  %s\n);\n",
 			sqlIdent(mod), sqlIdent(tbl), strings.Join(cols, ",\n  "))
 
-		// UNIQUE (полевые)
+		// UNIQUE по полям (убрал predicate на deleted, т.к. колонки нет)
 		for _, f := range e.Fields {
 			if f.Options != nil {
 				if _, ok := f.Options["unique"]; ok {
-					fmt.Fprintf(&ddl, "create unique index if not exists %s_%s_uq on %s.%s(%s) where deleted is null;\n",
+					fmt.Fprintf(&phaseASb, "create unique index if not exists %s_%s_uq on %s.%s(%s);\n",
 						strings.ToLower(e.Name), strings.ToLower(f.Name),
 						sqlIdent(mod), sqlIdent(tbl), sqlIdent(f.Name))
 				}
 			}
 		}
 
-		// UNIQUE (составные)
+		// UNIQUE составные
 		for _, set := range e.Constraints.Unique {
 			if len(set) == 0 {
 				continue
@@ -139,11 +196,11 @@ func GenerateDDL(entities map[string]*dsl.Entity) (map[string]string, error) {
 			for _, p := range set {
 				parts = append(parts, sqlIdent(p))
 			}
-			fmt.Fprintf(&ddl, "create unique index if not exists %s on %s.%s(%s);\n",
+			fmt.Fprintf(&phaseASb, "create unique index if not exists %s on %s.%s(%s);\n",
 				sqlIdent(idxName), sqlIdent(mod), sqlIdent(tbl), strings.Join(parts, ", "))
 		}
 
-		// FK (только для single ref)
+		// FK собираем, но не исполняем пока
 		for _, f := range e.Fields {
 			if strings.EqualFold(f.Type, "ref") && f.RefTarget != "" {
 				refMod := e.Module
@@ -152,19 +209,40 @@ func GenerateDDL(entities map[string]*dsl.Entity) (map[string]string, error) {
 					parts := strings.SplitN(refEnt, ".", 2)
 					refMod, refEnt = parts[0], parts[1]
 				}
-				pol := onDeletePolicy(f)
-				// FK как индекс + check в приложении (или нормальный FK, если хочешь строгий)
-				// здесь покажу нормальный FK:
-				fmt.Fprintf(&ddl, "alter table %s.%s add constraint %s_%s_fk foreign key (%s) references %s.%s(id) on delete %s;\n",
-					sqlIdent(mod), sqlIdent(tbl),
-					strings.ToLower(e.Name), strings.ToLower(f.Name),
-					sqlIdent(f.Name),
-					sqlIdent(strings.ToLower(refMod)), sqlIdent(strings.ToLower(refEnt)),
-					pol)
+				fks = append(fks, fkStmt{
+					mod:      mod,
+					tbl:      tbl,
+					idxName:  strings.ToLower(e.Name + "_" + f.Name + "_fk"),
+					col:      f.Name,
+					refMod:   safeSchema(refMod),
+					refTbl:   safeTable(refEnt),
+					onDelete: onDeletePolicy(f),
+				})
 			}
 		}
 
-		out[fmt.Sprintf("%s.%s", mod, strings.ToLower(e.Name))] = ddl.String()
+		// ключ для сортировки ApplyDDL: сначала схемы/таблицы
+		out["100_"+fqn(mod, tbl)] = "" // placeholder, чтобы ключ попал в сортировку
 	}
+
+	// общий SQL для схем и таблиц
+	out["000_schemas_and_tables"] = phaseASb.String()
+
+	// --- Phase B: foreign keys (после создания всех таблиц) ---
+	var phaseBSb strings.Builder
+	for _, fk := range fks {
+		fmt.Fprintf(&phaseBSb,
+			"alter table %s.%s add constraint %s foreign key (%s) references %s.%s(id) on delete %s;\n",
+			sqlIdent(fk.mod), sqlIdent(fk.tbl),
+			strings.ToLower(fk.idxName),
+			sqlIdent(fk.col),
+			sqlIdent(fk.refMod), sqlIdent(fk.refTbl),
+			fk.onDelete,
+		)
+	}
+	if phaseBSb.Len() > 0 {
+		out["200_foreign_keys"] = phaseBSb.String()
+	}
+
 	return out, nil
 }

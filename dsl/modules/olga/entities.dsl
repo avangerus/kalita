@@ -221,8 +221,8 @@ entity Version:
     owner_entity: string required     # например "olga.Estimate"
     owner_id: string required
     label: string required
-    created_by: ref[core.User] on_delete=set_null
-    created_at: datetime required
+    #created_by: ref[core.User] on_delete=set_null
+    #created_at: datetime required
     comment: string
 
 # Нумераторы и фин. годы (пригодится для контрактов/счетов)

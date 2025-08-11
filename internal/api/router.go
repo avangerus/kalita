@@ -38,6 +38,7 @@ func RunServer(addr string, storage *Storage) {
 		apiGroup.POST("/:module/:entity/:id/restore", RestoreHandler(storage))
 		r.POST("/api/:module/:entity/_bulk_delete", BulkDeleteHandler(storage))
 		r.POST("/api/:module/:entity/_bulk_restore", BulkRestoreHandler(storage))
+		apiGroup.POST("/:module/:entity/_batch_get", BatchGetHandler(storage))
 
 		//r.GET("/api/meta/catalogs", MetaCatalogsHandler(storage))
 		//r.GET("/api/meta/catalog/:name", MetaCatalogHandler(storage))

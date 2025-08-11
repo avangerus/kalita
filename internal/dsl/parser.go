@@ -70,7 +70,6 @@ func splitOptionTokens(s string) []string {
 	return out
 }
 
-// LoadEntities читает entities.dsl и возвращает список Entity
 func LoadEntities(path string) ([]*Entity, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -82,6 +81,8 @@ func LoadEntities(path string) ([]*Entity, error) {
 	var current *Entity
 	currentModule := ""
 	inConstraints := false
+	// карта имён полей текущей сущности (для проверки дублей)
+	var fieldNames map[string]struct{}
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -103,11 +104,9 @@ func LoadEntities(path string) ([]*Entity, error) {
 			if current != nil {
 				entities = append(entities, current)
 			}
-			current = &Entity{Name: m[1]}
-			if current.Module == "" {
-				current.Module = currentModule
-			}
+			current = &Entity{Name: m[1], Module: currentModule}
 			inConstraints = false
+			fieldNames = make(map[string]struct{}, 16)
 			continue
 		}
 		if current == nil {
@@ -116,21 +115,18 @@ func LoadEntities(path string) ([]*Entity, error) {
 		}
 
 		// ----- БЛОК CONSTRAINTS -----
-		// старт блока
 		if reConstraintsStart.MatchString(line) {
 			inConstraints = true
 			continue
 		}
-
 		if inConstraints {
-			// строка unique(...)
+			// unique(...)
 			if m := reUniqueLine.FindStringSubmatch(line); m != nil {
 				parts := strings.Split(m[1], ",")
 				set := make([]string, 0, len(parts))
 				for _, p := range parts {
-					p = strings.TrimSpace(p)
-					if p != "" {
-						set = append(set, p)
+					if s := strings.TrimSpace(p); s != "" {
+						set = append(set, s)
 					}
 				}
 				if len(set) > 0 {
@@ -138,20 +134,18 @@ func LoadEntities(path string) ([]*Entity, error) {
 				}
 				continue
 			}
-
-			// если началась новая секция (entity/module) — выходим из constraints и обработаем строку заново
+			// выход из constraints при новой секции
 			if strings.HasPrefix(line, "entity ") || strings.HasPrefix(line, "module ") {
 				inConstraints = false
-				// НЕ continue — пускай ниже обработается как entity/module
+				// и дайте обработаться следующими правилами (без continue)
 			} else {
-				// любая другая строка — выходим из блока constraints
 				inConstraints = false
 				continue
 			}
 		}
 		// ----- КОНЕЦ БЛОКА CONSTRAINTS -----
 
-		// Поля
+		// Поле: name: type [options]
 		if m := fieldRe.FindStringSubmatch(line); m != nil {
 			name := m[1]
 			rawType := m[2]
@@ -171,22 +165,26 @@ func LoadEntities(path string) ([]*Entity, error) {
 				}
 			}
 
-			// --- нормализация опций ПОСЛЕ типа ---
+			// нормализация опций ПОСЛЕ типа
 			optsRaw := strings.TrimSpace(tail)
-
-			// срезать комментарий
 			if i := strings.IndexByte(optsRaw, '#'); i >= 0 {
 				optsRaw = strings.TrimSpace(optsRaw[:i])
 			}
-			// убрать необязательный префикс "options:"
 			if strings.HasPrefix(strings.ToLower(optsRaw), "options:") {
 				optsRaw = strings.TrimSpace(optsRaw[len("options:"):])
 			}
-			// запятые считаем разделителями
 			optsRaw = strings.ReplaceAll(optsRaw, ",", " ")
-
-			// теперь токенизируем (старая функция)
 			optsTokens := splitOptionTokens(optsRaw)
+
+			// проверка на дубликаты и зарезервированные имена
+			lower := strings.ToLower(name)
+			if _, dup := fieldNames[lower]; dup {
+				return nil, fmt.Errorf("%s.%s: duplicate field name in DSL", current.Module, current.Name)
+			}
+			switch lower {
+			case "id", "version", "created_at", "updated_at":
+				return nil, fmt.Errorf("%s.%s: field %q clashes with reserved system column", current.Module, current.Name, name)
+			}
 
 			f := Field{
 				Name:    name,
@@ -198,10 +196,8 @@ func LoadEntities(path string) ([]*Entity, error) {
 			if mm := enumRe.FindStringSubmatch(rawType); mm != nil {
 				f.Type = "enum"
 				inside := strings.TrimSpace(mm[1])
-				parts := strings.Split(inside, ",")
-				for _, p := range parts {
-					s := strings.Trim(strings.TrimSpace(p), `"'`)
-					if s != "" {
+				for _, p := range strings.Split(inside, ",") {
+					if s := strings.Trim(strings.TrimSpace(p), `"'`); s != "" {
 						f.Enum = append(f.Enum, s)
 					}
 				}
@@ -216,10 +212,8 @@ func LoadEntities(path string) ([]*Entity, error) {
 				if em := enumRe.FindStringSubmatch(elem); em != nil {
 					f.ElemType = "enum"
 					inside := strings.TrimSpace(em[1])
-					parts := strings.Split(inside, ",")
-					for _, p := range parts {
-						s := strings.Trim(strings.TrimSpace(p), `"'`)
-						if s != "" {
+					for _, p := range strings.Split(inside, ",") {
+						if s := strings.Trim(strings.TrimSpace(p), `"'`); s != "" {
 							f.Enum = append(f.Enum, s)
 						}
 					}
@@ -229,16 +223,14 @@ func LoadEntities(path string) ([]*Entity, error) {
 					f.ElemType = "ref"
 					f.RefTarget = strings.TrimSpace(rm[1])
 				}
-			} else {
-				// примитивы: string,int,float,bool,date,datetime — оставляем как есть
 			}
 
+			// парсим опции: флаги и k=v
 			for _, tok := range optsTokens {
 				tok = strings.TrimSpace(tok)
 				if tok == "" {
 					continue
 				}
-				// флаг без значения → "true"
 				if !strings.Contains(tok, "=") {
 					f.Options[strings.ToLower(tok)] = "true"
 					continue
@@ -246,7 +238,6 @@ func LoadEntities(path string) ([]*Entity, error) {
 				kv := strings.SplitN(tok, "=", 2)
 				k := strings.ToLower(strings.TrimSpace(kv[0]))
 				v := strings.TrimSpace(kv[1])
-				// снять кавычки, если есть
 				if len(v) >= 2 {
 					if (v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'') {
 						v = v[1 : len(v)-1]
@@ -258,6 +249,7 @@ func LoadEntities(path string) ([]*Entity, error) {
 			}
 
 			current.Fields = append(current.Fields, f)
+			fieldNames[lower] = struct{}{}
 			continue
 		}
 	}
