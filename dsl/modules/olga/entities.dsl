@@ -50,7 +50,7 @@ entity Account:
 
 # Пользователь (используем core.User, но локальные роли можно расширять)
 entity Employee:
-    user_id: ref[core.User] required
+    user_id: ref[core.User] on_delete=restrict
     company_id: ref[Company]
     title: string
     is_active: bool default=true
@@ -88,8 +88,10 @@ entity Estimate:
     valid_from: date
     valid_to: date
     status: enum[Draft, ForApproval, Approved, InWork, Editing, Closed, Stopped] required
-    version_label: string            # человекочитаемая метка версии
     is_primary: bool default=false
+    attachments: array[ref[core.Attachment]]
+    version_label: string max_len=32
+    total_planned: money min=0
 
 entity EstimateBlock:
     estimate_id: ref[Estimate] required
@@ -191,7 +193,7 @@ entity Attachment:
     file_name: string required
     file_size: int
     mime: string
-    uploaded_by: ref[core.User]
+    uploaded_by: ref[core.User] on_delete=set_null
     uploaded_at: datetime required
 
 # История статусов (согласования/изменения) — универсально для любых документов
@@ -200,7 +202,7 @@ entity StatusHistory:
     owner_id: string required
     from_status: string
     to_status: string required
-    changed_by: ref[core.User] required
+    changed_by: ref[core.User] on_delete=set_null
     changed_at: datetime required
     comment: string
 
@@ -209,7 +211,7 @@ entity Signature:
     owner_entity: string required
     owner_id: string required
     role: enum[Manager, CFO, CEO, Controller, Custom] required
-    user_id: ref[core.User]
+    user_id: ref[core.User] on_delete=set_null
     decision: enum[Pending, Approved, Rejected] required
     decided_at: datetime
     comment: string
@@ -219,7 +221,7 @@ entity Version:
     owner_entity: string required     # например "olga.Estimate"
     owner_id: string required
     label: string required
-    created_by: ref[core.User] required
+    created_by: ref[core.User] on_delete=set_null
     created_at: datetime required
     comment: string
 

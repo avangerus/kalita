@@ -21,6 +21,55 @@ var (
 	reUniqueLine       = regexp.MustCompile(`^\s*unique\s*\(\s*([^)]+)\s*\)\s*$`)
 )
 
+// // parse: options tokenizer — делит "k=v k2='v 2' pattern=^[A-Z0-9 _-]+$" на токены, не рвёт по пробелам внутри кавычек/скобок
+func splitOptionTokens(s string) []string {
+	var out []string
+	var buf []rune
+	inSingle, inDouble := false, false
+	bracketDepth := 0 // внутри [ ... ] у регэкспа
+
+	flush := func() {
+		if len(buf) > 0 {
+			out = append(out, string(buf))
+			buf = buf[:0]
+		}
+	}
+
+	for _, r := range s {
+		switch r {
+		case '\'':
+			if !inDouble && bracketDepth == 0 {
+				inSingle = !inSingle
+			}
+			buf = append(buf, r)
+		case '"':
+			if !inSingle && bracketDepth == 0 {
+				inDouble = !inDouble
+			}
+			buf = append(buf, r)
+		case '[':
+			if !inSingle && !inDouble {
+				bracketDepth++
+			}
+			buf = append(buf, r)
+		case ']':
+			if !inSingle && !inDouble && bracketDepth > 0 {
+				bracketDepth--
+			}
+			buf = append(buf, r)
+		default:
+			// разделитель — пробел И ТОЛЬКО если мы не в кавычках и не внутри [...]
+			if (r == ' ' || r == '\t') && !inSingle && !inDouble && bracketDepth == 0 {
+				flush()
+				continue
+			}
+			buf = append(buf, r)
+		}
+	}
+	flush()
+	return out
+}
+
 // LoadEntities читает entities.dsl и возвращает список Entity
 func LoadEntities(path string) ([]*Entity, error) {
 	file, err := os.Open(path)
@@ -122,7 +171,22 @@ func LoadEntities(path string) ([]*Entity, error) {
 				}
 			}
 
-			optsTokens := strings.Fields(strings.TrimSpace(tail))
+			// --- нормализация опций ПОСЛЕ типа ---
+			optsRaw := strings.TrimSpace(tail)
+
+			// срезать комментарий
+			if i := strings.IndexByte(optsRaw, '#'); i >= 0 {
+				optsRaw = strings.TrimSpace(optsRaw[:i])
+			}
+			// убрать необязательный префикс "options:"
+			if strings.HasPrefix(strings.ToLower(optsRaw), "options:") {
+				optsRaw = strings.TrimSpace(optsRaw[len("options:"):])
+			}
+			// запятые считаем разделителями
+			optsRaw = strings.ReplaceAll(optsRaw, ",", " ")
+
+			// теперь токенизируем (старая функция)
+			optsTokens := splitOptionTokens(optsRaw)
 
 			f := Field{
 				Name:    name,
@@ -169,33 +233,27 @@ func LoadEntities(path string) ([]*Entity, error) {
 				// примитивы: string,int,float,bool,date,datetime — оставляем как есть
 			}
 
-			// --- опции: required, unique, default=..., readonly, on_delete=... ---
-			for _, o := range optsTokens {
-				if strings.HasPrefix(o, "default=") {
-					kv := strings.SplitN(o, "=", 2)
-					if len(kv) == 2 {
-						f.Options["default"] = kv[1]
+			for _, tok := range optsTokens {
+				tok = strings.TrimSpace(tok)
+				if tok == "" {
+					continue
+				}
+				// флаг без значения → "true"
+				if !strings.Contains(tok, "=") {
+					f.Options[strings.ToLower(tok)] = "true"
+					continue
+				}
+				kv := strings.SplitN(tok, "=", 2)
+				k := strings.ToLower(strings.TrimSpace(kv[0]))
+				v := strings.TrimSpace(kv[1])
+				// снять кавычки, если есть
+				if len(v) >= 2 {
+					if (v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'') {
+						v = v[1 : len(v)-1]
 					}
-					continue
 				}
-				if o == "required" {
-					f.Options["required"] = "true"
-					continue
-				}
-				if o == "unique" {
-					f.Options["unique"] = "true"
-					continue
-				}
-				if o == "readonly" {
-					f.Options["readonly"] = "true"
-					continue
-				}
-				if strings.HasPrefix(o, "on_delete=") { // ← НОВОЕ
-					kv := strings.SplitN(o, "=", 2)
-					if len(kv) == 2 {
-						f.Options["on_delete"] = strings.ToLower(strings.TrimSpace(kv[1])) // restrict/set_null/cascade
-					}
-					continue
+				if k != "" {
+					f.Options[k] = v
 				}
 			}
 

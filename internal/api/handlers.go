@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"kalita/internal/dsl"
 	"net/http"
@@ -16,10 +15,12 @@ import (
 
 // POST /api/:entity
 // POST /api/:module/:entity
+// POST /api/:entity  и /api/:module/:entity
 func CreateHandler(storage *Storage) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rawModule := c.Param("module")
 		rawEntity := c.Param("entity")
+
 		entity, ok := storage.NormalizeEntityName(rawModule, rawEntity)
 		if !ok {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -35,22 +36,22 @@ func CreateHandler(storage *Storage) gin.HandlerFunc {
 			return
 		}
 
-		// defaults
+		// 1) defaults
 		applyDefaults(schema, obj)
 
-		// защита системных/readonly
+		// 2) защита системных/readonly
 		if ers := checkReadonlyAndSystem(schema, obj, true); len(ers) > 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"errors": ers})
 			return
 		}
 
-		// Валидация — БЕЗ write-lock
+		// 3) валидация (без write-lock)
 		if errs := ValidateAgainstSchema(storage, schema, obj, "", entity); len(errs) > 0 {
 			c.JSON(statusForErrors(errs), gin.H{"errors": errs})
 			return
 		}
 
-		// Запись — под write-lock
+		// 4) запись (под write-lock)
 		storage.mu.Lock()
 		defer storage.mu.Unlock()
 
@@ -96,13 +97,17 @@ func ListHandler(storage *Storage) gin.HandlerFunc {
 		}
 		storage.mu.RUnlock()
 
-		// 1) фильтры с операторами
-		filtered := filterWithOps(all, schema, c.Request.URL.Query())
+		// единый query: удаляем служебное nulls, чтобы не попало в фильтры
+		q := c.Request.URL.Query()
+		q.Del("nulls")
+
+		// 1) фильтры
+		filtered := filterWithOps(all, schema, q)
 
 		// 2) сортировка/пагинация
-		lp := parseListParams(c.Request.URL.Query()) // limit/offset/sort/q
+		lp := parseListParams(q) // понимает _limit/_offset/_sort и nulls
 		if len(lp.Sort) > 0 {
-			sortRecordsMulti(filtered, lp.Sort)
+			sortRecordsMultiNulls(filtered, lp.Sort, lp.Nulls)
 		}
 
 		start := lp.Offset
@@ -118,7 +123,6 @@ func ListHandler(storage *Storage) gin.HandlerFunc {
 		}
 		page := filtered[start:end]
 
-		// 3) ответ — «плоский» + total в заголовке
 		out := make([]map[string]any, 0, len(page))
 		for _, rec := range page {
 			out = append(out, flatten(rec))
@@ -148,8 +152,25 @@ func GetOneHandler(storage *Storage) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"})
 			return
 		}
+
+		// ⬇️ ВСТАВЬ ЭТО: If-None-Match поддержка
+		inm := strings.TrimSpace(c.GetHeader("If-None-Match"))
+		if inm != "" {
+			// допускаем варианты: 3, "3", W/"3"
+			if strings.HasPrefix(inm, "W/") {
+				inm = strings.TrimPrefix(inm, "W/")
+			}
+			inm = strings.Trim(inm, `"'`)
+			if v, err := strconv.ParseInt(inm, 10, 64); err == nil && v == rec.Version {
+				// версию не меняем, отдадим только заголовок
+				c.Header("ETag", fmt.Sprintf(`"%d"`, rec.Version))
+				c.Status(http.StatusNotModified) // 304
+				return
+			}
+		}
+
 		c.Header("ETag", fmt.Sprintf(`"%d"`, rec.Version))
-		c.JSON(http.StatusOK, flatten(rec)) // ← ключевое
+		c.JSON(http.StatusOK, flatten(rec)) // ← как было
 	}
 }
 
@@ -173,73 +194,65 @@ func UpdateHandler(storage *Storage) gin.HandlerFunc {
 			return
 		}
 
-		// читаем ожидаемую версию ДО того, как уберём version из payload
+		// 1) ожидаемая версия (If-Match или body.version)
 		expVer, okExp := readExpectedVersion(c, obj)
 
-		// запрет системных/readonly (поле version будет удалено из obj внутри)
+		// 2) защита системных/readonly (на update — ругаемся)
 		if ers := checkReadonlyAndSystem(schema, obj, false); len(ers) > 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"errors": ers})
 			return
 		}
 
-		// запрет системных/readonly
-		if ers := checkReadonlyAndSystem(schema, obj, false); len(ers) > 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"errors": ers})
-			return
-		}
-
-		// читаем текущую версию под RLock
+		// 3) читаем текущую запись и версию (RLock)
 		storage.mu.RLock()
 		rec := storage.Data[fqn][id]
-		curVer := int64(0)
-		if rec != nil && !rec.Deleted {
-			curVer = rec.Version
-		}
 		storage.mu.RUnlock()
 		if rec == nil || rec.Deleted {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"})
 			return
 		}
 
-		// ожидаемую версию берём из If-Match или body.version
-		//expVer, okExp := readExpectedVersion(c, obj)
-		if !okExp || expVer != curVer {
-			c.JSON(http.StatusConflict, gin.H{
-				"errors": []FieldError{ferr(ErrVersionConflict, "version",
-					fmt.Sprintf("expected version %d", curVer))},
-			})
+		// 4) оптимистическая блокировка, если версия ожидалась
+		if okExp && expVer != rec.Version {
+			c.JSON(http.StatusConflict, gin.H{"errors": []FieldError{
+				ferr(ErrVersionConflict, "version", fmt.Sprintf("expected %d, got %d", expVer, rec.Version)),
+			}})
 			return
 		}
 
-		// применяем под write-lock с повторной проверкой версии (на случай гонки)
-		now := time.Now().UTC()
+		// 5) валидация (без write-lock); исключаем текущую запись из unique-поиска
+		if errs := ValidateAgainstSchema(storage, schema, obj, id, fqn); len(errs) > 0 {
+			c.JSON(statusForErrors(errs), gin.H{"errors": errs})
+			return
+		}
+
+		// 6) запись (под write-lock) + финальная проверка версии от гонок
 		storage.mu.Lock()
-		rec2 := storage.Data[fqn][id]
-		if rec2 == nil || rec2.Deleted {
-			storage.mu.Unlock()
+		defer storage.mu.Unlock()
+
+		cur := storage.Data[fqn][id]
+		if cur == nil || cur.Deleted {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"})
 			return
 		}
-		if rec2.Version != curVer {
-			storage.mu.Unlock()
-			c.JSON(http.StatusConflict, gin.H{
-				"errors": []FieldError{ferr(ErrVersionConflict, "version",
-					fmt.Sprintf("expected version %d", rec2.Version))},
-			})
+		if okExp && expVer != cur.Version {
+			c.JSON(http.StatusConflict, gin.H{"errors": []FieldError{
+				ferr(ErrVersionConflict, "version", fmt.Sprintf("expected %d, got %d", expVer, cur.Version)),
+			}})
 			return
 		}
 
-		rec2.Data = obj
-		rec2.Version++
-		rec2.UpdatedAt = now
-		storage.mu.Unlock()
+		cur.Data = obj
+		cur.Version++
+		cur.UpdatedAt = time.Now().UTC()
 
-		c.JSON(http.StatusOK, flatten(rec2))
+		c.Header("ETag", fmt.Sprintf(`"%d"`, cur.Version))
+		c.JSON(http.StatusOK, flatten(cur))
 	}
 }
 
 // PATCH /api/:module/:entity/:id
-func UpdatePartialHandler(storage *Storage) gin.HandlerFunc {
+func PatchHandler(storage *Storage) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mod := c.Param("module")
 		ent := c.Param("entity")
@@ -257,91 +270,81 @@ func UpdatePartialHandler(storage *Storage) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 			return
 		}
+		if len(patch) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Empty patch"})
+			return
+		}
 
-		// читаем ожидаемую версию ДО удаления поля version
+		// ожидаемая версия (If-Match или body.version)
 		expVer, okExp := readExpectedVersion(c, patch)
 
-		// Запрет системных и readonly полей (version удалится отсюда)
+		// защита системных/readonly (на update ругаемся)
 		if ers := checkReadonlyAndSystem(schema, patch, false); len(ers) > 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"errors": ers})
 			return
 		}
 
-		// readonly/system защита
-		if ers := checkReadonlyAndSystem(schema, patch, false); len(ers) > 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"errors": ers})
-			return
-		}
-
-		// --- читаем текущую запись под RLock
+		// читаем текущую запись
 		storage.mu.RLock()
 		rec := storage.Data[fqn][id]
+		storage.mu.RUnlock()
 		if rec == nil || rec.Deleted {
-			storage.mu.RUnlock()
 			c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"})
 			return
 		}
-		curVer := rec.Version
-		current := make(map[string]any, len(rec.Data))
-		for k, v := range rec.Data {
-			current[k] = v
-		}
-		storage.mu.RUnlock()
 
-		// версия: If-Match или body.version должны совпасть
-		//expVer, okExp := readExpectedVersion(c, patch)
-		if !okExp || expVer != curVer {
-			c.JSON(http.StatusConflict, gin.H{
-				"errors": []FieldError{ferr(ErrVersionConflict, "version",
-					fmt.Sprintf("expected version %d", curVer))},
-			})
+		// первая проверка версии (optimistic locking)
+		if okExp && expVer != rec.Version {
+			c.JSON(http.StatusConflict, gin.H{"errors": []FieldError{
+				ferr(ErrVersionConflict, "version", fmt.Sprintf("expected %d, got %d", expVer, rec.Version)),
+			}})
 			return
 		}
 
-		// merge + validate без локов
-		merged := make(map[string]any, len(current)+len(patch))
-		for k, v := range current {
+		// shallow merge: current ⊕ patch
+		merged := make(map[string]any, len(rec.Data)+len(patch))
+		for k, v := range rec.Data {
 			merged[k] = v
 		}
 		for k, v := range patch {
+			if v == nil {
+				delete(merged, k) // null в PATCH — удалить поле; убери блок, если не нужна такая семантика
+				continue
+			}
 			merged[k] = v
 		}
 
+		// валидация целиком merged; исключаем текущую запись из unique-проверок
 		if errs := ValidateAgainstSchema(storage, schema, merged, id, fqn); len(errs) > 0 {
 			c.JSON(statusForErrors(errs), gin.H{"errors": errs})
 			return
 		}
 
-		// применяем под write-lock c повторной проверкой версии
-		now := time.Now().UTC()
+		// запись под write-lock + финальная сверка версии
 		storage.mu.Lock()
-		rec2 := storage.Data[fqn][id]
-		if rec2 == nil || rec2.Deleted {
-			storage.mu.Unlock()
+		defer storage.mu.Unlock()
+
+		cur := storage.Data[fqn][id]
+		if cur == nil || cur.Deleted {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"})
 			return
 		}
-		if rec2.Version != curVer {
-			storage.mu.Unlock()
-			c.JSON(http.StatusConflict, gin.H{
-				"errors": []FieldError{ferr(ErrVersionConflict, "version",
-					fmt.Sprintf("expected version %d", rec2.Version))},
-			})
+		if okExp && expVer != cur.Version {
+			c.JSON(http.StatusConflict, gin.H{"errors": []FieldError{
+				ferr(ErrVersionConflict, "version", fmt.Sprintf("expected %d, got %d", expVer, cur.Version)),
+			}})
 			return
 		}
-		for k, v := range patch {
-			rec2.Data[k] = v
-		}
-		rec2.Version++
-		rec2.UpdatedAt = now
-		storage.mu.Unlock()
 
-		c.JSON(http.StatusOK, flatten(rec2))
+		cur.Data = merged
+		cur.Version++
+		cur.UpdatedAt = time.Now().UTC()
+
+		c.Header("ETag", fmt.Sprintf(`"%d"`, cur.Version))
+		c.JSON(http.StatusOK, flatten(cur))
 	}
 }
 
-// DELETE /api/:entity/:id  (soft delete)
-// DELETE /api/:module/:entity/:id
 // DELETE /api/:entity/:id  (soft delete)
 // DELETE /api/:module/:entity/:id
 func DeleteHandler(storage *Storage) gin.HandlerFunc {
@@ -557,152 +560,6 @@ func DeleteHandler(storage *Storage) gin.HandlerFunc {
 	}
 }
 
-func MetaEntityHandler(storage *Storage) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		mod := c.Param("module")
-		ent := c.Param("entity")
-
-		fqn, ok := storage.NormalizeEntityName(mod, ent)
-		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
-			return
-		}
-		schema := storage.Schemas[fqn]
-
-		type FieldOut struct {
-			Name            string            `json:"name"`
-			Type            string            `json:"type"`
-			Options         map[string]string `json:"options,omitempty"`
-			Enum            []string          `json:"enum,omitempty"`
-			Ref             string            `json:"ref,omitempty"`
-			RefDisplayField string            `json:"refDisplayField,omitempty"`
-			Elem            string            `json:"elem_type,omitempty"`
-
-			// Расширенные метаданные (удобно фронту)
-			Required bool   `json:"required,omitempty"`
-			Unique   bool   `json:"unique,omitempty"`
-			Readonly bool   `json:"readonly,omitempty"`
-			Default  string `json:"default,omitempty"`  // как строка из DSL
-			OnDelete string `json:"onDelete,omitempty"` // для ref: restrict/set_null/cascade
-		}
-		resp := struct {
-			Module       string     `json:"module"`
-			Name         string     `json:"name"`
-			DisplayField string     `json:"displayField"`
-			Fields       []FieldOut `json:"fields"`
-			Constraints  struct {
-				Unique [][]string `json:"unique,omitempty"`
-			} `json:"constraints"`
-		}{
-			Module:       schema.Module,
-			Name:         schema.Name,
-			DisplayField: pickDisplayField(schema),
-			Fields:       make([]FieldOut, 0, len(schema.Fields)),
-		}
-		resp.Constraints.Unique = schema.Constraints.Unique
-
-		for _, f := range schema.Fields {
-			fo := FieldOut{
-				Name:    f.Name,
-				Type:    f.Type,
-				Options: f.Options,
-			}
-
-			// дополнительные удобные флаги
-			if f.Options != nil {
-				if strings.EqualFold(f.Options["required"], "true") {
-					fo.Required = true
-				}
-				if strings.EqualFold(f.Options["unique"], "true") {
-					fo.Unique = true
-				}
-				if strings.EqualFold(f.Options["readonly"], "true") {
-					fo.Readonly = true
-				}
-				if def := f.Options["default"]; def != "" {
-					fo.Default = def
-				}
-				if od := f.Options["on_delete"]; od != "" {
-					fo.OnDelete = od
-				}
-			}
-
-			// enum: если парсер не заполнил f.Enum, но Type вида "enum[A, B, C]" — распарсим
-			if len(f.Enum) == 0 && strings.HasPrefix(f.Type, "enum[") {
-				if i := strings.Index(f.Type, "["); i >= 0 {
-					if j := strings.LastIndex(f.Type, "]"); j > i {
-						raw := f.Type[i+1 : j]
-						parts := strings.Split(raw, ",")
-						vals := make([]string, 0, len(parts))
-						for _, p := range parts {
-							s := strings.TrimSpace(p)
-							if s != "" {
-								// убираем случайные кавычки, если они есть
-								s = strings.Trim(s, `"'`)
-								vals = append(vals, s)
-							}
-						}
-						if len(vals) > 0 {
-							fo.Type = "enum"
-							fo.Enum = vals
-						}
-					}
-				}
-			} else if len(f.Enum) > 0 {
-				fo.Enum = append(fo.Enum, f.Enum...)
-				fo.Type = "enum"
-			}
-
-			// ref / array[ref]
-			tgtFQN := ""
-			if f.Type == "ref" && f.RefTarget != "" {
-				tgtFQN = f.RefTarget
-			}
-			if f.Type == "array" && f.ElemType == "ref" && f.RefTarget != "" {
-				fo.Elem = f.ElemType
-				tgtFQN = f.RefTarget
-			}
-			if tgtFQN == "" && f.Options != nil && f.Options["ref"] != "" {
-				tgtFQN = f.Options["ref"]
-			}
-			if tgtFQN != "" {
-				// дополним модулем, если не указан
-				if !strings.Contains(tgtFQN, ".") {
-					tgtFQN = schema.Module + "." + tgtFQN
-				}
-				fo.Ref = tgtFQN
-				// найдём целевую схему и её displayField
-				if tgtSchema, ok := storage.Schemas[tgtFQN]; ok && tgtSchema != nil {
-					fo.RefDisplayField = pickDisplayField(tgtSchema)
-				}
-			}
-
-			resp.Fields = append(resp.Fields, fo)
-		}
-
-		c.JSON(http.StatusOK, resp)
-	}
-}
-
-func MetaListHandler(storage *Storage) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		type Row struct {
-			Module string `json:"module"`
-			Name   string `json:"name"`
-			Fields int    `json:"fields"`
-		}
-		rows := make([]Row, 0, len(storage.Schemas))
-		for _, e := range storage.Schemas {
-			rows = append(rows, Row{
-				Module: e.Module,
-				Name:   e.Name,
-				Fields: len(e.Fields), // ← используем Fields из твоей Entity
-			})
-		}
-		c.JSON(http.StatusOK, rows)
-	}
-}
-
 // /api/meta/lookup/:module/:entity?field=name&q=iva&limit=10
 func LookupHandler(storage *Storage) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -891,6 +748,12 @@ func BulkCreateHandler(storage *Storage) gin.HandlerFunc {
 		Data   map[string]any `json:"data,omitempty"`
 		Errors []FieldError   `json:"errors,omitempty"`
 	}
+
+	// системные поля, которые нельзя присылать на create
+	sys := map[string]struct{}{
+		"id": {}, "created_at": {}, "updated_at": {}, "version": {},
+	}
+
 	return func(c *gin.Context) {
 		mod := c.Param("module")
 		ent := c.Param("entity")
@@ -911,18 +774,27 @@ func BulkCreateHandler(storage *Storage) gin.HandlerFunc {
 		results := make([]any, 0, len(items))
 
 		for _, obj := range items {
-			// 1) defaults
-			applyDefaults(schema, obj)
-
-			// 2) защита системных/readonly
-			if ers := checkReadonlyAndSystem(schema, obj, true); len(ers) > 0 {
-				results = append(results, bulkResult{Errors: ers})
+			// 0) явная проверка системных полей (в т.ч. version)
+			hasSys := false
+			for k := range obj {
+				if _, bad := sys[k]; bad {
+					results = append(results, bulkResult{
+						Errors: []FieldError{ferr(ErrReadOnly, k, "field is readonly")},
+					})
+					hasSys = true
+					break
+				}
+			}
+			if hasSys {
 				continue
 			}
 
+			// 1) defaults
 			applyDefaults(schema, obj)
+
+			// 2) защита системных/readonly из схемы (дополнительно к явной проверке выше)
 			if ers := checkReadonlyAndSystem(schema, obj, true); len(ers) > 0 {
-				results = append(results, gin.H{"errors": ers})
+				results = append(results, bulkResult{Errors: ers})
 				continue
 			}
 
@@ -932,17 +804,16 @@ func BulkCreateHandler(storage *Storage) gin.HandlerFunc {
 				continue
 			}
 
-			// 4) запись — под write-lock (как в CreateHandler)
+			// 4) запись — под write-lock
 			now := time.Now().UTC()
 			id := storage.newID()
-
 			rec := &Record{
 				ID:        id,
-				Version:   1, // ← важно для оптимистической блокировки
+				Version:   1,
 				CreatedAt: now,
 				UpdatedAt: now,
 				Deleted:   false,
-				Data:      obj, // мета не кладём внутрь Data
+				Data:      obj,
 			}
 
 			storage.mu.Lock()
@@ -952,24 +823,30 @@ func BulkCreateHandler(storage *Storage) gin.HandlerFunc {
 			storage.Data[fqn][id] = rec
 			storage.mu.Unlock()
 
-			// 5) в ответ — ПЛОСКИЙ формат как в CreateHandler
+			// 5) в ответ — ПЛОСКИЙ формат
 			results = append(results, flatten(rec))
 		}
 
-		// смешанные результаты — 207 Multi-Status
-		c.JSON(http.StatusMultiStatus, results)
+		c.JSON(http.StatusMultiStatus, results) // 207
 	}
 }
 
+// POST /api/:module/:entity/_bulk/patch
+// Body: { "items": [ { "id":"...", "patch":{...}, "if_match":"3" }, ... ] }
 func BulkPatchHandler(storage *Storage) gin.HandlerFunc {
 	type itemReq struct {
 		ID      string         `json:"id"`
 		Patch   map[string]any `json:"patch"`
-		Version *int64         `json:"version,omitempty"` // per-item version hint
+		IfMatch string         `json:"if_match"` // опционально; версия без кавычек
 	}
-	type legacyReq struct {
-		IDs   []string       `json:"ids"`
-		Patch map[string]any `json:"patch"`
+	type itemRes struct {
+		ID     string         `json:"id"`
+		Status int            `json:"status"`
+		Data   map[string]any `json:"data,omitempty"`
+		Errors []FieldError   `json:"errors,omitempty"`
+	}
+	type resp struct {
+		Results []itemRes `json:"results"`
 	}
 
 	return func(c *gin.Context) {
@@ -983,159 +860,135 @@ func BulkPatchHandler(storage *Storage) gin.HandlerFunc {
 		}
 		schema := storage.Schemas[fqn]
 
-		// Разбираем либо массив itemReq, либо legacyReq
-		var items []itemReq
-		dec := json.NewDecoder(c.Request.Body)
-		dec.UseNumber()
-
-		// Попробуем сначала как массив
-		tok, _ := dec.Token()
-		switch tt := tok.(type) {
-		case json.Delim:
-			if tt == '[' {
-				// читаем массив объектов
-				for dec.More() {
-					var it itemReq
-					if err := dec.Decode(&it); err != nil {
-						c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON array"})
-						return
-					}
-					if it.ID == "" || it.Patch == nil {
-						c.JSON(http.StatusBadRequest, gin.H{"error": "Each item must have id and patch"})
-						return
-					}
-					items = append(items, it)
-				}
-				// съедаем закрывающую ']'
-				if _, err := dec.Token(); err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON array end"})
-					return
-				}
-			} else if tt == '{' {
-				// это объект — legacy формат
-				var lr legacyReq
-				if err := dec.Decode(&lr); err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid legacy JSON"})
-					return
-				}
-				if len(lr.IDs) == 0 || lr.Patch == nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid legacy JSON: expected {ids:[], patch:{}}"})
-					return
-				}
-				for _, id := range lr.IDs {
-					id = strings.TrimSpace(id)
-					if id == "" {
-						continue
-					}
-					// копию patch на каждый элемент
-					p := make(map[string]any, len(lr.Patch))
-					for k, v := range lr.Patch {
-						p[k] = v
-					}
-					items = append(items, itemReq{ID: id, Patch: p})
-				}
-				// съедаем закрывающую '}'
-				if _, err := dec.Token(); err != nil {
-					// noop
-				}
-			} else {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON root"})
-				return
-			}
-		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON root"})
+		var body struct {
+			Items []itemReq `json:"items"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || len(body.Items) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON or empty items"})
 			return
 		}
 
-		results := make([]any, 0, len(items))
-		now := time.Now().UTC()
+		out := resp{Results: make([]itemRes, 0, len(body.Items))}
+		allOK := true
+		allFail := true
 
-		for _, it := range items {
-			id := it.ID
-			patch := it.Patch
+		for _, it := range body.Items {
+			res := itemRes{ID: it.ID}
 
-			// Считаем ожидаемую версию ДО чистки readonly
-			expVer, haveVer := readExpectedVersion(c, patch)
-			// Если в itemReq.version передали — используем его приоритетно
-			if it.Version != nil {
-				expVer = *it.Version
-				haveVer = true
-			}
-
-			// readonly/system защита (уберёт version из patch, чтобы не записать)
-			if ers := checkReadonlyAndSystem(schema, patch, false); len(ers) > 0 {
-				results = append(results, gin.H{"id": id, "errors": ers})
+			// 1) базовые проверки
+			if it.ID == "" || len(it.Patch) == 0 {
+				res.Status = http.StatusBadRequest
+				res.Errors = []FieldError{ferr(ErrTypeMismatch, "id", "missing id or empty patch")}
+				out.Results = append(out.Results, res)
+				allOK = false
 				continue
 			}
 
-			// --- читаем текущую запись под RLock
+			// 2) защита системных/readonly
+			if ers := checkReadonlyAndSystem(schema, it.Patch, false); len(ers) > 0 {
+				res.Status = http.StatusBadRequest
+				res.Errors = ers
+				out.Results = append(out.Results, res)
+				allOK = false
+				continue
+			}
+
+			// 3) читаем текущую запись (RLock)
 			storage.mu.RLock()
-			rec := storage.Data[fqn][id]
-			if rec == nil || rec.Deleted {
-				storage.mu.RUnlock()
-				results = append(results, gin.H{"id": id, "errors": []FieldError{ferr(ErrNotFound, "id", "Record not found")}})
-				continue
-			}
-			curVer := rec.Version
-			current := make(map[string]any, len(rec.Data))
-			for k, v := range rec.Data {
-				current[k] = v
-			}
+			rec := storage.Data[fqn][it.ID]
 			storage.mu.RUnlock()
-
-			// версия обязательна
-			if !haveVer || expVer != curVer {
-				results = append(results, gin.H{
-					"id": id,
-					"errors": []FieldError{ferr(ErrVersionConflict, "version",
-						fmt.Sprintf("expected version %d", curVer))},
-				})
+			if rec == nil || rec.Deleted {
+				res.Status = http.StatusNotFound
+				res.Errors = []FieldError{ferr(ErrNotFound, "id", "Record not found")}
+				out.Results = append(out.Results, res)
+				allOK = false
 				continue
 			}
 
-			// merge + validate без локов
-			merged := make(map[string]any, len(current)+len(patch))
-			for k, v := range current {
+			// 4) If-Match (первая проверка)
+			if it.IfMatch != "" {
+				// принимаем как число (без кавычек)
+				exp, err := strconv.ParseInt(strings.Trim(it.IfMatch, `"'`), 10, 64)
+				if err == nil && exp != rec.Version {
+					res.Status = http.StatusConflict
+					res.Errors = []FieldError{
+						ferr(ErrVersionConflict, "version", fmt.Sprintf("expected %d, got %d", exp, rec.Version)),
+					}
+					out.Results = append(out.Results, res)
+					allOK = false
+					continue
+				}
+			}
+
+			// 5) merge current ⊕ patch  (semantics: null -> удалить поле)
+			merged := make(map[string]any, len(rec.Data)+len(it.Patch))
+			for k, v := range rec.Data {
 				merged[k] = v
 			}
-			for k, v := range patch {
+			for k, v := range it.Patch {
+				if v == nil {
+					delete(merged, k)
+					continue
+				}
 				merged[k] = v
 			}
-			if errs := ValidateAgainstSchema(storage, schema, merged, id, fqn); len(errs) > 0 {
-				results = append(results, gin.H{"id": id, "errors": errs})
+
+			// 6) валидация merged; исключаем текущую запись из unique-поиска
+			if errs := ValidateAgainstSchema(storage, schema, merged, it.ID, fqn); len(errs) > 0 {
+				res.Status = statusForErrors(errs)
+				res.Errors = errs
+				out.Results = append(out.Results, res)
+				allOK = false
 				continue
 			}
 
-			// применяем под write-lock с повторной проверкой версии
+			// 7) запись под write-lock + финальная проверка версии
 			storage.mu.Lock()
-			rec2 := storage.Data[fqn][id]
-			if rec2 == nil || rec2.Deleted {
+			cur := storage.Data[fqn][it.ID]
+			if cur == nil || cur.Deleted {
 				storage.mu.Unlock()
-				results = append(results, gin.H{"id": id, "errors": []FieldError{ferr(ErrNotFound, "id", "Record not found")}})
+				res.Status = http.StatusNotFound
+				res.Errors = []FieldError{ferr(ErrNotFound, "id", "Record not found")}
+				out.Results = append(out.Results, res)
+				allOK = false
 				continue
 			}
-			if rec2.Version != curVer {
-				vv := rec2.Version
-				storage.mu.Unlock()
-				results = append(results, gin.H{"id": id, "errors": []FieldError{ferr(ErrVersionConflict, "version",
-					fmt.Sprintf("expected version %d", vv))}})
-				continue
+			if it.IfMatch != "" {
+				if exp, err := strconv.ParseInt(strings.Trim(it.IfMatch, `"'`), 10, 64); err == nil && exp != cur.Version {
+					storage.mu.Unlock()
+					res.Status = http.StatusConflict
+					res.Errors = []FieldError{
+						ferr(ErrVersionConflict, "version", fmt.Sprintf("expected %d, got %d", exp, cur.Version)),
+					}
+					out.Results = append(out.Results, res)
+					allOK = false
+					continue
+				}
 			}
-			for k, v := range patch {
-				rec2.Data[k] = v
-			}
-			rec2.Version++
-			rec2.UpdatedAt = now
-
-			// отдаём свежие данные в «плоском» виде
-			out := flatten(rec2)
+			cur.Data = merged
+			cur.Version++
+			cur.UpdatedAt = time.Now().UTC()
+			flat := flatten(cur)
 			storage.mu.Unlock()
 
-			results = append(results, out)
+			res.Status = http.StatusOK
+			res.Data = flat
+			out.Results = append(out.Results, res)
+			allFail = false
 		}
 
-		// 207 Multi-Status — для смешанных результатов
-		c.JSON(http.StatusMultiStatus, results)
+		// HTTP-статус на весь ответ
+		if allOK {
+			c.JSON(http.StatusOK, out)
+			return
+		}
+		// есть и успехи, и ошибки — 207 Multi-Status
+		if !allFail {
+			c.JSON(http.StatusMultiStatus, out)
+			return
+		}
+		// все упали — 400
+		c.JSON(http.StatusBadRequest, out)
 	}
 }
 
@@ -1153,7 +1006,10 @@ type filterCond struct {
 func buildConds(q url.Values) []filterCond {
 	var out []filterCond
 	for key, vals := range q {
-		if key == "q" || key == "offset" || key == "limit" || key == "sort" || key == "order" {
+		switch key {
+		case "q", "offset", "limit", "sort", "order",
+			"_offset", "_limit", "_sort", "_order",
+			"nulls":
 			continue
 		}
 		if len(vals) == 0 {
@@ -1551,4 +1407,40 @@ func readExpectedVersion(c *gin.Context, payload map[string]any) (int64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// mergeForPatch выполняет merge current+patch с учетом политики nulls.
+// Если nullsDelete=true — ключи с null в patch удаляются из результата.
+func mergeForPatch(current, patch map[string]any, nullsDelete bool) map[string]any {
+	out := make(map[string]any, len(current)+len(patch))
+	for k, v := range current {
+		out[k] = v
+	}
+	for k, v := range patch {
+		if v == nil && nullsDelete {
+			delete(out, k)
+		} else {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// GET /api/meta/catalogs
+func MetaCatalogsHandler(storage *Storage) gin.HandlerFunc {
+	type Row struct {
+		Name  string   `json:"name"`
+		Codes []string `json:"codes"`
+	}
+	return func(c *gin.Context) {
+		rows := make([]Row, 0, len(storage.Enums))
+		for name, dir := range storage.Enums {
+			codes := make([]string, 0, len(dir.Items))
+			for _, it := range dir.Items {
+				codes = append(codes, it.Code)
+			}
+			rows = append(rows, Row{Name: name, Codes: codes})
+		}
+		c.JSON(http.StatusOK, rows)
+	}
 }

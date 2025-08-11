@@ -1,11 +1,11 @@
 name: ProjectStatus
 items:
   - code: Draft
-    name: Черновик
+    name: Draft
     order: 1
   - code: InWork
-    name: В работе
+    name: In work
     order: 2
   - code: Closed
-    name: Закрыт
+    name: Closed
     order: 3

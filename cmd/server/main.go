@@ -35,6 +35,8 @@ func main() {
 	// 3) Инициализируем storage
 	storage := api.NewStorage(entities, enumCatalog)
 
+	storage.Blob = &api.LocalBlobStore{Root: "./uploads"}
+
 	// 4) Запускаем сервер (RunServer ничего не возвращает)
 	port := os.Getenv("PORT")
 	if port == "" {

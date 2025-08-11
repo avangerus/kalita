@@ -27,6 +27,7 @@ type Storage struct {
 	Data    map[string]map[string]*Record      // FQN -> id -> запись
 	Enums   map[string]reference.EnumDirectory // каталог enum'ов (если нужен на валидации/UI)
 	entropy io.Reader
+	Blob    BlobStore
 }
 
 // NewStorage наполняет схемы/энумы и готов к работе

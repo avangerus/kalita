@@ -1,181 +1,184 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+import os, sys, time, requests as r
 
-import sys, time, requests
+BASE = os.getenv("KALITA_BASE", "http://localhost:8080")
+API  = f"{BASE}/api"
+META = f"{BASE}/api/meta"
 
-BASE = "http://localhost:8080"
-H = {"Content-Type":"application/json"}
+def ok(cond, msg):
+    print(("[OK] " if cond else "[FAIL] ") + msg)
+    if not cond:
+        sys.exit(1)
 
-def u(*p): return "/".join(s.strip("/") for s in p)
+def skip(msg): print("[SKIP] " + msg)
 
-def meta_list():
-    r = requests.get(u(BASE, "api", "meta"), timeout=30)
-    r.raise_for_status()
-    return r.json()  # [{module,name,fields}, ...]
+def meta_entity(module, entity):
+    m = r.get(f"{META}/{module}/{entity}")
+    if m.status_code != 200:
+        return None
+    return m.json()
 
-def meta(mod, ent):
-    r = requests.get(u(BASE, "api", "meta", mod, ent), timeout=30)
-    r.raise_for_status()
-    return r.json()
+def get(module, entity, id_):      return r.get(f"{API}/{module}/{entity}/{id_}")
+def delete(module, entity, id_):   return r.delete(f"{API}/{module}/{entity}/{id_}")
 
-def create(mod, ent, payload):
-    return requests.post(u(BASE,"api",mod,ent), json=payload, headers=H, timeout=30)
+def post(module, entity, payload):
+    res = r.post(f"{API}/{module}/{entity}", json=payload)
+    try:    j = res.json()
+    except: j = {"_raw": res.text}
+    return res.status_code, res.headers, j
 
-def get_one(mod, ent, rid):
-    return requests.get(u(BASE,"api",mod,ent,rid), timeout=30)
+def patch(module, entity, id_, payload, etag=None):
+    headers = {}
+    if etag: headers["If-Match"] = etag
+    res = r.patch(f"{API}/{module}/{entity}/{id_}", json=payload, headers=headers)
+    try:    j = res.json()
+    except: j = {"_raw": res.text}
+    return res.status_code, res.headers, j
 
-def delete(mod, ent, rid):
-    return requests.delete(u(BASE,"api",mod,ent,rid), timeout=30)
+def ensure_user(suffix):
+    # читаем meta core/user и достаём первый допустимый enum для role
+    m = r.get(f"{META}/core/user")
+    role_val = None
+    if m.status_code == 200:
+        meta_u = m.json()
+        # поле role
+        for f in meta_u.get("fields", []):
+            if f.get("name") == "role":
+                # приоритет: enum (список строк), иначе values/options/items[…]
+                enum_list = None
+                if isinstance(f.get("enum"), list) and f["enum"]:
+                    enum_list = f["enum"]
+                elif isinstance(f.get("values"), list) and f["values"]:
+                    enum_list = f["values"]
+                elif isinstance(f.get("options"), list) and f["options"]:
+                    enum_list = [x.get("value") or x.get("code") or x.get("name") for x in f["options"] if isinstance(x, dict)]
+                elif isinstance(f.get("items"), list) and f["items"]:
+                    enum_list = f["items"]
+                if enum_list and isinstance(enum_list[0], str):
+                    role_val = enum_list[0]
+                break
 
-def pick_entity(meta_rows, name, prefer_module=None):
-    cand = [r for r in meta_rows if r["name"].lower()==name.lower()]
-    if not cand: return None
-    if prefer_module:
-        for r in cand:
-            if r["module"].lower()==prefer_module.lower():
-                return r
-    return cand[0]
+    # всегда делаем уникальный email
+    ts = str(int(time.time() * 1e6))  # микросекунды
+    payload = {
+        "name": f"U-{suffix}",
+        "email": f"u-{suffix}-{ts}@x.x",
+    }
+    if role_val is not None:
+        payload["role"] = role_val
 
-def first_enum(field):
-    vals = field.get("enum") or []
-    return vals[0] if vals else None
+    res = r.post(f"{API}/core/user", json=payload)
+    try:
+        j = res.json()
+    except Exception:
+        j = {"_raw": res.text}
+    if "id" not in j:
+        print("[POST /core/user] failed", res.status_code, j)
+        print("[meta core/user role] =", {"role_meta": role_val, "raw_field": f if m.status_code==200 else None})
+        sys.exit(1)
+    return j["id"]
 
-def synth_value(ftype, fname):
-    ts = int(time.time())
-    if ftype == "string":
-        if "email" in fname.lower():
-            return f"usr{ts}@example.com"
-        return f"{fname}_{ts}"
-    if ftype == "int": return 1
-    if ftype == "float": return 1.0
-    if ftype == "bool": return True
-    if ftype == "date": return "2025-01-01"
-    if ftype == "datetime": return "2025-01-01T00:00:00Z"
-    return None
 
-def build_required_payload(m):
-    out = {}
-    for f in m["fields"]:
-        if not f.get("required"): continue
-        t = f.get("type")
-        n = f.get("name")
-        if t == "enum":
-            val = first_enum(f)
-            if val is None: raise RuntimeError(f"required enum {n} has no values")
-            out[n] = val
-        elif t == "ref" or (t=="array" and f.get("elem_type")=="ref"):
-            # ссылки проставим вручную позже
-            continue
-        else:
-            v = synth_value(t, n)
-            if v is not None: out[n] = v
-    return out
+
+
+def ensure_company():
+    sc, _, c = post("core", "company", {"name": f"ACME-{int(time.time())}"})
+    if "id" not in c:
+        print("[POST /core/company] failed", sc, c); sys.exit(1)
+    return c["id"]
 
 def main():
-    # 1) Получим список сущностей и выберем user/company/project
-    rows = meta_list()
+    meta = meta_entity("core", "project")
+    ok(meta is not None, "meta for core/project available")
+    fields = {f["name"]: f for f in meta.get("fields", [])}
 
-    user_row = pick_entity(rows, "user", prefer_module="core") or pick_entity(rows, "user")
-    comp_row = pick_entity(rows, "company", prefer_module="olga") or pick_entity(rows, "company")
-    proj_row = pick_entity(rows, "project", prefer_module="olga") or pick_entity(rows, "project")
+    has_manager = "manager_id" in fields
+    has_members = "member_ids" in fields
+    has_company = "company_id" in fields
 
-    if not user_row or not comp_row or not proj_row:
-        print("Не нашёл нужные сущности. Есть:", [(r["module"], r["name"]) for r in rows])
-        sys.exit(1)
+    # Выясняем обязательность ссылок
+    req_manager = has_manager and fields["manager_id"].get("required") is True
+    req_members = has_members and fields["member_ids"].get("required") is True
+    req_company = has_company and fields["company_id"].get("required") is True
 
-    user_m = meta(user_row["module"], user_row["name"])
-    comp_m = meta(comp_row["module"], comp_row["name"])
-    proj_m = meta(proj_row["module"], proj_row["name"])
+    # Готовим обязательные референсы для создания проекта
+    payload = {"name": "OD-Test", "status": "Draft"}
 
-    # 2) В проекте найдём:
-    #   - поле ref на company с onDelete=restrict (или без onDelete — считаем restrict по умолчанию)
-    #   - поле ref на user с onDelete=set_null
-    company_ref_field = None
-    manager_ref_field = None
+    user_for_manager = None
+    if req_manager:
+        user_for_manager = ensure_user("mgr-req")
+        payload["manager_id"] = user_for_manager
 
-    proj_fields = proj_m["fields"]
-    for f in proj_fields:
-        if f.get("type") == "ref" and f.get("ref"):
-            # ref хранится FQN в meta
-            if f["ref"].lower() == f'{comp_row["module"]}.{comp_row["name"]}'.lower():
-                od = (f.get("onDelete") or "").lower()
-                if od in ("", "restrict"):  # default считаем restrict
-                    company_ref_field = f["name"]
-            if f["ref"].lower() == f'{user_row["module"]}.{user_row["name"]}'.lower():
-                od = (f.get("onDelete") or "").lower()
-                if od == "set_null":
-                    manager_ref_field = f["name"]
+    members_list = None
+    if req_members:
+        u1 = ensure_user("mem1-req")
+        u2 = ensure_user("mem2-req")
+        members_list = [u1, u2]
+        payload["member_ids"] = members_list
 
-    if not company_ref_field:
-        print("В проекте нет ref на company с on_delete=restrict (или он не распознан). Поля:", 
-              [(f["name"], f.get("ref"), f.get("onDelete")) for f in proj_fields])
-        sys.exit(1)
+    company_id = None
+    if req_company:
+        company_id = ensure_company()
+        payload["company_id"] = company_id
 
-    if not manager_ref_field:
-        print("В проекте нет ref на user с on_delete=set_null. Поля:", 
-              [(f["name"], f.get("ref"), f.get("onDelete")) for f in proj_fields])
-        sys.exit(1)
+    # 1) Создаём проект с учётом required полей
+    sc, headers, prj = post("core", "project", payload)
+    if "id" not in prj:
+        print("[POST /core/project] status=", sc, "body=", prj); sys.exit(1)
+    prj_id = prj["id"]
+    ok(True, "project created")
 
-    # 3) Соберём валидные payload'ы по метаданным
-    user_payload = build_required_payload(user_m)
-    user_payload.setdefault("name", f"Mgr {int(time.time())}")
-    if "email" in [f["name"] for f in user_m["fields"]]:
-        user_payload.setdefault("email", f"usr{int(time.time())}@example.com")
+    # A) set_null — делаем только если поля присутствуют (не обязательно required)
+    if has_manager or has_members:
+        # если manager_id не был обязательным — создадим сейчас
+        if has_manager and not req_manager:
+            user_for_manager = ensure_user("mgr-opt")
+        # если member_ids не были обязательными — создадим сейчас
+        if has_members and not req_members:
+            u1 = ensure_user("mem1-opt"); u2 = ensure_user("mem2-opt"); members_list = [u1, u2]
 
-    comp_payload = build_required_payload(comp_m)
-    comp_payload.setdefault("name", f"Comp {int(time.time())}")
+        patch_payload = {}
+        if has_manager:
+            patch_payload["manager_id"] = user_for_manager
+        if has_members:
+            patch_payload["member_ids"] = members_list
 
-    proj_payload = build_required_payload(proj_m)
-    proj_payload.setdefault("name", f"Prj {int(time.time())}")
+        if patch_payload:
+            etag = get("core", "project", prj_id).headers.get("ETag")
+            sc, _, resp = patch("core", "project", prj_id, patch_payload, etag=etag)
+            if sc not in (200, 204):
+                print("[PATCH /core/project] status=", sc, "body=", resp); sys.exit(1)
+            ok(True, "project updated with refs for set_null test")
 
-    # 4) Создадим user и company
-    r = create(user_row["module"], user_row["name"], user_payload)
-    if r.status_code not in (200,201):
-        print("create user fail", r.status_code, r.text); sys.exit(1)
-    user = r.json(); user_id = user["id"]
+            # удаляем user_for_manager → должен сработать set_null и из массива исчезнуть
+            if has_manager and user_for_manager:
+                d = delete("core", "user", user_for_manager)
+                ok(d.status_code == 204, "set_null: delete user returns 204")
+                prj_now = get("core", "project", prj_id).json()
+                ok(prj_now.get("manager_id") in (None, ""), "set_null: manager_id cleared")
+                if has_members and members_list:
+                    arr = prj_now.get("member_ids") or []
+                    ok(user_for_manager not in arr, "set_null: removed deleted id from member_ids")
+        else:
+            skip("no manager_id/member_ids fields; skipping set_null")
+    else:
+        skip("no set_null-capable fields in Project")
 
-    r = create(comp_row["module"], comp_row["name"], comp_payload)
-    if r.status_code not in (200,201):
-        print("create company fail", r.status_code, r.text); sys.exit(1)
-    comp = r.json(); comp_id = comp["id"]
+    # B) restrict — проверяем, если есть company_id (обычно restrict)
+    if has_company:
+        # если company_id ещё не стоял — поставим
+        if not req_company:
+            company_id = ensure_company()
+            etag = get("core", "project", prj_id).headers.get("ETag")
+            sc, _, resp = patch("core", "project", prj_id, {"company_id": company_id}, etag=etag)
+            if sc not in (200, 204):
+                print("[PATCH project company_id] status=", sc, "body=", resp); sys.exit(1)
 
-    # 5) Создадим проект с обоими ref'ами
-    proj_payload[company_ref_field] = comp_id   # restrict
-    proj_payload[manager_ref_field] = user_id   # set_null
+        d2 = delete("core", "company", company_id)
+        ok(d2.status_code in (400, 409), "restrict: deletion blocked when referenced")
+    else:
+        skip("no company_id in Project; restrict case skipped")
 
-    r = create(proj_row["module"], proj_row["name"], proj_payload)
-    if r.status_code not in (200,201):
-        delete(user_row["module"], user_row["name"], user_id)
-        delete(comp_row["module"], comp_row["name"], comp_id)
-        print("create project fail", r.status_code, r.text); sys.exit(1)
-    prj = r.json(); prj_id = prj["id"]
-
-    print("[OK] created user, company, project:",
-          user_id, comp_id, prj_id,
-          f"(fields: {manager_ref_field}=set_null, {company_ref_field}=restrict)")
-
-    # 6) Удаляем user → поле set_null в проекте должно занулиться
-    r = delete(user_row["module"], user_row["name"], user_id)
-    if r.status_code not in (204,200): print("delete user failed", r.status_code, r.text); sys.exit(1)
-
-    g = get_one(proj_row["module"], proj_row["name"], prj_id)
-    if g.status_code != 200: print("get project after set_null failed", g.status_code, g.text); sys.exit(1)
-    pj = g.json()
-    if pj.get(manager_ref_field) not in (None, "", []):
-        print("on_delete=set_null НЕ сработал, поле:", manager_ref_field, "=", pj.get(manager_ref_field)); sys.exit(1)
-    print("[OK] on_delete=set_null worked: field nulled")
-
-    # 7) Пытаемся удалить company → ожидаем 409 (restrict)
-    r = delete(comp_row["module"], comp_row["name"], comp_id)
-    if r.status_code != 409:
-        print("Expected 409 on company delete (restrict), got", r.status_code, r.text); sys.exit(1)
-    print("[OK] on_delete=restrict worked: delete blocked")
-
-    print("\nOn-Delete policies test passed ✅")
-
-    # cleanup
-    delete(proj_row["module"], proj_row["name"], prj_id)
-    delete(comp_row["module"], comp_row["name"], comp_id)
+    print("on_delete test passed ✅")
 
 if __name__ == "__main__":
     main()

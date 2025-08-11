@@ -30,6 +30,7 @@ const (
 )
 
 // ValidateAgainstSchema валидирует и НОРМАЛИЗУЕТ obj под схему.
+// ValidateAgainstSchema валидирует и НОРМАЛИЗУЕТ obj под схему.
 func ValidateAgainstSchema(
 	storage *Storage,
 	schema *dsl.Entity,
@@ -39,48 +40,71 @@ func ValidateAgainstSchema(
 ) []FieldError {
 	var errs []FieldError
 
-	// 1) required
-	for _, f := range schema.Fields {
-		if f.Options != nil && strings.EqualFold(f.Options["required"], "true") {
-			if _, ok := obj[f.Name]; !ok {
-				errs = append(errs, ferr(ErrRequired, f.Name, "Field '"+f.Name+"' is required"))
-			}
+	// --- утилиты
+	lc := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+	isTrue := func(opts map[string]string, key string) bool {
+		if opts == nil {
+			return false
 		}
+		v, ok := opts[key]
+		if !ok {
+			return false
+		}
+		v = strings.ToLower(strings.TrimSpace(v))
+		return v == "" || v == "true" || v == "1" || v == "yes"
 	}
 
-	// 1.5) строгая проверка типов и нормализация значений для примитивов и массивов
-	// (enum и ссылки проверим ниже в существующих блоках)
+	// чтобы не дублировать ошибки unique из поля и из constraints
+	reported := make(map[string]bool) // ключи вида "unique:code" или "unique:base,quote,date"
+
+	// быстрый доступ к описанию поля
 	fieldByName := make(map[string]dsl.Field, len(schema.Fields))
 	for _, f := range schema.Fields {
 		fieldByName[f.Name] = f
 	}
 
+	// 1) required
+	for _, f := range schema.Fields {
+		if isTrue(f.Options, "required") {
+			_, present := obj[f.Name]
+			if !present || obj[f.Name] == nil {
+				errs = append(errs, ferr(ErrRequired, f.Name, "Field '"+f.Name+"' is required"))
+			}
+		}
+	}
+
+	// 2) строгая проверка типов и нормализация (коэрсинг)
 	for name, val := range obj {
 		f, ok := fieldByName[name]
 		if !ok {
-			// неизвестные поля можно игнорировать или ругаться — сейчас игнор
+			// неизвестное поле — игнорируем (можно сделать warning, но не ошибка)
 			continue
 		}
-		if strings.EqualFold(f.Type, "bool") {
-			if _, ok := val.(bool); !ok {
-				errs = append(errs, ferr(ErrTypeMismatch, name, "Field '"+name+"' expected bool"))
-				continue
+		// null допускаем для не-required
+		if val == nil {
+			if isTrue(f.Options, "required") {
+				errs = append(errs, ferr(ErrRequired, name, "Field '"+name+"' is required"))
 			}
-			// уже корректный bool — можно оставить как есть без коэрсинга
-			obj[name] = val
-			continue
-		}
-		// пропускаем enum: у тебя ниже уже есть отдельная проверка блока // 2) enum
-		if strings.EqualFold(f.Type, "enum") {
-			continue
-		}
-		// пропускаем ссылки: их ты проверяешь ниже в блоке // 4) ref (single и array)
-		if strings.EqualFold(f.Type, "ref") ||
-			(strings.EqualFold(f.Type, "array") && strings.EqualFold(f.ElemType, "ref")) {
 			continue
 		}
 
-		// всё остальное (string/int/float/bool/date/datetime и array[...] примитивов/enum) — через coerceValue
+		// enum и ref проверим ниже своими блоками; здесь коэрсим всё остальное
+		ft := strings.ToLower(f.Type)
+		if ft == "ref" || (ft == "array" && strings.EqualFold(f.ElemType, "ref")) {
+			continue
+		}
+		// enum как тип — пропустим до блока enum-проверки
+		if ft == "enum" || (ft == "array" && strings.EqualFold(f.ElemType, "enum")) {
+			// но всё равно дадим шанс коэрсингу на примитивы/массивы, если он это умеет
+			norm, err := coerceValue(storage, f, val)
+			if err != nil {
+				errs = append(errs, ferr(ErrTypeMismatch, name, "Field '"+name+"' "+err.Error()))
+				continue
+			}
+			obj[name] = norm
+			continue
+		}
+
 		norm, err := coerceValue(storage, f, val)
 		if err != nil {
 			errs = append(errs, ferr(ErrTypeMismatch, name, "Field '"+name+"' "+err.Error()))
@@ -89,16 +113,42 @@ func ValidateAgainstSchema(
 		obj[name] = norm
 	}
 
-	// 2) enum (строгое соответствие одному из значений)
+	// 3) enum (значение ∈ перечислению или каталогу)
 	for _, f := range schema.Fields {
-		if len(f.Enum) == 0 {
+		val, ok := obj[f.Name]
+		if !ok || val == nil {
 			continue
 		}
-		if v, ok := obj[f.Name]; ok {
-			s := fmt.Sprintf("%v", v)
+
+		// статический enum [...]
+		if len(f.Enum) > 0 {
+			s := fmt.Sprintf("%v", val)
 			found := false
 			for _, ev := range f.Enum {
 				if s == ev {
+					found = true
+					break
+				}
+			}
+			if !found {
+				errs = append(errs, ferr(ErrEnumInvalid, f.Name, "Invalid value for '"+f.Name+"'"))
+				continue
+			}
+		}
+
+		// catalog=<name> (значение должно быть одним из codes каталога)
+		if f.Options != nil && lc(f.Options["catalog"]) != "" {
+			cat := lc(f.Options["catalog"])
+			dir, ok := storage.Enums[cat]
+			if !ok {
+				// схема ссылалась на неизвестный каталог — для API даём enum_invalid
+				errs = append(errs, ferr(ErrEnumInvalid, f.Name, "Unknown catalog '"+cat+"'"))
+				continue
+			}
+			s := fmt.Sprintf("%v", val)
+			found := false
+			for _, it := range dir.Items {
+				if s == it.Code {
 					found = true
 					break
 				}
@@ -109,87 +159,182 @@ func ValidateAgainstSchema(
 		}
 	}
 
-	// 3) unique (конфликт целостности → 409)
+	// 4) ref: проверка существования цели (single и array[ref])
 	for _, f := range schema.Fields {
-		if f.Options != nil && strings.EqualFold(f.Options["unique"], "true") {
-			if v, ok := obj[f.Name]; ok {
-				if violatesUnique(storage, entityKey, f.Name, v, idForUniqueExclusion) {
-					errs = append(errs, ferr(ErrUniqueViolation, f.Name, "Field '"+f.Name+"' must be unique"))
-				}
-			}
+		ft := strings.ToLower(f.Type)
+		if ft != "ref" && !(ft == "array" && strings.EqualFold(f.ElemType, "ref")) {
+			continue
 		}
-	}
-
-	// 3.1) composite unique (constraints.unique)
-	if len(schema.Constraints.Unique) > 0 {
-		for _, uniqueSet := range schema.Constraints.Unique {
-			if len(uniqueSet) == 0 {
-				continue
-			}
-			// собрать значения ключа из obj
-			key := make([]string, len(uniqueSet))
-			allPresent := true
-			for i, fname := range uniqueSet {
-				v, ok := obj[fname]
-				if !ok {
-					allPresent = false
-					break
-				}
-				key[i] = fmt.Sprintf("%v", v)
-			}
-			if !allPresent {
-				continue
-			}
-			if violatesCompositeUnique(storage, entityKey, uniqueSet, key, idForUniqueExclusion) {
-				errs = append(errs, ferr(ErrUniqueViolation, uniqueSet[0],
-					fmt.Sprintf("Fields %v must be unique together", uniqueSet)))
-			}
-		}
-	}
-
-	// 4) ref — проверка существования ссылок (single и array)
-	for _, f := range schema.Fields {
-		kind, target := resolveRefTarget(f)
-		if kind == "" || target == "" {
+		val, ok := obj[f.Name]
+		if !ok || val == nil {
 			continue
 		}
 
-		// ⬇️ ДОБАВЬ ЭТО: если target без модуля — префикс текущего модуля схемы
-		targetFQN := target
-		if !strings.Contains(target, ".") {
-			targetFQN = schema.Module + "." + target
+		// определить FQN целевой сущности
+		ref := f.RefTarget
+		if ref == "" {
+			continue // нечего проверять
 		}
-
-		v, ok := obj[f.Name]
+		// ref может быть кратким (без модуля) — дополним текущим
+		refMod := schema.Module
+		refEnt := ref
+		if strings.Contains(ref, ".") {
+			parts := strings.SplitN(ref, ".", 2)
+			refMod, refEnt = parts[0], parts[1]
+		}
+		targetFQN, ok := storage.NormalizeEntityName(refMod, refEnt)
 		if !ok {
-			continue // поле не передано — пропускаем
+			// схема ссылается на несуществующую сущность — для API аккуратно считаем "not found"
+			errs = append(errs, ferr(ErrRefNotFound, f.Name, "Reference target not found"))
+			continue
 		}
 
-		switch kind {
-		case "ref":
-			s, _ := v.(string)
-			if s == "" || !refExists(storage, targetFQN, s) { // ⬅️ используем targetFQN
-				errs = append(errs, ferr(ErrRefNotFound, f.Name, "Referenced '"+targetFQN+"' not found"))
+		// проверка существования ID(ов)
+		checkID := func(id string) bool {
+			storage.mu.RLock()
+			m := storage.Data[targetFQN]
+			var hit *Record
+			if m != nil {
+				hit = m[id]
 			}
-		case "array_ref":
-			switch arr := v.(type) {
-			case []any:
-				for _, it := range arr {
-					s, _ := it.(string)
-					if s == "" || !refExists(storage, targetFQN, s) {
-						errs = append(errs, ferr(ErrRefNotFound, f.Name, "Referenced '"+targetFQN+"' not found"))
-						break
+			storage.mu.RUnlock()
+			return hit != nil && !hit.Deleted
+		}
+
+		if ft == "ref" {
+			id := fmt.Sprintf("%v", val)
+			if id == "" || !checkID(id) {
+				errs = append(errs, ferr(ErrRefNotFound, f.Name, "Referenced id not found"))
+			}
+		} else {
+			// array[ref]
+			arr, ok := val.([]any)
+			if !ok {
+				// может прийти как []string — приведём
+				if ss, ok2 := val.([]string); ok2 {
+					arr = make([]any, len(ss))
+					for i := range ss {
+						arr[i] = ss[i]
 					}
+				} else {
+					errs = append(errs, ferr(ErrTypeMismatch, f.Name, "Field '"+f.Name+"' expected array"))
+					continue
 				}
-			case []string:
-				for _, s := range arr {
-					if s == "" || !refExists(storage, targetFQN, s) {
-						errs = append(errs, ferr(ErrRefNotFound, f.Name, "Referenced '"+targetFQN+"' not found"))
-						break
-					}
+			}
+			for idx, v := range arr {
+				id := fmt.Sprintf("%v", v)
+				if id == "" || !checkID(id) {
+					errs = append(errs, ferr(ErrRefNotFound, f.Name, fmt.Sprintf("Referenced id at index %d not found", idx)))
 				}
-			default:
-				errs = append(errs, ferr(ErrTypeMismatch, f.Name, "Field '"+f.Name+"' must be an array of ids"))
+			}
+		}
+	}
+
+	// если уже есть ошибки — смысла дальше идти мало, но продолжим, чтобы показать все проблемы разом
+	// 5) уникальность поля (single unique)
+	records := storage.Data[entityKey]
+	if records == nil {
+		records = make(map[string]*Record)
+	}
+	for _, f := range schema.Fields {
+		if !isTrue(f.Options, "unique") {
+			continue
+		}
+		v, ok := obj[f.Name]
+		if !ok || v == nil {
+			continue // пустое значение не участвует в уникальности
+		}
+		needle := fmt.Sprintf("%v", v)
+
+		conflict := false
+		storage.mu.RLock()
+		for id, rec := range records {
+			if idForUniqueExclusion != "" && id == idForUniqueExclusion {
+				continue
+			}
+			if rec == nil || rec.Deleted {
+				continue
+			}
+			got := fmt.Sprintf("%v", rec.Data[f.Name])
+			if got == needle {
+				conflict = true
+				break
+			}
+		}
+		storage.mu.RUnlock()
+
+		if conflict {
+			key := "unique:" + f.Name
+			if !reported[key] {
+				errs = append(errs, ferr(ErrUniqueViolation, f.Name, "Field '"+f.Name+"' must be unique"))
+				reported[key] = true
+			}
+		}
+	}
+
+	// 6) составные уникальности из constraints: unique(a,b,...) (только если есть все поля)
+	if len(schema.Constraints.Unique) > 0 {
+		// подготовим строковые значения из obj для быстрого сравнения
+		valStr := func(m map[string]any, key string) (string, bool) {
+			v, ok := m[key]
+			if !ok || v == nil {
+				return "", false
+			}
+			return fmt.Sprintf("%v", v), true
+		}
+
+		for _, set := range schema.Constraints.Unique {
+			// собрать ключ из obj
+			keyParts := make([]string, 0, len(set))
+			allPresent := true
+			for _, fname := range set {
+				if s, ok := valStr(obj, fname); ok {
+					keyParts = append(keyParts, s)
+				} else {
+					allPresent = false
+					break
+				}
+			}
+			if !allPresent {
+				continue // нечего проверять, не все поля есть в текущем объекте
+			}
+			needle := strings.Join(keyParts, "\x00") // безопасный сепаратор
+
+			// поиск конфликта
+			conflict := false
+			storage.mu.RLock()
+			for id, rec := range records {
+				if idForUniqueExclusion != "" && id == idForUniqueExclusion {
+					continue
+				}
+				if rec == nil || rec.Deleted {
+					continue
+				}
+				parts := make([]string, 0, len(set))
+				miss := false
+				for _, fname := range set {
+					s := fmt.Sprintf("%v", rec.Data[fname])
+					// допускаем пустую строку как значение; конфликтуем по точному совпадению
+					parts = append(parts, s)
+				}
+				if miss {
+					continue
+				}
+				if strings.Join(parts, "\x00") == needle {
+					conflict = true
+					break
+				}
+			}
+			storage.mu.RUnlock()
+
+			if conflict {
+				combo := strings.Join(set, ",")
+				key := "unique:" + combo
+				if !reported[key] {
+					// в качестве "field" оставим первое из набора
+					errs = append(errs, ferr(ErrUniqueViolation, set[0], "Fields ["+combo+"] must be unique together"))
+					reported[key] = true
+				}
 			}
 		}
 	}
@@ -297,7 +442,7 @@ func coerceValue(storage *Storage, f dsl.Field, v interface{}) (interface{}, err
 		if err != nil {
 			return nil, err
 		}
-		target, ok := normalizeEntityName(storage, f.RefTarget)
+		target, ok := storage.NormalizeEntityName("", f.RefTarget)
 		if !ok {
 			return nil, fmt.Errorf("unknown target entity '%s'", f.RefTarget)
 		}
@@ -462,26 +607,24 @@ func resolveRefTarget(f dsl.Field) (kind string, target string) {
 	return "", ""
 }
 
-// применяет default= для отсутствующих полей (на Create и, опционально, на PUT)
+// 1) в applyDefaults — пропускаем ref и array[ref]
 func applyDefaults(schema *dsl.Entity, obj map[string]any) {
 	for _, f := range schema.Fields {
 		if f.Options == nil {
 			continue
 		}
+		// не трогаем ссылки
+		if f.Type == "ref" || (f.Type == "array" && strings.EqualFold(f.ElemType, "ref")) {
+			continue
+		}
+
 		def, ok := f.Options["default"]
-		if !ok {
+		if !ok || obj[f.Name] != nil {
 			continue
 		}
-		if _, exists := obj[f.Name]; exists {
-			continue
-		}
-		// пробуем привести дефолт к типу поля через имеющийся coercer
-		// def приходит строкой — coerceValue сам ругнется, если не влезет
-		v, err := coerceValue(nil, f, def) // storage не нужен для примитивов
+		v, err := coerceValue(nil, f, def)
 		if err == nil {
 			obj[f.Name] = v
-		} else {
-			// если дефолт некорректен — просто не подставляем (не валим запрос)
 		}
 	}
 }
@@ -512,4 +655,39 @@ func checkReadonlyAndSystem(schema *dsl.Entity, obj map[string]any, isCreate boo
 		}
 	}
 	return
+}
+
+// parent_id: ref[Self] — проверка самоссылки и циклов
+func checkSelfParentAndCycles(storage *Storage, entityKey, currentID string, parent any) []FieldError {
+	pid, _ := parent.(string)
+	if pid == "" {
+		return nil
+	}
+	// self-parent запрещён на update/patch (на create currentID == "")
+	if currentID != "" && pid == currentID {
+		return []FieldError{ferr("self_parent", "parent_id", "parent_id cannot reference the record itself")}
+	}
+
+	seen := map[string]bool{}
+	cur := pid
+	for steps := 0; steps < 2048 && cur != ""; steps++ {
+		if seen[cur] {
+			return []FieldError{ferr("cycle_detected", "parent_id", "parent chain contains a cycle")}
+		}
+		seen[cur] = true
+
+		storage.mu.RLock()
+		rec := storage.Data[entityKey][cur]
+		storage.mu.RUnlock()
+		if rec == nil || rec.Deleted {
+			// отсутствие родителя отдельно ловится ref-валидацией
+			break
+		}
+		if currentID != "" && rec.ID == currentID {
+			return []FieldError{ferr("cycle_detected", "parent_id", "parent chain points back to the record (cycle)")}
+		}
+		next, _ := rec.Data["parent_id"].(string)
+		cur = next
+	}
+	return nil
 }
