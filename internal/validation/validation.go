@@ -1,4 +1,4 @@
-package api
+package validation
 
 import (
 	"errors"
@@ -8,7 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"kalita/internal/dsl"
+	"kalita/internal/runtime"
+	"kalita/internal/schema"
 )
 
 type FieldError struct {
@@ -30,10 +31,9 @@ const (
 )
 
 // ValidateAgainstSchema валидирует и НОРМАЛИЗУЕТ obj под схему.
-// ValidateAgainstSchema валидирует и НОРМАЛИЗУЕТ obj под схему.
 func ValidateAgainstSchema(
-	storage *Storage,
-	schema *dsl.Entity,
+	storage *runtime.Storage,
+	entitySchema *schema.Entity,
 	obj map[string]interface{},
 	idForUniqueExclusion string, // id текущей записи при обновлении (исключаем из unique-поиска)
 	entityKey string, // FQN сущности: "<module>.<name>"
@@ -58,13 +58,13 @@ func ValidateAgainstSchema(
 	reported := make(map[string]bool) // ключи вида "unique:code" или "unique:base,quote,date"
 
 	// быстрый доступ к описанию поля
-	fieldByName := make(map[string]dsl.Field, len(schema.Fields))
-	for _, f := range schema.Fields {
+	fieldByName := make(map[string]schema.Field, len(entitySchema.Fields))
+	for _, f := range entitySchema.Fields {
 		fieldByName[f.Name] = f
 	}
 
 	// 1) required
-	for _, f := range schema.Fields {
+	for _, f := range entitySchema.Fields {
 		if isTrue(f.Options, "required") {
 			_, present := obj[f.Name]
 			if !present || obj[f.Name] == nil {
@@ -96,7 +96,7 @@ func ValidateAgainstSchema(
 		// enum как тип — пропустим до блока enum-проверки
 		if ft == "enum" || (ft == "array" && strings.EqualFold(f.ElemType, "enum")) {
 			// но всё равно дадим шанс коэрсингу на примитивы/массивы, если он это умеет
-			norm, err := coerceValue(storage, f, val)
+			norm, err := CoerceValue(storage, f, val)
 			if err != nil {
 				errs = append(errs, ferr(ErrTypeMismatch, name, "Field '"+name+"' "+err.Error()))
 				continue
@@ -105,7 +105,7 @@ func ValidateAgainstSchema(
 			continue
 		}
 
-		norm, err := coerceValue(storage, f, val)
+		norm, err := CoerceValue(storage, f, val)
 		if err != nil {
 			errs = append(errs, ferr(ErrTypeMismatch, name, "Field '"+name+"' "+err.Error()))
 			continue
@@ -114,7 +114,7 @@ func ValidateAgainstSchema(
 	}
 
 	// 3) enum (значение ∈ перечислению или каталогу)
-	for _, f := range schema.Fields {
+	for _, f := range entitySchema.Fields {
 		val, ok := obj[f.Name]
 		if !ok || val == nil {
 			continue
@@ -160,7 +160,7 @@ func ValidateAgainstSchema(
 	}
 
 	// 4) ref: проверка существования цели (single и array[ref])
-	for _, f := range schema.Fields {
+	for _, f := range entitySchema.Fields {
 		ft := strings.ToLower(f.Type)
 		if ft != "ref" && !(ft == "array" && strings.EqualFold(f.ElemType, "ref")) {
 			continue
@@ -176,7 +176,7 @@ func ValidateAgainstSchema(
 			continue // нечего проверять
 		}
 		// ref может быть кратким (без модуля) — дополним текущим
-		refMod := schema.Module
+		refMod := entitySchema.Module
 		refEnt := ref
 		if strings.Contains(ref, ".") {
 			parts := strings.SplitN(ref, ".", 2)
@@ -191,13 +191,13 @@ func ValidateAgainstSchema(
 
 		// проверка существования ID(ов)
 		checkID := func(id string) bool {
-			storage.mu.RLock()
+			storage.Mu.RLock()
 			m := storage.Data[targetFQN]
-			var hit *Record
+			var hit *runtime.Record
 			if m != nil {
 				hit = m[id]
 			}
-			storage.mu.RUnlock()
+			storage.Mu.RUnlock()
 			return hit != nil && !hit.Deleted
 		}
 
@@ -234,9 +234,9 @@ func ValidateAgainstSchema(
 	// 5) уникальность поля (single unique)
 	records := storage.Data[entityKey]
 	if records == nil {
-		records = make(map[string]*Record)
+		records = make(map[string]*runtime.Record)
 	}
-	for _, f := range schema.Fields {
+	for _, f := range entitySchema.Fields {
 		if !isTrue(f.Options, "unique") {
 			continue
 		}
@@ -247,7 +247,7 @@ func ValidateAgainstSchema(
 		needle := fmt.Sprintf("%v", v)
 
 		conflict := false
-		storage.mu.RLock()
+		storage.Mu.RLock()
 		for id, rec := range records {
 			if idForUniqueExclusion != "" && id == idForUniqueExclusion {
 				continue
@@ -261,7 +261,7 @@ func ValidateAgainstSchema(
 				break
 			}
 		}
-		storage.mu.RUnlock()
+		storage.Mu.RUnlock()
 
 		if conflict {
 			key := "unique:" + f.Name
@@ -273,7 +273,7 @@ func ValidateAgainstSchema(
 	}
 
 	// 6) составные уникальности из constraints: unique(a,b,...) (только если есть все поля)
-	if len(schema.Constraints.Unique) > 0 {
+	if len(entitySchema.Constraints.Unique) > 0 {
 		// подготовим строковые значения из obj для быстрого сравнения
 		valStr := func(m map[string]any, key string) (string, bool) {
 			v, ok := m[key]
@@ -283,7 +283,7 @@ func ValidateAgainstSchema(
 			return fmt.Sprintf("%v", v), true
 		}
 
-		for _, set := range schema.Constraints.Unique {
+		for _, set := range entitySchema.Constraints.Unique {
 			// собрать ключ из obj
 			keyParts := make([]string, 0, len(set))
 			allPresent := true
@@ -302,7 +302,7 @@ func ValidateAgainstSchema(
 
 			// поиск конфликта
 			conflict := false
-			storage.mu.RLock()
+			storage.Mu.RLock()
 			for id, rec := range records {
 				if idForUniqueExclusion != "" && id == idForUniqueExclusion {
 					continue
@@ -325,7 +325,7 @@ func ValidateAgainstSchema(
 					break
 				}
 			}
-			storage.mu.RUnlock()
+			storage.Mu.RUnlock()
 
 			if conflict {
 				combo := strings.Join(set, ",")
@@ -342,44 +342,17 @@ func ValidateAgainstSchema(
 	return errs
 }
 
-func violatesUnique(storage *Storage, entity, field string, value interface{}, excludeID string) bool {
-	needle := fmt.Sprintf("%v", value)
-
-	storage.mu.RLock()
-	defer storage.mu.RUnlock()
-
-	for id, rec := range storage.Data[entity] {
-		if rec.Deleted || id == excludeID {
-			continue
-		}
-		if fmt.Sprintf("%v", rec.Data[field]) == needle {
-			return true
-		}
-	}
-	return false
+func ferr(code, field, msg string) FieldError {
+	return FieldError{Code: code, Field: field, Message: msg}
 }
 
-func violatesCompositeUnique(storage *Storage, entity string, fields []string, values []string, excludeID string) bool {
-	storage.mu.RLock()
-	defer storage.mu.RUnlock()
-
-	recMap := storage.Data[entity]
-	for id, rec := range recMap {
-		if rec == nil || rec.Deleted || id == excludeID {
-			continue
-		}
-		match := true
-		for i, fname := range fields {
-			if fmt.Sprintf("%v", rec.Data[fname]) != values[i] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
+func StatusForErrors(errs []FieldError) int {
+	for _, e := range errs {
+		if e.Code == ErrVersionConflict {
+			return 409
 		}
 	}
-	return false
+	return 400
 }
 
 var (
@@ -387,7 +360,7 @@ var (
 	datetimeRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`) // RFC3339 (UTC, без миллисекунд)
 )
 
-func coerceValue(storage *Storage, f dsl.Field, v interface{}) (interface{}, error) {
+func CoerceValue(storage *runtime.Storage, f schema.Field, v interface{}) (interface{}, error) {
 	switch f.Type {
 	case "string":
 		return toStringStrict(v)
@@ -468,13 +441,13 @@ func coerceValue(storage *Storage, f dsl.Field, v interface{}) (interface{}, err
 		}
 		out := make([]interface{}, 0, len(arr))
 		// сконструируем "виртуальное" поле для элемента
-		elemField := dsl.Field{
+		elemField := schema.Field{
 			Type:      f.ElemType,
 			Enum:      f.Enum,
 			RefTarget: f.RefTarget,
 		}
 		for i, ev := range arr {
-			norm, err := coerceValue(storage, elemField, ev)
+			norm, err := CoerceValue(storage, elemField, ev)
 			if err != nil {
 				return nil, fmt.Errorf("array element %d: %v", i, err)
 			}
@@ -505,12 +478,15 @@ func toStringStrict(v interface{}) (string, error) {
 
 func toIntStrict(v interface{}) (int64, error) {
 	switch t := v.(type) {
-	case float64:
-		// JSON числа приходят как float64 — проверяем целостность
-		if t != float64(int64(t)) {
-			return 0, errors.New("must be integer")
-		}
+	case int64:
+		return t, nil
+	case int:
 		return int64(t), nil
+	case float64:
+		if float64(int64(t)) == t {
+			return int64(t), nil
+		}
+		return 0, errors.New("must be integer")
 	case string:
 		n, err := strconv.ParseInt(t, 10, 64)
 		if err != nil {
@@ -526,14 +502,18 @@ func toFloatStrict(v interface{}) (float64, error) {
 	switch t := v.(type) {
 	case float64:
 		return t, nil
+	case int64:
+		return float64(t), nil
+	case int:
+		return float64(t), nil
 	case string:
-		f, err := strconv.ParseFloat(t, 64)
+		n, err := strconv.ParseFloat(t, 64)
 		if err != nil {
-			return 0, errors.New("must be float")
+			return 0, errors.New("must be number")
 		}
-		return f, nil
+		return n, nil
 	default:
-		return 0, errors.New("must be float")
+		return 0, errors.New("must be number")
 	}
 }
 
@@ -542,152 +522,15 @@ func toBoolStrict(v interface{}) (bool, error) {
 	case bool:
 		return t, nil
 	case string:
-		switch strings.ToLower(strings.TrimSpace(t)) {
-		case "true", "1", "yes", "y", "on":
+		lower := strings.ToLower(strings.TrimSpace(t))
+		if lower == "true" || lower == "1" || lower == "yes" {
 			return true, nil
-		case "false", "0", "no", "n", "off":
-			return false, nil
-		default:
-			return false, errors.New("must be boolean")
 		}
+		if lower == "false" || lower == "0" || lower == "no" {
+			return false, nil
+		}
+		return false, errors.New("must be boolean")
 	default:
 		return false, errors.New("must be boolean")
 	}
-}
-
-// normalizeEntityName — используем тот же маппинг, что и в storage.NormalizeEntityName,
-// но без зависимостей на gin. Если уже есть метод у Storage — можно убрать эту функцию.
-func normalizeEntityName(s *Storage, raw string) (string, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", false
-	}
-	if i := strings.IndexByte(raw, '.'); i > 0 {
-		return s.NormalizeEntityName(raw[:i], raw[i+1:])
-	}
-	return s.NormalizeEntityName("", raw) // без модуля — только если имя уникально
-}
-
-func ferr(code, field, msg string) FieldError {
-	return FieldError{Code: code, Field: field, Message: msg}
-}
-
-// refExists — проверяет существование записи с id в целевой сущности (FQN), игнорируя soft-deleted.
-func refExists(storage *Storage, targetFQN, id string) bool {
-	storage.mu.RLock()
-	defer storage.mu.RUnlock()
-	recMap := storage.Data[targetFQN]
-	if recMap == nil {
-		return false
-	}
-	rec, ok := recMap[id]
-	if !ok || rec == nil || rec.Deleted {
-		return false
-	}
-	return true
-}
-
-// resolveRefTarget — аккуратно извлекает целевую сущность из поля (поддержка как явных полей, так и options["ref"]).
-func resolveRefTarget(f dsl.Field) (kind string, target string) {
-	// single ref
-	if strings.EqualFold(f.Type, "ref") && f.RefTarget != "" {
-		return "ref", f.RefTarget
-	}
-	// array of refs
-	if strings.EqualFold(f.Type, "array") && strings.EqualFold(f.ElemType, "ref") && f.RefTarget != "" {
-		return "array_ref", f.RefTarget
-	}
-	// fallback: иногда парсер кладёт в Options
-	if f.Options != nil {
-		if tgt := f.Options["ref"]; tgt != "" {
-			// не знаем single/array — пусть будет single по умолчанию
-			return "ref", tgt
-		}
-	}
-	return "", ""
-}
-
-// 1) в applyDefaults — пропускаем ref и array[ref]
-func applyDefaults(schema *dsl.Entity, obj map[string]any) {
-	for _, f := range schema.Fields {
-		if f.Options == nil {
-			continue
-		}
-		// не трогаем ссылки
-		if f.Type == "ref" || (f.Type == "array" && strings.EqualFold(f.ElemType, "ref")) {
-			continue
-		}
-
-		def, ok := f.Options["default"]
-		if !ok || obj[f.Name] != nil {
-			continue
-		}
-		v, err := coerceValue(nil, f, def)
-		if err == nil {
-			obj[f.Name] = v
-		}
-	}
-}
-
-// проверка системных/readonly полей.
-// Возвращает []FieldError, если клиент пытался задать/менять защищённые поля.
-// Особый случай: "version" разрешаем передавать как hint для optimistic lock,
-// но СНИМАЕМ его из payload, чтобы не перезаписать в хранилище.
-func checkReadonlyAndSystem(schema *dsl.Entity, obj map[string]any, isCreate bool) (errs []FieldError) {
-	// системные поля
-	sys := []string{"id", "created_at", "updated_at", "version"}
-	for _, k := range sys {
-		if _, ok := obj[k]; ok {
-			if k == "version" {
-				// Разрешаем присутствие для If-Match-подобной логики, но не даём записать в Data
-				delete(obj, k)
-				continue
-			}
-			errs = append(errs, ferr(ErrReadOnly, k, "Field '"+k+"' is read-only"))
-		}
-	}
-	// readonly из схемы
-	for _, f := range schema.Fields {
-		if f.Options != nil && strings.EqualFold(f.Options["readonly"], "true") {
-			if _, ok := obj[f.Name]; ok {
-				errs = append(errs, ferr(ErrReadOnly, f.Name, "Field '"+f.Name+"' is read-only"))
-			}
-		}
-	}
-	return
-}
-
-// parent_id: ref[Self] — проверка самоссылки и циклов
-func checkSelfParentAndCycles(storage *Storage, entityKey, currentID string, parent any) []FieldError {
-	pid, _ := parent.(string)
-	if pid == "" {
-		return nil
-	}
-	// self-parent запрещён на update/patch (на create currentID == "")
-	if currentID != "" && pid == currentID {
-		return []FieldError{ferr("self_parent", "parent_id", "parent_id cannot reference the record itself")}
-	}
-
-	seen := map[string]bool{}
-	cur := pid
-	for steps := 0; steps < 2048 && cur != ""; steps++ {
-		if seen[cur] {
-			return []FieldError{ferr("cycle_detected", "parent_id", "parent chain contains a cycle")}
-		}
-		seen[cur] = true
-
-		storage.mu.RLock()
-		rec := storage.Data[entityKey][cur]
-		storage.mu.RUnlock()
-		if rec == nil || rec.Deleted {
-			// отсутствие родителя отдельно ловится ref-валидацией
-			break
-		}
-		if currentID != "" && rec.ID == currentID {
-			return []FieldError{ferr("cycle_detected", "parent_id", "parent chain points back to the record (cycle)")}
-		}
-		next, _ := rec.Data["parent_id"].(string)
-		cur = next
-	}
-	return nil
 }

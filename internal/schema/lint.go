@@ -1,5 +1,4 @@
-// api/schema_lint.go
-package api
+package schema
 
 import (
 	"fmt"
@@ -13,11 +12,11 @@ type SchemaIssue struct {
 	Message string `json:"message"`
 }
 
-// SchemaLint проверяет базовые противоречия в DSL.
-func (s *Storage) SchemaLint() []SchemaIssue {
+// Lint checks basic contradictions in the schema definitions.
+func Lint(schemas map[string]*Entity) []SchemaIssue {
 	var issues []SchemaIssue
 
-	for fqn, e := range s.Schemas {
+	for fqn, e := range schemas {
 		for _, f := range e.Fields {
 			// валидность on_delete
 			if od := strings.TrimSpace(strings.ToLower(f.Options["on_delete"])); od != "" {

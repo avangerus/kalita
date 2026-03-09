@@ -1,11 +1,12 @@
-package api
+package http
 
 import (
 	"net/http"
 	"strings"
 
-	"kalita/internal/dsl"
-	"kalita/internal/reference"
+	"kalita/internal/catalog"
+	"kalita/internal/runtime"
+	"kalita/internal/schema"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,7 +16,7 @@ type reloadReq struct {
 	EnumsRoot string `json:"enums_root"` // директория со справочниками enum
 }
 
-func AdminReloadHandler(storage *Storage) gin.HandlerFunc {
+func AdminReloadHandler(storage *runtime.Storage) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req reloadReq
 		if err := c.ShouldBindJSON(&req); err != nil && err != http.ErrBodyNotAllowed {
@@ -33,12 +34,12 @@ func AdminReloadHandler(storage *Storage) gin.HandlerFunc {
 		}
 
 		// 1) читаем новые схемы и справочники
-		newSchemas, err := dsl.LoadAllEntities(dslRoot)
+		newSchemas, err := schema.LoadAllEntities(dslRoot)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "DSL load error", "details": err.Error()})
 			return
 		}
-		newEnums, err := reference.LoadEnumCatalog(enumsRoot)
+		newEnums, err := catalog.LoadEnumCatalog(enumsRoot)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Enum load error", "details": err.Error()})
 			return
@@ -48,7 +49,7 @@ func AdminReloadHandler(storage *Storage) gin.HandlerFunc {
 		tmp := *storage
 		tmp.Schemas = newSchemas
 		tmp.Enums = newEnums
-		if issues := tmp.SchemaLint(); len(issues) > 0 {
+		if issues := schema.Lint(tmp.Schemas); len(issues) > 0 {
 			out := make([]gin.H, 0, len(issues))
 			for _, it := range issues {
 				out = append(out, gin.H{
@@ -68,11 +69,11 @@ func AdminReloadHandler(storage *Storage) gin.HandlerFunc {
 		}
 
 		// 3) атомарная замена под write-lock
-		storage.mu.Lock()
+		storage.Mu.Lock()
 		storage.Schemas = newSchemas
 		storage.Enums = newEnums
 		// storage.rebuildNameIndexLocked() // если у тебя есть такой кэш
-		storage.mu.Unlock()
+		storage.Mu.Unlock()
 
 		c.JSON(http.StatusOK, gin.H{
 			"ok":         true,

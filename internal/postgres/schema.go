@@ -1,11 +1,10 @@
-package pg
+package postgres
 
 import (
 	"fmt"
+	"kalita/internal/schema"
 	"sort"
 	"strings"
-
-	"kalita/internal/dsl"
 )
 
 type OnDeletePolicy string
@@ -55,7 +54,7 @@ func fqn(mod, tbl string) string {
 // sqlIdent уже есть у тебя:
 func sqlIdent(s string) string { return `"` + strings.ToLower(s) + `"` }
 
-func mapType(f dsl.Field) (string, error) {
+func mapType(f schema.Field) (string, error) {
 	t := strings.ToLower(f.Type)
 	switch t {
 	case "string":
@@ -86,7 +85,7 @@ func mapType(f dsl.Field) (string, error) {
 	}
 }
 
-func onDeletePolicy(f dsl.Field) OnDeletePolicy {
+func onDeletePolicy(f schema.Field) OnDeletePolicy {
 	if f.Options == nil {
 		return OnDeleteRestrict
 	}
@@ -99,7 +98,7 @@ func onDeletePolicy(f dsl.Field) OnDeletePolicy {
 }
 
 // GenerateDDL возвращает карту FQN -> SQL DDL (CREATE TABLE + индексы + FK)
-func GenerateDDL(entities map[string]*dsl.Entity) (map[string]string, error) {
+func GenerateDDL(entities map[string]*schema.Entity) (map[string]string, error) {
 	out := make(map[string]string, len(entities)+2)
 
 	// стабильный порядок сущностей

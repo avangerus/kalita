@@ -1,5 +1,4 @@
-// api/names.go
-package api
+package runtime
 
 import "strings"
 

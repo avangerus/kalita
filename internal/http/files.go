@@ -1,4 +1,4 @@
-package api
+package http
 
 import (
 	"fmt"
@@ -8,11 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"kalita/internal/runtime"
+	"kalita/internal/validation"
+
 	"github.com/gin-gonic/gin"
 )
 
 // POST /api/:module/:entity/:id/_file/:field
-func UploadFileHandler(storage *Storage) gin.HandlerFunc {
+func UploadFileHandler(storage *runtime.Storage) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mod := c.Param("module")
 		ent := c.Param("entity")
@@ -29,12 +32,12 @@ func UploadFileHandler(storage *Storage) gin.HandlerFunc {
 			return
 		}
 
-		schema := storage.Schemas[fqn]
+		entitySchema := storage.Schemas[fqn]
 		// проверим, что поле подходит
 		ftype := ""
 		isArray := false
 		refTarget := ""
-		for _, f := range schema.Fields {
+		for _, f := range entitySchema.Fields {
 			if f.Name != field {
 				continue
 			}
@@ -89,17 +92,17 @@ func UploadFileHandler(storage *Storage) gin.HandlerFunc {
 		}
 
 		// валидация Attachment и запись
-		if errs := ValidateAgainstSchema(storage, attSchema, att, "", "core.Attachment"); len(errs) > 0 {
+		if errs := validation.ValidateAgainstSchema(storage, attSchema, att, "", "core.Attachment"); len(errs) > 0 {
 			c.JSON(statusForErrors(errs), gin.H{"errors": errs})
 			return
 		}
 		now := time.Now().UTC()
-		storage.mu.Lock()
+		storage.Mu.Lock()
 		if storage.Data["core.Attachment"] == nil {
-			storage.Data["core.Attachment"] = map[string]*Record{}
+			storage.Data["core.Attachment"] = map[string]*runtime.Record{}
 		}
-		attID := storage.newID()
-		storage.Data["core.Attachment"][attID] = &Record{
+		attID := storage.NewID()
+		storage.Data["core.Attachment"][attID] = &runtime.Record{
 			ID:        attID,
 			Version:   1,
 			CreatedAt: now,
@@ -109,7 +112,7 @@ func UploadFileHandler(storage *Storage) gin.HandlerFunc {
 		// подставим в поле сущности
 		rec := storage.Data[fqn][id]
 		if rec == nil || rec.Deleted {
-			storage.mu.Unlock()
+			storage.Mu.Unlock()
 			c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"})
 			return
 		}
@@ -129,7 +132,7 @@ func UploadFileHandler(storage *Storage) gin.HandlerFunc {
 		}
 		rec.Version++
 		rec.UpdatedAt = now
-		storage.mu.Unlock()
+		storage.Mu.Unlock()
 
 		c.JSON(http.StatusOK, gin.H{
 			"attachment_id": attID,
@@ -149,22 +152,22 @@ func safeName(h *multipart.FileHeader) string {
 }
 
 // GET /api/core/attachment/:id/download
-func DownloadAttachmentHandler(storage *Storage) gin.HandlerFunc {
+func DownloadAttachmentHandler(storage *runtime.Storage) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 
-		storage.mu.RLock()
+		storage.Mu.RLock()
 		rec := storage.Data["core.Attachment"][id]
-		storage.mu.RUnlock()
+		storage.Mu.RUnlock()
 
 		if rec == nil || rec.Deleted {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Attachment not found"})
 			return
 		}
 
-		key := toString(rec.Data["storage_key"])
-		name := toString(rec.Data["file_name"])
-		mime := toString(rec.Data["mime"])
+		key := runtime.ToString(rec.Data["storage_key"])
+		name := runtime.ToString(rec.Data["file_name"])
+		mime := runtime.ToString(rec.Data["mime"])
 
 		if storage.Blob == nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "blob store not configured"})

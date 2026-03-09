@@ -1,4 +1,4 @@
-package api
+package runtime
 
 import (
 	"io"
@@ -6,8 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"kalita/internal/dsl"
-	"kalita/internal/reference"
+	"kalita/internal/blob"
+	"kalita/internal/catalog"
+	"kalita/internal/schema"
 
 	"github.com/oklog/ulid/v2"
 )
@@ -22,19 +23,19 @@ type Record struct {
 }
 
 type Storage struct {
-	mu      sync.RWMutex
-	Schemas map[string]*dsl.Entity             // FQN ("module.name") -> схема
-	Data    map[string]map[string]*Record      // FQN -> id -> запись
-	Enums   map[string]reference.EnumDirectory // каталог enum'ов (если нужен на валидации/UI)
+	Mu      sync.RWMutex
+	Schemas map[string]*schema.Entity        // FQN ("module.name") -> схема
+	Data    map[string]map[string]*Record    // FQN -> id -> запись
+	Enums   map[string]catalog.EnumDirectory // каталог enum'ов (если нужен на валидации/UI)
 	entropy io.Reader
-	Blob    BlobStore
+	Blob    blob.BlobStore
 }
 
 // NewStorage наполняет схемы/энумы и готов к работе
-func NewStorage(entities []*dsl.Entity, enumCatalog map[string]reference.EnumDirectory) *Storage {
+func NewStorage(entities []*schema.Entity, enumCatalog map[string]catalog.EnumDirectory) *Storage {
 	src := rand.New(rand.NewSource(time.Now().UnixNano()))
 	s := &Storage{
-		Schemas: make(map[string]*dsl.Entity),
+		Schemas: make(map[string]*schema.Entity),
 		Data:    make(map[string]map[string]*Record),
 		Enums:   enumCatalog,
 		entropy: ulid.Monotonic(src, 0),
@@ -46,13 +47,13 @@ func NewStorage(entities []*dsl.Entity, enumCatalog map[string]reference.EnumDir
 	return s
 }
 
-func (s *Storage) newID() string {
+func (s *Storage) NewID() string {
 	return ulid.MustNew(ulid.Timestamp(time.Now()), s.entropy).String()
 }
 
 func (s *Storage) Exists(entity, id string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.Mu.RLock()
+	defer s.Mu.RUnlock()
 	m := s.Data[entity]
 	if m == nil {
 		return false
@@ -64,8 +65,8 @@ func (s *Storage) Exists(entity, id string) bool {
 // FindIncomingRefs возвращает первую найденную входящую ссылку на (targetEntityFQN, targetID).
 // Если ссылок нет — ok=false.
 func (s *Storage) FindIncomingRefs(targetEntityFQN, targetID string) (refEntityFQN, refField string, ok bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.Mu.RLock()
+	defer s.Mu.RUnlock()
 
 	for refFQN, schema := range s.Schemas {
 		records := s.Data[refFQN]

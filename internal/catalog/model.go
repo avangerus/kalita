@@ -1,4 +1,4 @@
-package reference
+package catalog
 
 // EnumDirectory описывает один справочник типа enum
 type EnumDirectory struct {

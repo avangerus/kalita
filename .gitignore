@@ -59,3 +59,4 @@ coverage.out
 /docs/*.html
 /docs/*.pdf
 /docs/gen/
+.aider*

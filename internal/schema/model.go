@@ -1,4 +1,4 @@
-package dsl
+package schema
 
 type Entity struct {
 	Name        string

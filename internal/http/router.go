@@ -1,15 +1,17 @@
-// api/router.go
-package api
+package http
 
 import (
 	"log"
 
+	"kalita/internal/runtime"
+	"kalita/internal/schema"
+
 	"github.com/gin-gonic/gin"
 )
 
-func RunServer(addr string, storage *Storage) {
+func RunServer(addr string, storage *runtime.Storage) {
 	// fail-fast, если есть критичные проблемы схемы
-	if issues := storage.SchemaLint(); len(issues) > 0 {
+	if issues := schema.Lint(storage.Schemas); len(issues) > 0 {
 		for _, it := range issues {
 			log.Printf("[SCHEMA] %s.%s: %s (%s)\n", it.Entity, it.Field, it.Message, it.Code)
 		}

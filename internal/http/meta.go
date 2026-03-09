@@ -1,8 +1,10 @@
-package api
+package http
 
 import (
 	"net/http"
 	"strings"
+
+	"kalita/internal/runtime"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,7 +16,7 @@ type metaEntityListItem struct {
 	Entity string `json:"entity"`
 }
 
-func MetaListHandler(storage *Storage) gin.HandlerFunc {
+func MetaListHandler(storage *runtime.Storage) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		out := make([]metaEntityListItem, 0, len(storage.Schemas))
 		for fqn := range storage.Schemas {
@@ -42,7 +44,7 @@ type metaEntity struct {
 	Constraints map[string]any `json:"constraints,omitempty"` // {"unique":[["code"],["base","quote","date"]]}
 }
 
-func MetaEntityHandler(storage *Storage) gin.HandlerFunc {
+func MetaEntityHandler(storage *runtime.Storage) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mod := c.Param("module")
 		ent := c.Param("entity")
@@ -52,10 +54,10 @@ func MetaEntityHandler(storage *Storage) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
 			return
 		}
-		schema := storage.Schemas[fqn]
+		entitySchema := storage.Schemas[fqn]
 
-		fields := make([]metaField, 0, len(schema.Fields))
-		for _, f := range schema.Fields {
+		fields := make([]metaField, 0, len(entitySchema.Fields))
+		for _, f := range entitySchema.Fields {
 			opts := map[string]string{}
 			if f.Options != nil {
 				for k, v := range f.Options {
@@ -76,7 +78,7 @@ func MetaEntityHandler(storage *Storage) gin.HandlerFunc {
 			}
 
 			if ref != "" {
-				refMod := schema.Module
+				refMod := entitySchema.Module
 				refEnt := ref
 				if strings.Contains(ref, ".") {
 					parts := strings.SplitN(ref, ".", 2)
@@ -99,9 +101,9 @@ func MetaEntityHandler(storage *Storage) gin.HandlerFunc {
 		}
 
 		var constraints map[string]any
-		if len(schema.Constraints.Unique) > 0 {
-			uniq := make([][]string, 0, len(schema.Constraints.Unique))
-			for _, set := range schema.Constraints.Unique {
+		if len(entitySchema.Constraints.Unique) > 0 {
+			uniq := make([][]string, 0, len(entitySchema.Constraints.Unique))
+			for _, set := range entitySchema.Constraints.Unique {
 				uniq = append(uniq, append([]string(nil), set...))
 			}
 			constraints = map[string]any{"unique": uniq}
@@ -117,7 +119,7 @@ func MetaEntityHandler(storage *Storage) gin.HandlerFunc {
 	}
 }
 
-func MetaCatalogHandler(storage *Storage) gin.HandlerFunc {
+func MetaCatalogHandler(storage *runtime.Storage) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		name := c.Param("name")
 		dir, ok := storage.Enums[name]
@@ -130,13 +132,4 @@ func MetaCatalogHandler(storage *Storage) gin.HandlerFunc {
 			"items": dir.Items,
 		})
 	}
-}
-
-// splitFQN("module.entity") -> ("module","entity")
-func splitFQN(fqn string) (string, string) {
-	i := strings.IndexByte(fqn, '.')
-	if i <= 0 || i >= len(fqn)-1 {
-		return "", fqn
-	}
-	return fqn[:i], fqn[i+1:]
 }

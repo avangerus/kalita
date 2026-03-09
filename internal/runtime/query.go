@@ -1,4 +1,4 @@
-package api
+package runtime
 
 import (
 	"fmt"
@@ -26,7 +26,7 @@ type ListParams struct {
 
 // ==== Парсинг query-параметров ====
 
-func parseListParams(q url.Values) ListParams {
+func ParseListParams(q url.Values) ListParams {
 	// limit
 	limit := 50
 	lv := q.Get("_limit")
@@ -115,7 +115,7 @@ func parseListParams(q url.Values) ListParams {
 
 // ==== Утилита ====
 
-func toString(v any) string {
+func ToString(v any) string {
 	switch t := v.(type) {
 	case string:
 		return t
@@ -131,7 +131,7 @@ func toString(v any) string {
 func isNull(v any, ok bool) bool { return !ok || v == nil }
 
 // сравнение двух записей по одному ключу с учётом nullsPolicy и направления
-func cmpByKey(a, b *Record, key string, nullsPolicy string, desc bool) int {
+func CmpByKey(a, b *Record, key string, nullsPolicy string, desc bool) int {
 	va, oka := a.Data[key]
 	vb, okb := b.Data[key]
 
@@ -157,8 +157,8 @@ func cmpByKey(a, b *Record, key string, nullsPolicy string, desc bool) int {
 	}
 
 	// оба не null — сравним строково (как и было)
-	sa := toString(va)
-	sb := toString(vb)
+	sa := ToString(va)
+	sb := ToString(vb)
 	rel := 0
 	if sa < sb {
 		rel = -1
@@ -172,7 +172,7 @@ func cmpByKey(a, b *Record, key string, nullsPolicy string, desc bool) int {
 }
 
 // мультисортировка с учётом nullsPolicy
-func sortRecordsMultiNulls(records []*Record, keys []SortKey, nullsPolicy string) {
+func SortRecordsMultiNulls(records []*Record, keys []SortKey, nullsPolicy string) {
 	if len(keys) == 0 {
 		return
 	}
@@ -190,7 +190,7 @@ func sortRecordsMultiNulls(records []*Record, keys []SortKey, nullsPolicy string
 
 	sort.SliceStable(records, func(i, j int) bool {
 		for _, s := range specs {
-			if c := cmpByKey(records[i], records[j], s.name, nullsPolicy, s.desc); c != 0 {
+			if c := CmpByKey(records[i], records[j], s.name, nullsPolicy, s.desc); c != 0 {
 				return c < 0
 			}
 		}
