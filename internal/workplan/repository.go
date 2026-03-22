@@ -3,6 +3,8 @@ package workplan
 import (
 	"context"
 	"sync"
+
+	"kalita/internal/actionplan"
 )
 
 type InMemoryQueueRepository struct {
@@ -122,7 +124,60 @@ func cloneWorkItem(wi WorkItem) WorkItem {
 		due := *wi.DueAt
 		out.DueAt = &due
 	}
+	if wi.ActionPlan != nil {
+		plan := cloneActionPlan(*wi.ActionPlan)
+		out.ActionPlan = &plan
+	}
 	return out
+}
+
+func cloneActionPlan(plan actionplan.ActionPlan) actionplan.ActionPlan {
+	out := plan
+	out.Actions = make([]actionplan.Action, 0, len(plan.Actions))
+	for _, action := range plan.Actions {
+		out.Actions = append(out.Actions, cloneAction(action))
+	}
+	return out
+}
+
+func cloneAction(action actionplan.Action) actionplan.Action {
+	out := action
+	out.Params = cloneAnyMap(action.Params)
+	if action.Compensation != nil {
+		compensation := cloneAction(*action.Compensation)
+		out.Compensation = &compensation
+	}
+	return out
+}
+
+func cloneAnyMap(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = cloneAnyValue(v)
+	}
+	return out
+}
+
+func cloneAnySlice(in []any) []any {
+	out := make([]any, len(in))
+	for i, v := range in {
+		out[i] = cloneAnyValue(v)
+	}
+	return out
+}
+
+func cloneAnyValue(v any) any {
+	switch typed := v.(type) {
+	case map[string]any:
+		return cloneAnyMap(typed)
+	case []any:
+		return cloneAnySlice(typed)
+	default:
+		return typed
+	}
 }
 
 func containsID(ids []string, target string) bool {
