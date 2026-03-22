@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"kalita/internal/actionplan"
 	"kalita/internal/caseruntime"
 	"kalita/internal/eventcore"
 )
@@ -96,5 +97,32 @@ func TestServiceReturnsErrorWhenPlanAttachmentFails(t *testing.T) {
 
 	if _, err := service.IntakeCommand(context.Background(), resolved); err == nil {
 		t.Fatal("IntakeCommand error = nil, want non-nil")
+	}
+}
+
+func TestServiceAttachActionPlanStoresTypedPlanOnWorkItem(t *testing.T) {
+	t.Parallel()
+	repo := NewInMemoryQueueRepository()
+	now := time.Date(2026, 3, 22, 15, 30, 0, 0, time.UTC)
+	workItem := WorkItem{ID: "work-1", CaseID: "case-1", QueueID: "queue-1", Status: string(WorkItemOpen), CreatedAt: now, UpdatedAt: now}
+	if err := repo.SaveWorkItem(context.Background(), workItem); err != nil {
+		t.Fatalf("SaveWorkItem error = %v", err)
+	}
+	service := NewService(repo, nil, nil, nil, nil, fakeClock{now: now.Add(time.Minute)}, &fakeIDGenerator{ids: []string{}})
+	plan := actionplan.ActionPlan{ID: "plan-1", WorkItemID: "work-1", CaseID: "case-1", Reason: "boundary", Actions: []actionplan.Action{{ID: "action-1", Type: "legacy_workflow_action", Params: map[string]any{"entity": "test.WorkflowTask"}, Reversibility: actionplan.ReversibilityIrreversible, Idempotency: actionplan.IdempotencyConditional, CreatedAt: now}}, CreatedAt: now}
+
+	updated, err := service.AttachActionPlan(context.Background(), "work-1", plan)
+	if err != nil {
+		t.Fatalf("AttachActionPlan error = %v", err)
+	}
+	if updated.ActionPlan == nil || updated.ActionPlan.ID != "plan-1" {
+		t.Fatalf("updated work item = %#v", updated)
+	}
+	stored, ok, err := repo.GetWorkItem(context.Background(), "work-1")
+	if err != nil || !ok {
+		t.Fatalf("GetWorkItem = %#v ok=%v err=%v", stored, ok, err)
+	}
+	if stored.ActionPlan == nil || stored.ActionPlan.Reason != "boundary" {
+		t.Fatalf("stored work item = %#v", stored)
 	}
 }

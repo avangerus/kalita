@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 
+	"kalita/internal/actionplan"
 	"kalita/internal/blob"
 	"kalita/internal/caseruntime"
 	"kalita/internal/catalog"
@@ -41,6 +42,10 @@ type BootstrapResult struct {
 	ConstraintsRepo    executioncontrol.ConstraintsRepository
 	ConstraintsPlanner executioncontrol.ConstraintsPlanner
 	ConstraintsService executioncontrol.ConstraintsService
+	ActionRegistry     actionplan.Registry
+	ActionCompiler     actionplan.Compiler
+	ActionValidator    actionplan.Validator
+	ActionPlanService  actionplan.Service
 	Config             config.Config
 }
 
@@ -122,6 +127,27 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	constraintsRepo := executioncontrol.NewInMemoryConstraintsRepository()
 	constraintsPlanner := executioncontrol.NewPlanner()
 	constraintsService := executioncontrol.NewService(constraintsRepo, constraintsPlanner, eventLog, clock, ids)
+	actionRegistry := actionplan.NewRegistry()
+	actionRegistry.Register(actionplan.ActionDefinition{
+		Type:          "legacy_workflow_action",
+		Reversibility: actionplan.ReversibilityIrreversible,
+		Idempotency:   actionplan.IdempotencyConditional,
+		Validate: func(params map[string]any) error {
+			if strings.TrimSpace(stringValue(params["entity"])) == "" {
+				return fmt.Errorf("entity is required")
+			}
+			if strings.TrimSpace(stringValue(params["record_id"])) == "" {
+				return fmt.Errorf("record_id is required")
+			}
+			if strings.TrimSpace(stringValue(params["action"])) == "" {
+				return fmt.Errorf("action is required")
+			}
+			return nil
+		},
+	})
+	actionCompiler := actionplan.NewCompiler(actionRegistry, clock, ids)
+	actionValidator := actionplan.NewValidator(actionRegistry)
+	actionPlanService := actionplan.NewService(actionCompiler, actionValidator, eventLog, clock, ids)
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}
@@ -147,6 +173,10 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		ConstraintsRepo:    constraintsRepo,
 		ConstraintsPlanner: constraintsPlanner,
 		ConstraintsService: constraintsService,
+		ActionRegistry:     actionRegistry,
+		ActionCompiler:     actionCompiler,
+		ActionValidator:    actionValidator,
+		ActionPlanService:  actionPlanService,
 		Config:             cfg,
 	}, nil
 }
@@ -156,4 +186,9 @@ func tern[T any](cond bool, a, b T) T {
 		return a
 	}
 	return b
+}
+
+func stringValue(v any) string {
+	s, _ := v.(string)
+	return s
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"kalita/internal/actionplan"
 	"kalita/internal/caseruntime"
 )
 
@@ -25,6 +26,7 @@ type WorkItem struct {
 	AssignedEmployeeID string
 	PlanID             string
 	DueAt              *time.Time
+	ActionPlan         *actionplan.ActionPlan
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }
