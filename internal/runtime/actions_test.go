@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -155,5 +156,59 @@ func TestCreateWorkflowActionRequestReusesProposalValidation(t *testing.T) {
 	}
 	if len(storage.ActionRequests) != 0 {
 		t.Fatalf("request store mutated on invalid proposal: %#v", storage.ActionRequests)
+	}
+}
+
+func TestCreateWorkflowActionRequestDeduplicatesConcurrentCreates(t *testing.T) {
+	t.Parallel()
+
+	storage, rec := workflowTestStorage()
+
+	const attempts = 16
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	results := make(chan *WorkflowActionRequest, attempts)
+	errsCh := make(chan []ActionError, attempts)
+
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			request, errs := CreateWorkflowActionRequest(storage, "test.WorkflowTask", rec.ID, "submit", 3)
+			results <- request
+			errsCh <- errs
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errsCh)
+
+	var requestID string
+	for errs := range errsCh {
+		if len(errs) > 0 {
+			t.Fatalf("CreateWorkflowActionRequest() errs = %#v", errs)
+		}
+	}
+	for request := range results {
+		if request == nil {
+			t.Fatalf("request is nil")
+		}
+		if requestID == "" {
+			requestID = request.ID
+			continue
+		}
+		if request.ID != requestID {
+			t.Fatalf("request ID = %q, want %q", request.ID, requestID)
+		}
+	}
+
+	if len(storage.ActionRequests) != 1 {
+		t.Fatalf("stored requests = %d, want 1", len(storage.ActionRequests))
+	}
+	if len(storage.ActionRequestKeys) != 1 {
+		t.Fatalf("stored request keys = %d, want 1", len(storage.ActionRequestKeys))
 	}
 }

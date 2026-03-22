@@ -1,6 +1,9 @@
 package runtime
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type WorkflowActionRequest struct {
 	ID            string    `json:"id"`
@@ -23,6 +26,22 @@ func CreateWorkflowActionRequest(storage *Storage, entityFQN, id, actionName str
 	}
 
 	now := time.Now().UTC()
+	key := workflowActionRequestKey(result.Entity, result.ID, result.Action, result.Version)
+
+	storage.Mu.Lock()
+	defer storage.Mu.Unlock()
+	if storage.ActionRequests == nil {
+		storage.ActionRequests = make(map[string]*WorkflowActionRequest)
+	}
+	if storage.ActionRequestKeys == nil {
+		storage.ActionRequestKeys = make(map[string]string)
+	}
+	if existingID, ok := storage.ActionRequestKeys[key]; ok {
+		if existing := storage.ActionRequests[existingID]; existing != nil {
+			copy := *existing
+			return &copy, nil
+		}
+	}
 	request := &WorkflowActionRequest{
 		ID:            storage.NewID(),
 		Entity:        result.Entity,
@@ -36,15 +55,14 @@ func CreateWorkflowActionRequest(storage *Storage, entityFQN, id, actionName str
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
-
-	storage.Mu.Lock()
-	if storage.ActionRequests == nil {
-		storage.ActionRequests = make(map[string]*WorkflowActionRequest)
-	}
 	storage.ActionRequests[request.ID] = request
-	storage.Mu.Unlock()
+	storage.ActionRequestKeys[key] = request.ID
 
 	return request, nil
+}
+
+func workflowActionRequestKey(entityFQN, id, actionName string, recordVersion int64) string {
+	return fmt.Sprintf("%s\x00%s\x00%s\x00%d", entityFQN, id, actionName, recordVersion)
 }
 
 func GetWorkflowActionRequest(storage *Storage, id string) (*WorkflowActionRequest, bool) {
