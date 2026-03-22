@@ -11,31 +11,33 @@ import (
 )
 
 type Service struct {
-	repo     QueueRepository
-	router   AssignmentRouter
-	planner  Planner
-	log      eventcore.EventLog
-	clock    eventcore.Clock
-	ids      eventcore.IDGenerator
-	planDate func(time.Time) string
+	repo        QueueRepository
+	router      AssignmentRouter
+	planner     Planner
+	coordinator Coordinator
+	log         eventcore.EventLog
+	clock       eventcore.Clock
+	ids         eventcore.IDGenerator
+	planDate    func(time.Time) string
 }
 
 type IntakeResult struct {
-	Command   eventcore.Command
-	Case      caseruntime.Case
-	Queue     WorkQueue
-	WorkItem  WorkItem
-	ExecEvent eventcore.ExecutionEvent
+	Command              eventcore.Command
+	Case                 caseruntime.Case
+	Queue                WorkQueue
+	WorkItem             WorkItem
+	CoordinationDecision CoordinationDecision
+	ExecEvent            eventcore.ExecutionEvent
 }
 
-func NewService(repo QueueRepository, router AssignmentRouter, planner Planner, log eventcore.EventLog, clock eventcore.Clock, ids eventcore.IDGenerator) *Service {
+func NewService(repo QueueRepository, router AssignmentRouter, planner Planner, coordinator Coordinator, log eventcore.EventLog, clock eventcore.Clock, ids eventcore.IDGenerator) *Service {
 	if clock == nil {
 		clock = eventcore.RealClock{}
 	}
 	if ids == nil {
 		ids = eventcore.NewULIDGenerator()
 	}
-	return &Service{repo: repo, router: router, planner: planner, log: log, clock: clock, ids: ids, planDate: PlanDateFromTime}
+	return &Service{repo: repo, router: router, planner: planner, coordinator: coordinator, log: log, clock: clock, ids: ids, planDate: PlanDateFromTime}
 }
 
 func (s *Service) IntakeCommand(ctx context.Context, resolved caseruntime.ResolutionResult) (IntakeResult, error) {
@@ -47,6 +49,9 @@ func (s *Service) IntakeCommand(ctx context.Context, resolved caseruntime.Resolu
 	}
 	if s.planner == nil {
 		return IntakeResult{}, fmt.Errorf("planner is nil")
+	}
+	if s.coordinator == nil {
+		return IntakeResult{}, fmt.Errorf("coordinator is nil")
 	}
 	queue, err := s.router.RouteCase(ctx, resolved.Case)
 	if err != nil {
@@ -101,7 +106,16 @@ func (s *Service) IntakeCommand(ctx context.Context, resolved caseruntime.Resolu
 	if err := s.repo.SaveWorkItem(ctx, workItem); err != nil {
 		return IntakeResult{}, err
 	}
-	return IntakeResult{Command: resolved.Command, Case: resolved.Case, Queue: queue, WorkItem: workItem, ExecEvent: execEvent}, nil
+	coordinationCtx := ContextWithPlanningExecution(ctx, PlanningExecutionContext{
+		ExecutionID:   resolved.Command.ExecutionID,
+		CorrelationID: resolved.Command.CorrelationID,
+		CausationID:   resolved.Command.ID,
+	})
+	decision, err := s.coordinator.CoordinateWorkItem(coordinationCtx, workItem)
+	if err != nil {
+		return IntakeResult{}, err
+	}
+	return IntakeResult{Command: resolved.Command, Case: resolved.Case, Queue: queue, WorkItem: workItem, CoordinationDecision: decision, ExecEvent: execEvent}, nil
 }
 
 func workItemTypeForCommand(cmd eventcore.Command) string {

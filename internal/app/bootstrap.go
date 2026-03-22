@@ -28,8 +28,10 @@ type BootstrapResult struct {
 	CaseService      *caseruntime.Service
 	QueueRepo        workplan.QueueRepository
 	PlanRepo         workplan.PlanRepository
+	CoordinationRepo workplan.CoordinationRepository
 	AssignmentRouter workplan.AssignmentRouter
 	Planner          workplan.Planner
+	Coordinator      workplan.Coordinator
 	WorkService      *workplan.Service
 	Config           config.Config
 }
@@ -103,7 +105,9 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	}
 	assignmentRouter := workplan.NewRouter(queueRepo, defaultQueue.ID)
 	planner := workplan.NewPlanner(planRepo, eventLog, clock, ids)
-	workService := workplan.NewService(queueRepo, assignmentRouter, planner, eventLog, clock, ids)
+	coordinationRepo := workplan.NewInMemoryCoordinationRepository()
+	coordinator := workplan.NewCoordinator(coordinationRepo, eventLog, clock, ids)
+	workService := workplan.NewService(queueRepo, assignmentRouter, planner, coordinator, eventLog, clock, ids)
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}
@@ -118,8 +122,10 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		CaseService:      caseService,
 		QueueRepo:        queueRepo,
 		PlanRepo:         planRepo,
+		CoordinationRepo: coordinationRepo,
 		AssignmentRouter: assignmentRouter,
 		Planner:          planner,
+		Coordinator:      coordinator,
 		WorkService:      workService,
 		Config:           cfg,
 	}, nil

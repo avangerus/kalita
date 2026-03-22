@@ -254,6 +254,12 @@ func (p failingPlanner) EnsurePlanForWorkItem(context.Context, workplan.WorkQueu
 	return workplan.DailyPlan{}, false, p.err
 }
 
+type failingCoordinator struct{ err error }
+
+func (f failingCoordinator) CoordinateWorkItem(context.Context, workplan.WorkItem) (workplan.CoordinationDecision, error) {
+	return workplan.CoordinationDecision{}, f.err
+}
+
 func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
@@ -271,7 +277,9 @@ func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	}
 	planRepo := workplan.NewInMemoryPlanRepository()
 	planner := workplan.NewPlanner(planRepo, eventLog, clock, ids)
-	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, "default-intake"), planner, eventLog, clock, ids)
+	coordinationRepo := workplan.NewInMemoryCoordinationRepository()
+	coordinator := workplan.NewCoordinator(coordinationRepo, eventLog, clock, ids)
+	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, "default-intake"), planner, coordinator, eventLog, clock, ids)
 
 	router := gin.New()
 	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService))
@@ -307,8 +315,8 @@ func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListByCorrelation error = %v", err)
 	}
-	if len(executionEvents) < 4 {
-		t.Fatalf("execution events len = %d, want at least 4", len(executionEvents))
+	if len(executionEvents) < 5 {
+		t.Fatalf("execution events len = %d, want at least 5", len(executionEvents))
 	}
 	if executionEvents[0].Step != "command_admission" || executionEvents[0].Status != "admitted" {
 		t.Fatalf("first execution event = %#v", executionEvents[0])
@@ -321,6 +329,9 @@ func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	}
 	if executionEvents[3].Step != "daily_plan_intake" || executionEvents[3].Status != "attached" {
 		t.Fatalf("fourth execution event = %#v", executionEvents[3])
+	}
+	if executionEvents[4].Step != "coordination_decision" || executionEvents[4].Status != "selected" {
+		t.Fatalf("fifth execution event = %#v", executionEvents[4])
 	}
 	workItems, err := queueRepo.ListWorkItemsByCase(context.Background(), "case-1")
 	if err != nil {
@@ -335,6 +346,13 @@ func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	}
 	if !ok || len(plan.WorkItemIDs) != 1 || plan.WorkItemIDs[0] != "work-1" {
 		t.Fatalf("plan = %#v ok=%v", plan, ok)
+	}
+	decisions, err := coordinationRepo.ListByWorkItem(context.Background(), "work-1")
+	if err != nil {
+		t.Fatalf("ListByWorkItem error = %v", err)
+	}
+	if len(decisions) != 1 || decisions[0].Outcome != workplan.CoordinationSelected {
+		t.Fatalf("coordination decisions = %#v", decisions)
 	}
 	if got := storage.Data["test.WorkflowTask"][rec.ID].Data["status"]; got != "Draft" {
 		t.Fatalf("legacy flow mutated status to %v", got)
@@ -377,6 +395,42 @@ func TestActionHandlerReturnsValidationErrorWhenWorkItemIntakeFails(t *testing.T
 	caseService := caseruntime.NewService(caseruntime.NewResolver(caseRepo, clock, ids), eventLog, clock, ids)
 	router := gin.New()
 	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, failingWorkService{err: errors.New("work intake failed")}))
+
+	body := map[string]any{"record_version": 3}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if got := storage.Data["test.WorkflowTask"][rec.ID].Data["status"]; got != "Draft" {
+		t.Fatalf("status mutated to %v", got)
+	}
+}
+
+func TestActionHandlerReturnsValidationErrorWhenCoordinationFails(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	storage, rec := testHTTPWorkflowStorage()
+	eventLog := eventcore.NewInMemoryEventLog()
+	clock := fakeClock{now: time.Date(2026, 3, 22, 14, 0, 0, 0, time.UTC)}
+	ids := &fakeIDGenerator{ids: []string{"cmd-1", "corr-1", "exec-1", "admission-event-1", "case-1", "case-event-1", "work-1", "work-event-1", "plan-1", "plan-event-1"}}
+	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, clock, ids)
+	caseRepo := caseruntime.NewInMemoryCaseRepository()
+	caseService := caseruntime.NewService(caseruntime.NewResolver(caseRepo, clock, ids), eventLog, clock, ids)
+	queueRepo := workplan.NewInMemoryQueueRepository()
+	if err := queueRepo.SaveQueue(context.Background(), workplan.WorkQueue{ID: "default-intake", AllowedCaseKinds: []string{"workflow.action"}}); err != nil {
+		t.Fatalf("SaveQueue error = %v", err)
+	}
+	planner := workplan.NewPlanner(workplan.NewInMemoryPlanRepository(), eventLog, clock, ids)
+	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, "default-intake"), planner, failingCoordinator{err: errors.New("coordination failed")}, eventLog, clock, ids)
+
+	router := gin.New()
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService))
 
 	body := map[string]any{"record_version": 3}
 	raw, _ := json.Marshal(body)
@@ -521,7 +575,7 @@ func TestActionHandlerReturnsValidationErrorWhenDailyPlanAttachmentFails(t *test
 	if err := queueRepo.SaveQueue(context.Background(), workplan.WorkQueue{ID: "default-intake", AllowedCaseKinds: []string{"workflow.action"}}); err != nil {
 		t.Fatalf("SaveQueue error = %v", err)
 	}
-	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, "default-intake"), failingPlanner{err: errors.New("daily plan failed")}, eventLog, clock, ids)
+	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, "default-intake"), failingPlanner{err: errors.New("daily plan failed")}, workplan.NewCoordinator(workplan.NewInMemoryCoordinationRepository(), eventLog, clock, ids), eventLog, clock, ids)
 
 	router := gin.New()
 	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService))
