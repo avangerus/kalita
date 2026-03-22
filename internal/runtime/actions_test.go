@@ -104,3 +104,56 @@ func workflowTestStorage() (*Storage, *Record) {
 	st.Data["test.WorkflowTask"] = map[string]*Record{rec.ID: rec}
 	return st, rec
 }
+
+func TestCreateWorkflowActionRequestStoresPendingRequestWithoutMutatingRecord(t *testing.T) {
+	t.Parallel()
+
+	storage, rec := workflowTestStorage()
+	beforeUpdated := rec.UpdatedAt
+
+	request, errs := CreateWorkflowActionRequest(storage, "test.WorkflowTask", rec.ID, "submit", 3)
+	if len(errs) > 0 {
+		t.Fatalf("CreateWorkflowActionRequest() errs = %#v", errs)
+	}
+	if request.ID == "" {
+		t.Fatalf("request ID is empty")
+	}
+	if request.Entity != "test.WorkflowTask" || request.TargetID != rec.ID {
+		t.Fatalf("unexpected request target = %#v", request)
+	}
+	if request.RecordVersion != 3 || request.Action != "submit" {
+		t.Fatalf("unexpected request payload = %#v", request)
+	}
+	if request.From != "Draft" || request.To != "InApproval" || request.State != "pending" {
+		t.Fatalf("unexpected request transition = %#v", request)
+	}
+	if got := rec.Data["status"]; got != "Draft" {
+		t.Fatalf("status mutated to %v", got)
+	}
+	if rec.Version != 3 {
+		t.Fatalf("version = %d, want 3", rec.Version)
+	}
+	if !rec.UpdatedAt.Equal(beforeUpdated) {
+		t.Fatalf("updated_at changed")
+	}
+	stored, ok := GetWorkflowActionRequest(storage, request.ID)
+	if !ok {
+		t.Fatalf("stored request %q not found", request.ID)
+	}
+	if *stored != *request {
+		t.Fatalf("stored request = %#v, want %#v", stored, request)
+	}
+}
+
+func TestCreateWorkflowActionRequestReusesProposalValidation(t *testing.T) {
+	t.Parallel()
+
+	storage, rec := workflowTestStorage()
+	_, errs := CreateWorkflowActionRequest(storage, "test.WorkflowTask", rec.ID, "submit", 2)
+	if len(errs) != 1 || errs[0].Code != "version_conflict" {
+		t.Fatalf("unexpected errs = %#v", errs)
+	}
+	if len(storage.ActionRequests) != 0 {
+		t.Fatalf("request store mutated on invalid proposal: %#v", storage.ActionRequests)
+	}
+}
