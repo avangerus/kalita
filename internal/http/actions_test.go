@@ -191,3 +191,93 @@ func testHTTPWorkflowStorage() (*runtime.Storage, *runtime.Record) {
 	st.Data["test.WorkflowTask"] = map[string]*runtime.Record{rec.ID: rec}
 	return st, rec
 }
+
+func TestCreateActionRequestAndGetByID(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	storage, rec := testHTTPWorkflowStorage()
+	router := gin.New()
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandler(storage))
+	router.POST("/api/:module/:entity/:id/_actions/:action/requests", CreateActionRequestHandler(storage))
+	router.GET("/api/_action_requests/:request_id", GetActionRequestHandler(storage))
+
+	body := map[string]any{"record_version": 3}
+	raw, _ := json.Marshal(body)
+	createReq := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit/requests", bytes.NewReader(raw))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	router.ServeHTTP(createW, createReq)
+
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", createW.Code, createW.Body.String())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("json.Unmarshal(create) error = %v", err)
+	}
+	requestID, _ := created["id"].(string)
+	if requestID == "" {
+		t.Fatalf("request id missing: %#v", created)
+	}
+	if created["entity"] != "test.WorkflowTask" || created["target_id"] != rec.ID {
+		t.Fatalf("unexpected request target = %#v", created)
+	}
+	if created["state"] != "pending" || created["from"] != "Draft" || created["to"] != "InApproval" {
+		t.Fatalf("unexpected request transition = %#v", created)
+	}
+	if got := storage.Data["test.WorkflowTask"][rec.ID].Data["status"]; got != "Draft" {
+		t.Fatalf("status mutated to %v", got)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/_action_requests/"+requestID, nil)
+	getW := httptest.NewRecorder()
+	router.ServeHTTP(getW, getReq)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("get status = %d body=%s", getW.Code, getW.Body.String())
+	}
+	if getW.Body.String() != createW.Body.String() {
+		t.Fatalf("get body = %s, want %s", getW.Body.String(), createW.Body.String())
+	}
+}
+
+func TestCreateActionRequestReusesValidationAndProposalEndpointStaysCompatible(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	storage, rec := testHTTPWorkflowStorage()
+	router := gin.New()
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandler(storage))
+	router.POST("/api/:module/:entity/:id/_actions/:action/requests", CreateActionRequestHandler(storage))
+
+	invalidBody, _ := json.Marshal(map[string]any{"record_version": 2})
+	invalidReq := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit/requests", bytes.NewReader(invalidBody))
+	invalidReq.Header.Set("Content-Type", "application/json")
+	invalidW := httptest.NewRecorder()
+	router.ServeHTTP(invalidW, invalidReq)
+	if invalidW.Code != http.StatusConflict {
+		t.Fatalf("invalid create status = %d body=%s", invalidW.Code, invalidW.Body.String())
+	}
+	if len(storage.ActionRequests) != 0 {
+		t.Fatalf("request store mutated after invalid create: %#v", storage.ActionRequests)
+	}
+
+	proposalBody, _ := json.Marshal(map[string]any{"record_version": 3})
+	proposalReq := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit", bytes.NewReader(proposalBody))
+	proposalReq.Header.Set("Content-Type", "application/json")
+	proposalW := httptest.NewRecorder()
+	router.ServeHTTP(proposalW, proposalReq)
+	if proposalW.Code != http.StatusOK {
+		t.Fatalf("proposal status = %d body=%s", proposalW.Code, proposalW.Body.String())
+	}
+	var proposalResp map[string]any
+	if err := json.Unmarshal(proposalW.Body.Bytes(), &proposalResp); err != nil {
+		t.Fatalf("json.Unmarshal(proposal) error = %v", err)
+	}
+	if proposalResp["committed"] != false {
+		t.Fatalf("committed = %v", proposalResp["committed"])
+	}
+	if len(storage.ActionRequests) != 0 {
+		t.Fatalf("proposal endpoint created request unexpectedly: %#v", storage.ActionRequests)
+	}
+}

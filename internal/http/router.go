@@ -30,6 +30,8 @@ func RunServer(addr string, storage *runtime.Storage) {
 
 		apiGroup.POST("/:module/:entity/:id/_file/:field", UploadFileHandler(storage))
 		apiGroup.POST("/:module/:entity/:id/_actions/:action", ActionHandler(storage))
+		apiGroup.POST("/:module/:entity/:id/_actions/:action/requests", CreateActionRequestHandler(storage))
+		apiGroup.GET("/_action_requests/:request_id", GetActionRequestHandler(storage))
 		r.GET("/api/core/attachment/:id/download", DownloadAttachmentHandler(storage))
 
 		r.POST("/api/admin/reload", AdminReloadHandler(storage))

@@ -23,22 +23,24 @@ type Record struct {
 }
 
 type Storage struct {
-	Mu      sync.RWMutex
-	Schemas map[string]*schema.Entity        // FQN ("module.name") -> схема
-	Data    map[string]map[string]*Record    // FQN -> id -> запись
-	Enums   map[string]catalog.EnumDirectory // каталог enum'ов (если нужен на валидации/UI)
-	entropy io.Reader
-	Blob    blob.BlobStore
+	Mu             sync.RWMutex
+	Schemas        map[string]*schema.Entity     // FQN ("module.name") -> схема
+	Data           map[string]map[string]*Record // FQN -> id -> запись
+	ActionRequests map[string]*WorkflowActionRequest
+	Enums          map[string]catalog.EnumDirectory // каталог enum'ов (если нужен на валидации/UI)
+	entropy        io.Reader
+	Blob           blob.BlobStore
 }
 
 // NewStorage наполняет схемы/энумы и готов к работе
 func NewStorage(entities []*schema.Entity, enumCatalog map[string]catalog.EnumDirectory) *Storage {
 	src := rand.New(rand.NewSource(time.Now().UnixNano()))
 	s := &Storage{
-		Schemas: make(map[string]*schema.Entity),
-		Data:    make(map[string]map[string]*Record),
-		Enums:   enumCatalog,
-		entropy: ulid.Monotonic(src, 0),
+		Schemas:        make(map[string]*schema.Entity),
+		Data:           make(map[string]map[string]*Record),
+		ActionRequests: make(map[string]*WorkflowActionRequest),
+		Enums:          enumCatalog,
+		entropy:        ulid.Monotonic(src, 0),
 	}
 	for _, e := range entities {
 		fqn := e.Module + "." + e.Name

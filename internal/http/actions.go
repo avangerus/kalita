@@ -20,51 +20,14 @@ type actionRequest struct {
 
 func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		mod := c.Param("module")
-		ent := c.Param("entity")
-		id := c.Param("id")
-		action := c.Param("action")
-
-		fqn, ok := storage.NormalizeEntityName(mod, ent)
+		fqn, action, req, ok := parseActionRequest(c, storage)
 		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
 			return
 		}
 
-		var req actionRequest
-		dec := json.NewDecoder(bytes.NewReader(mustReadBody(c)))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
-			return
-		}
-		if req.Action != "" && req.Action != action {
-			c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
-				Code:    validation.ErrTypeMismatch,
-				Field:   "action",
-				Message: fmt.Sprintf("body action %q does not match path action %q", req.Action, action),
-			}}})
-			return
-		}
-		if req.RecordVersion <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
-				Code:    validation.ErrRequired,
-				Field:   "record_version",
-				Message: "record_version is required for workflow actions",
-			}}})
-			return
-		}
-
-		result, errs := runtime.ExecuteWorkflowAction(storage, fqn, id, action, req.RecordVersion)
+		result, errs := runtime.ExecuteWorkflowAction(storage, fqn, c.Param("id"), action, req.RecordVersion)
 		if len(errs) > 0 {
-			verrs := make([]validation.FieldError, 0, len(errs))
-			for _, err := range errs {
-				verrs = append(verrs, validation.FieldError{
-					Code:    err.Code,
-					Field:   err.Field,
-					Message: err.Message,
-				})
-			}
+			verrs := toValidationErrors(errs)
 			c.JSON(statusForErrors(verrs), gin.H{"errors": verrs})
 			return
 		}
@@ -82,6 +45,44 @@ func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
 			"record":       result.Record,
 		})
 	}
+}
+
+func parseActionRequest(c *gin.Context, storage *runtime.Storage) (string, string, actionRequest, bool) {
+	mod := c.Param("module")
+	ent := c.Param("entity")
+	action := c.Param("action")
+
+	fqn, ok := storage.NormalizeEntityName(mod, ent)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
+		return "", "", actionRequest{}, false
+	}
+
+	var req actionRequest
+	dec := json.NewDecoder(bytes.NewReader(mustReadBody(c)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return "", "", actionRequest{}, false
+	}
+	if req.Action != "" && req.Action != action {
+		c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+			Code:    validation.ErrTypeMismatch,
+			Field:   "action",
+			Message: fmt.Sprintf("body action %q does not match path action %q", req.Action, action),
+		}}})
+		return "", "", actionRequest{}, false
+	}
+	if req.RecordVersion <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+			Code:    validation.ErrRequired,
+			Field:   "record_version",
+			Message: "record_version is required for workflow actions",
+		}}})
+		return "", "", actionRequest{}, false
+	}
+
+	return fqn, action, req, true
 }
 
 func mustReadBody(c *gin.Context) []byte {
