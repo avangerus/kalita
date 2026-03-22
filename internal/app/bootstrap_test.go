@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestBootstrapProvidesEventCenterCaseRuntimeAndWorkplan(t *testing.T) {
+func TestBootstrapProvidesEventCenterCaseRuntimeWorkplanAndPolicy(t *testing.T) {
 	cfg := `{
   "port": "8080",
   "dslDir": "../../dsl",
@@ -67,6 +67,15 @@ func TestBootstrapProvidesEventCenterCaseRuntimeAndWorkplan(t *testing.T) {
 	}
 	if result.WorkService == nil {
 		t.Fatal("WorkService is nil")
+	}
+	if result.PolicyRepo == nil {
+		t.Fatal("PolicyRepo is nil")
+	}
+	if result.PolicyEvaluator == nil {
+		t.Fatal("PolicyEvaluator is nil")
+	}
+	if result.PolicyService == nil {
+		t.Fatal("PolicyService is nil")
 	}
 	queues, err := result.QueueRepo.ListQueues(context.Background())
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"kalita/internal/caseruntime"
 	"kalita/internal/command"
 	"kalita/internal/eventcore"
+	"kalita/internal/policy"
 	"kalita/internal/runtime"
 	"kalita/internal/validation"
 	"kalita/internal/workplan"
@@ -24,11 +25,11 @@ type actionRequest struct {
 }
 
 func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, nil, nil, nil)
+	return ActionHandlerWithServices(storage, nil, nil, nil, nil)
 }
 
 func ActionHandlerWithCommandBus(storage *runtime.Storage, commandBus command.CommandBus) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, commandBus, nil, nil)
+	return ActionHandlerWithServices(storage, commandBus, nil, nil, nil)
 }
 
 type commandCaseResolver interface {
@@ -39,7 +40,11 @@ type workItemIntakeService interface {
 	IntakeCommand(ctx context.Context, resolved caseruntime.ResolutionResult) (workplan.IntakeResult, error)
 }
 
-func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService) gin.HandlerFunc {
+type policyService interface {
+	EvaluateAndRecord(ctx context.Context, d workplan.CoordinationDecision) (policy.PolicyDecision, *policy.ApprovalRequest, error)
+}
+
+func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fqn, action, req, ok := parseActionRequest(c, storage)
 		if !ok {
@@ -68,13 +73,42 @@ func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.Comm
 					return
 				}
 				if workService != nil {
-					if _, err := workService.IntakeCommand(c.Request.Context(), resolved); err != nil {
+					intakeResult, err := workService.IntakeCommand(c.Request.Context(), resolved)
+					if err != nil {
 						c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
 							Code:    validation.ErrTypeMismatch,
 							Field:   "action",
 							Message: err.Error(),
 						}}})
 						return
+					}
+					if policyService != nil {
+						policyCtx := policy.ContextWithExecution(c.Request.Context(), policy.ExecutionContext{
+							ExecutionID:   intakeResult.Command.ExecutionID,
+							CorrelationID: intakeResult.Command.CorrelationID,
+							CausationID:   intakeResult.Command.ID,
+						})
+						policyDecision, approvalRequest, err := policyService.EvaluateAndRecord(policyCtx, intakeResult.CoordinationDecision)
+						if err != nil {
+							c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+								Code:    validation.ErrTypeMismatch,
+								Field:   "action",
+								Message: err.Error(),
+							}}})
+							return
+						}
+						if policyDecision.Outcome != policy.PolicyAllow {
+							message := policyDecision.Reason
+							if approvalRequest != nil {
+								message = fmt.Sprintf("%s (approval_request_id=%s)", message, approvalRequest.ID)
+							}
+							c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+								Code:    validation.ErrTypeMismatch,
+								Field:   "action",
+								Message: message,
+							}}})
+							return
+						}
 					}
 				}
 			}

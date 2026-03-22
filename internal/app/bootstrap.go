@@ -12,6 +12,7 @@ import (
 	"kalita/internal/command"
 	"kalita/internal/config"
 	"kalita/internal/eventcore"
+	"kalita/internal/policy"
 	"kalita/internal/postgres"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
@@ -33,6 +34,9 @@ type BootstrapResult struct {
 	Planner          workplan.Planner
 	Coordinator      workplan.Coordinator
 	WorkService      *workplan.Service
+	PolicyRepo       policy.PolicyRepository
+	PolicyEvaluator  policy.Evaluator
+	PolicyService    policy.Service
 	Config           config.Config
 }
 
@@ -108,6 +112,9 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	coordinationRepo := workplan.NewInMemoryCoordinationRepository()
 	coordinator := workplan.NewCoordinator(coordinationRepo, eventLog, clock, ids)
 	workService := workplan.NewService(queueRepo, assignmentRouter, planner, coordinator, eventLog, clock, ids)
+	policyRepo := policy.NewInMemoryRepository()
+	policyEvaluator := policy.NewEvaluator()
+	policyService := policy.NewService(policyRepo, policyEvaluator, eventLog, clock, ids)
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}
@@ -127,6 +134,9 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		Planner:          planner,
 		Coordinator:      coordinator,
 		WorkService:      workService,
+		PolicyRepo:       policyRepo,
+		PolicyEvaluator:  policyEvaluator,
+		PolicyService:    policyService,
 		Config:           cfg,
 	}, nil
 }
