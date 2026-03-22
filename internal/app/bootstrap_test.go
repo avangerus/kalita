@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestBootstrapProvidesEventCenter(t *testing.T) {
+func TestBootstrapProvidesEventCenterAndCaseRuntime(t *testing.T) {
 	cfg := `{
   "port": "8080",
   "dslDir": "../../dsl",
@@ -36,5 +36,14 @@ func TestBootstrapProvidesEventCenter(t *testing.T) {
 	}
 	if result.CommandBus == nil {
 		t.Fatal("CommandBus is nil")
+	}
+	if result.CaseRepo == nil {
+		t.Fatal("CaseRepo is nil")
+	}
+	if result.CaseResolver == nil {
+		t.Fatal("CaseResolver is nil")
+	}
+	if result.CaseService == nil {
+		t.Fatal("CaseService is nil")
 	}
 }

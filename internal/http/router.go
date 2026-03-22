@@ -3,6 +3,7 @@ package http
 import (
 	"log"
 
+	"kalita/internal/caseruntime"
 	"kalita/internal/command"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
@@ -11,10 +12,14 @@ import (
 )
 
 func RunServer(addr string, storage *runtime.Storage) {
-	RunServerWithCommandBus(addr, storage, nil)
+	RunServerWithServices(addr, storage, nil, nil)
 }
 
 func RunServerWithCommandBus(addr string, storage *runtime.Storage, commandBus command.CommandBus) {
+	RunServerWithServices(addr, storage, commandBus, nil)
+}
+
+func RunServerWithServices(addr string, storage *runtime.Storage, commandBus command.CommandBus, caseService *caseruntime.Service) {
 	// fail-fast, если есть критичные проблемы схемы
 	if issues := schema.Lint(storage.Schemas); len(issues) > 0 {
 		for _, it := range issues {
@@ -34,7 +39,7 @@ func RunServerWithCommandBus(addr string, storage *runtime.Storage, commandBus c
 		apiGroup.GET("/meta/catalog/:name", MetaCatalogHandler(storage)) // если пользуешься catalog=
 
 		apiGroup.POST("/:module/:entity/:id/_file/:field", UploadFileHandler(storage))
-		apiGroup.POST("/:module/:entity/:id/_actions/:action", ActionHandlerWithCommandBus(storage, commandBus))
+		apiGroup.POST("/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService))
 		apiGroup.POST("/:module/:entity/:id/_actions/:action/requests", CreateActionRequestHandler(storage))
 		apiGroup.GET("/_action_requests/:request_id", GetActionRequestHandler(storage))
 		r.GET("/api/core/attachment/:id/download", DownloadAttachmentHandler(storage))

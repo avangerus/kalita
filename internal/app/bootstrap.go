@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"kalita/internal/blob"
+	"kalita/internal/caseruntime"
 	"kalita/internal/catalog"
 	"kalita/internal/command"
 	"kalita/internal/config"
@@ -17,10 +18,13 @@ import (
 
 // BootstrapResult holds the initialized application components
 type BootstrapResult struct {
-	Storage    *runtime.Storage
-	EventLog   eventcore.EventLog
-	CommandBus command.CommandBus
-	Config     config.Config
+	Storage      *runtime.Storage
+	EventLog     eventcore.EventLog
+	CommandBus   command.CommandBus
+	CaseRepo     caseruntime.CaseRepository
+	CaseResolver caseruntime.CaseResolver
+	CaseService  *caseruntime.Service
+	Config       config.Config
 }
 
 // Bootstrap initializes the application with all required components
@@ -72,17 +76,25 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	// In-memory API (данные пока в памяти; PG — только схема)
 	st := runtime.NewStorage(entities, enumCatalog)
 	eventLog := eventcore.NewInMemoryEventLog()
-	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, eventcore.RealClock{}, eventcore.NewULIDGenerator())
+	clock := eventcore.RealClock{}
+	ids := eventcore.NewULIDGenerator()
+	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, clock, ids)
+	caseRepo := caseruntime.NewInMemoryCaseRepository()
+	caseResolver := caseruntime.NewResolver(caseRepo, clock, ids)
+	caseService := caseruntime.NewService(caseResolver, eventLog, clock, ids)
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}
 	st.Blob = &blob.LocalBlobStore{Root: cfg.FilesRoot}
 
 	return &BootstrapResult{
-		Storage:    st,
-		EventLog:   eventLog,
-		CommandBus: commandBus,
-		Config:     cfg,
+		Storage:      st,
+		EventLog:     eventLog,
+		CommandBus:   commandBus,
+		CaseRepo:     caseRepo,
+		CaseResolver: caseResolver,
+		CaseService:  caseService,
+		Config:       cfg,
 	}, nil
 }
 
