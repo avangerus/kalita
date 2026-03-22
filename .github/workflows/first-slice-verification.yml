@@ -1,0 +1,47 @@
+name: First Slice Verification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/first-slice-verification.yml'
+      - 'internal/schema/**'
+      - 'internal/runtime/**'
+      - 'internal/http/**'
+      - 'docs/ai-shift/**'
+      - 'go.mod'
+      - 'go.sum'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/first-slice-verification.yml'
+      - 'internal/schema/**'
+      - 'internal/runtime/**'
+      - 'internal/http/**'
+      - 'docs/ai-shift/**'
+      - 'go.mod'
+      - 'go.sum'
+  workflow_dispatch:
+
+jobs:
+  first-slice-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify schema workflow tests
+        run: go test ./internal/schema -run Workflow -count=1
+
+      - name: Verify runtime workflow action tests
+        run: go test ./internal/runtime -run 'TestExecuteWorkflowAction(ReturnsProposalForValidTransition|RejectsDisallowedState|RejectsUnknownAction|RejectsVersionMismatch)$' -count=1
+
+      - name: Verify HTTP workflow action handler tests
+        run: go test ./internal/http -run 'TestActionHandler(ReturnsProposalAndMetaWorkflow|ReturnsConflictOnStaleVersion|RejectsMissingRecordVersion|RejectsIgnoredPayloadFields)$' -count=1 -v
