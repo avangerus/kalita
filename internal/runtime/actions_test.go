@@ -7,29 +7,35 @@ import (
 	"kalita/internal/schema"
 )
 
-func TestExecuteWorkflowActionAllowsValidTransition(t *testing.T) {
+func TestExecuteWorkflowActionReturnsProposalForValidTransition(t *testing.T) {
 	t.Parallel()
 
 	storage, rec := workflowTestStorage()
 	beforeUpdated := rec.UpdatedAt
-	result, errs := ExecuteWorkflowAction(storage, "test.WorkflowTask", rec.ID, "submit", 3, true)
+	result, errs := ExecuteWorkflowAction(storage, "test.WorkflowTask", rec.ID, "submit", 3)
 	if len(errs) > 0 {
 		t.Fatalf("ExecuteWorkflowAction() errs = %#v", errs)
 	}
 	if result.To != "InApproval" || result.From != "Draft" {
 		t.Fatalf("unexpected transition result = %#v", result)
 	}
-	if got := rec.Data["status"]; got != "InApproval" {
-		t.Fatalf("status = %v, want InApproval", got)
+	if got := rec.Data["status"]; got != "Draft" {
+		t.Fatalf("status mutated to %v", got)
 	}
 	if got := rec.Data["title"]; got != "Keep me" {
 		t.Fatalf("title mutated to %v", got)
 	}
-	if rec.Version != 4 {
-		t.Fatalf("version = %d, want 4", rec.Version)
+	if rec.Version != 3 {
+		t.Fatalf("version = %d, want 3", rec.Version)
 	}
-	if !rec.UpdatedAt.After(beforeUpdated) {
-		t.Fatalf("updated_at did not change")
+	if !rec.UpdatedAt.Equal(beforeUpdated) {
+		t.Fatalf("updated_at changed")
+	}
+	if result.Committed {
+		t.Fatalf("committed = true, want false")
+	}
+	if got := result.Record["status"]; got != "InApproval" {
+		t.Fatalf("proposal status = %v", got)
 	}
 }
 
@@ -39,7 +45,7 @@ func TestExecuteWorkflowActionRejectsDisallowedState(t *testing.T) {
 	storage, rec := workflowTestStorage()
 	rec.Data["status"] = "Approved"
 
-	_, errs := ExecuteWorkflowAction(storage, "test.WorkflowTask", rec.ID, "submit", 3, true)
+	_, errs := ExecuteWorkflowAction(storage, "test.WorkflowTask", rec.ID, "submit", 3)
 	if len(errs) != 1 {
 		t.Fatalf("expected one error, got %#v", errs)
 	}
@@ -52,7 +58,7 @@ func TestExecuteWorkflowActionRejectsUnknownAction(t *testing.T) {
 	t.Parallel()
 
 	storage, rec := workflowTestStorage()
-	_, errs := ExecuteWorkflowAction(storage, "test.WorkflowTask", rec.ID, "reject", 3, true)
+	_, errs := ExecuteWorkflowAction(storage, "test.WorkflowTask", rec.ID, "reject", 3)
 	if len(errs) != 1 || errs[0].Field != "action" {
 		t.Fatalf("unexpected errs = %#v", errs)
 	}
@@ -62,7 +68,7 @@ func TestExecuteWorkflowActionRejectsVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	storage, rec := workflowTestStorage()
-	_, errs := ExecuteWorkflowAction(storage, "test.WorkflowTask", rec.ID, "submit", 2, true)
+	_, errs := ExecuteWorkflowAction(storage, "test.WorkflowTask", rec.ID, "submit", 2)
 	if len(errs) != 1 || errs[0].Code != "version_conflict" {
 		t.Fatalf("unexpected errs = %#v", errs)
 	}

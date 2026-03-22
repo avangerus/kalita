@@ -1,7 +1,10 @@
 package http
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"kalita/internal/runtime"
@@ -11,8 +14,8 @@ import (
 )
 
 type actionRequest struct {
-	RecordVersion int64                  `json:"record_version"`
-	Payload       map[string]interface{} `json:"payload"`
+	Action        string `json:"action,omitempty"`
+	RecordVersion int64  `json:"record_version"`
 }
 
 func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
@@ -29,12 +32,30 @@ func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
 		}
 
 		var req actionRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(mustReadBody(c)))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 			return
 		}
+		if req.Action != "" && req.Action != action {
+			c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+				Code:    validation.ErrTypeMismatch,
+				Field:   "action",
+				Message: fmt.Sprintf("body action %q does not match path action %q", req.Action, action),
+			}}})
+			return
+		}
+		if req.RecordVersion <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+				Code:    validation.ErrRequired,
+				Field:   "record_version",
+				Message: "record_version is required for workflow actions",
+			}}})
+			return
+		}
 
-		result, errs := runtime.ExecuteWorkflowAction(storage, fqn, id, action, req.RecordVersion, req.RecordVersion > 0)
+		result, errs := runtime.ExecuteWorkflowAction(storage, fqn, id, action, req.RecordVersion)
 		if len(errs) > 0 {
 			verrs := make([]validation.FieldError, 0, len(errs))
 			for _, err := range errs {
@@ -61,4 +82,16 @@ func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
 			"record":       result.Record,
 		})
 	}
+}
+
+func mustReadBody(c *gin.Context) []byte {
+	if c.Request.Body == nil {
+		return []byte("{}")
+	}
+	body, err := c.GetRawData()
+	if err != nil || len(body) == 0 {
+		return []byte("{}")
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	return body
 }

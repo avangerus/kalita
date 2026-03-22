@@ -14,7 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestActionHandlerSuccessAndMetaWorkflow(t *testing.T) {
+func TestActionHandlerReturnsProposalAndMetaWorkflow(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -26,9 +26,6 @@ func TestActionHandlerSuccessAndMetaWorkflow(t *testing.T) {
 	body := map[string]any{
 		"action":         "submit",
 		"record_version": 3,
-		"payload": map[string]any{
-			"comment": "ready for approval",
-		},
 	}
 	raw, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit", bytes.NewReader(raw))
@@ -46,8 +43,18 @@ func TestActionHandlerSuccessAndMetaWorkflow(t *testing.T) {
 	if got := actionResp["to"]; got != "InApproval" {
 		t.Fatalf("to = %v", got)
 	}
-	if got := actionResp["version"]; got.(float64) != 4 {
+	if got := actionResp["version"]; got.(float64) != 3 {
 		t.Fatalf("version = %v", got)
+	}
+	if got := actionResp["committed"]; got != false {
+		t.Fatalf("committed = %v", got)
+	}
+	if got := storage.Data["test.WorkflowTask"][rec.ID].Data["status"]; got != "Draft" {
+		t.Fatalf("status mutated to %v", got)
+	}
+	proposal := actionResp["record"].(map[string]any)
+	if got := proposal["status"]; got != "InApproval" {
+		t.Fatalf("proposal status = %v", got)
 	}
 
 	metaReq := httptest.NewRequest(http.MethodGet, "/api/meta/test/WorkflowTask", nil)
@@ -82,6 +89,50 @@ func TestActionHandlerReturnsConflictOnStaleVersion(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestActionHandlerRejectsMissingRecordVersion(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	storage, rec := testHTTPWorkflowStorage()
+	router := gin.New()
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandler(storage))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if got := storage.Data["test.WorkflowTask"][rec.ID].Data["status"]; got != "Draft" {
+		t.Fatalf("status mutated to %v", got)
+	}
+}
+
+func TestActionHandlerRejectsIgnoredPayloadFields(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	storage, rec := testHTTPWorkflowStorage()
+	router := gin.New()
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandler(storage))
+
+	body := map[string]any{
+		"record_version": 3,
+		"payload":        map[string]any{"comment": "ignored before"},
+	}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
 }

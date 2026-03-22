@@ -21,7 +21,7 @@ type ActionResult struct {
 	UpdatedAtUTC time.Time              `json:"-"`
 }
 
-func ExecuteWorkflowAction(storage *Storage, entityFQN, id, actionName string, expectedVersion int64, requireVersion bool) (*ActionResult, []ActionError) {
+func ExecuteWorkflowAction(storage *Storage, entityFQN, id, actionName string, expectedVersion int64) (*ActionResult, []ActionError) {
 	entitySchema := storage.Schemas[entityFQN]
 	if entitySchema == nil {
 		return nil, []ActionError{{Code: "not_found", Field: "entity", Message: "Entity not found"}}
@@ -37,14 +37,13 @@ func ExecuteWorkflowAction(storage *Storage, entityFQN, id, actionName string, e
 		return nil, []ActionError{{Code: "not_found", Field: "action", Message: "Action not declared for entity"}}
 	}
 
-	storage.Mu.Lock()
-	defer storage.Mu.Unlock()
-
+	storage.Mu.RLock()
 	rec := storage.Data[entityFQN][id]
+	storage.Mu.RUnlock()
 	if rec == nil || rec.Deleted {
 		return nil, []ActionError{{Code: "not_found", Field: "id", Message: "Record not found"}}
 	}
-	if requireVersion && rec.Version != expectedVersion {
+	if rec.Version != expectedVersion {
 		return nil, []ActionError{{
 			Code:    "version_conflict",
 			Field:   "record_version",
@@ -61,9 +60,10 @@ func ExecuteWorkflowAction(storage *Storage, entityFQN, id, actionName string, e
 		}}
 	}
 
-	rec.Data[workflow.StatusField] = action.To
-	rec.Version++
-	rec.UpdatedAt = time.Now().UTC()
+	proposal := flattenRecord(rec)
+	proposal[workflow.StatusField] = action.To
+	proposal["version"] = rec.Version
+	proposal["updated_at"] = rec.UpdatedAt.Format(time.RFC3339)
 
 	return &ActionResult{
 		Entity:       entityFQN,
@@ -73,8 +73,8 @@ func ExecuteWorkflowAction(storage *Storage, entityFQN, id, actionName string, e
 		From:         currentStatus,
 		To:           action.To,
 		Version:      rec.Version,
-		Record:       flattenRecord(rec),
-		Committed:    true,
+		Record:       proposal,
+		Committed:    false,
 		UpdatedAtUTC: rec.UpdatedAt,
 	}, nil
 }
