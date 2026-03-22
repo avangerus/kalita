@@ -50,8 +50,14 @@ func TestBootstrapProvidesEventCenterCaseRuntimeAndWorkplan(t *testing.T) {
 	if result.QueueRepo == nil {
 		t.Fatal("QueueRepo is nil")
 	}
+	if result.PlanRepo == nil {
+		t.Fatal("PlanRepo is nil")
+	}
 	if result.AssignmentRouter == nil {
 		t.Fatal("AssignmentRouter is nil")
+	}
+	if result.Planner == nil {
+		t.Fatal("Planner is nil")
 	}
 	if result.WorkService == nil {
 		t.Fatal("WorkService is nil")

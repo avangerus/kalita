@@ -246,6 +246,14 @@ func (s failingWorkService) IntakeCommand(context.Context, caseruntime.Resolutio
 	return workplan.IntakeResult{}, s.err
 }
 
+type failingPlanner struct {
+	err error
+}
+
+func (p failingPlanner) EnsurePlanForWorkItem(context.Context, workplan.WorkQueue, workplan.WorkItem, string) (workplan.DailyPlan, bool, error) {
+	return workplan.DailyPlan{}, false, p.err
+}
+
 func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
@@ -253,7 +261,7 @@ func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	storage, rec := testHTTPWorkflowStorage()
 	eventLog := eventcore.NewInMemoryEventLog()
 	clock := fakeClock{now: time.Date(2026, 3, 22, 14, 0, 0, 0, time.UTC)}
-	ids := &fakeIDGenerator{ids: []string{"cmd-1", "corr-1", "exec-1", "admission-event-1", "case-1", "case-event-1", "followup-event-1"}}
+	ids := &fakeIDGenerator{ids: []string{"cmd-1", "corr-1", "exec-1", "admission-event-1", "case-1", "case-event-1", "work-1", "work-event-1", "plan-1", "plan-event-1", "followup-event-1"}}
 	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, clock, ids)
 	caseRepo := caseruntime.NewInMemoryCaseRepository()
 	caseService := caseruntime.NewService(caseruntime.NewResolver(caseRepo, clock, ids), eventLog, clock, ids)
@@ -261,7 +269,9 @@ func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	if err := queueRepo.SaveQueue(context.Background(), workplan.WorkQueue{ID: "default-intake", AllowedCaseKinds: []string{"workflow.action"}}); err != nil {
 		t.Fatalf("SaveQueue error = %v", err)
 	}
-	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, "default-intake"), eventLog, clock, ids)
+	planRepo := workplan.NewInMemoryPlanRepository()
+	planner := workplan.NewPlanner(planRepo, eventLog, clock, ids)
+	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, "default-intake"), planner, eventLog, clock, ids)
 
 	router := gin.New()
 	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService))
@@ -297,8 +307,8 @@ func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListByCorrelation error = %v", err)
 	}
-	if len(executionEvents) < 3 {
-		t.Fatalf("execution events len = %d, want at least 3", len(executionEvents))
+	if len(executionEvents) < 4 {
+		t.Fatalf("execution events len = %d, want at least 4", len(executionEvents))
 	}
 	if executionEvents[0].Step != "command_admission" || executionEvents[0].Status != "admitted" {
 		t.Fatalf("first execution event = %#v", executionEvents[0])
@@ -309,12 +319,22 @@ func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	if executionEvents[2].Step != "work_item_intake" || executionEvents[2].Status != "created" {
 		t.Fatalf("third execution event = %#v", executionEvents[2])
 	}
+	if executionEvents[3].Step != "daily_plan_intake" || executionEvents[3].Status != "attached" {
+		t.Fatalf("fourth execution event = %#v", executionEvents[3])
+	}
 	workItems, err := queueRepo.ListWorkItemsByCase(context.Background(), "case-1")
 	if err != nil {
 		t.Fatalf("ListWorkItemsByCase error = %v", err)
 	}
-	if len(workItems) != 1 || workItems[0].QueueID != "default-intake" {
+	if len(workItems) != 1 || workItems[0].QueueID != "default-intake" || workItems[0].PlanID != "plan-1" {
 		t.Fatalf("workItems = %#v", workItems)
+	}
+	plan, ok, err := planRepo.GetPlan(context.Background(), "plan-1")
+	if err != nil {
+		t.Fatalf("GetPlan error = %v", err)
+	}
+	if !ok || len(plan.WorkItemIDs) != 1 || plan.WorkItemIDs[0] != "work-1" {
+		t.Fatalf("plan = %#v ok=%v", plan, ok)
 	}
 	if got := storage.Data["test.WorkflowTask"][rec.ID].Data["status"]; got != "Draft" {
 		t.Fatalf("legacy flow mutated status to %v", got)
@@ -483,5 +503,40 @@ func TestCreateActionRequestReusesValidationAndProposalEndpointStaysCompatible(t
 	}
 	if len(storage.ActionRequests) != 0 {
 		t.Fatalf("proposal endpoint created request unexpectedly: %#v", storage.ActionRequests)
+	}
+}
+
+func TestActionHandlerReturnsValidationErrorWhenDailyPlanAttachmentFails(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	storage, rec := testHTTPWorkflowStorage()
+	eventLog := eventcore.NewInMemoryEventLog()
+	clock := fakeClock{now: time.Date(2026, 3, 22, 14, 0, 0, 0, time.UTC)}
+	ids := &fakeIDGenerator{ids: []string{"cmd-1", "corr-1", "exec-1", "admission-event-1", "case-1", "case-event-1", "work-1", "work-event-1"}}
+	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, clock, ids)
+	caseRepo := caseruntime.NewInMemoryCaseRepository()
+	caseService := caseruntime.NewService(caseruntime.NewResolver(caseRepo, clock, ids), eventLog, clock, ids)
+	queueRepo := workplan.NewInMemoryQueueRepository()
+	if err := queueRepo.SaveQueue(context.Background(), workplan.WorkQueue{ID: "default-intake", AllowedCaseKinds: []string{"workflow.action"}}); err != nil {
+		t.Fatalf("SaveQueue error = %v", err)
+	}
+	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, "default-intake"), failingPlanner{err: errors.New("daily plan failed")}, eventLog, clock, ids)
+
+	router := gin.New()
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService))
+
+	body := map[string]any{"record_version": 3}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if got := storage.Data["test.WorkflowTask"][rec.ID].Data["status"]; got != "Draft" {
+		t.Fatalf("status mutated to %v", got)
 	}
 }

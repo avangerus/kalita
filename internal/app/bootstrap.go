@@ -27,7 +27,9 @@ type BootstrapResult struct {
 	CaseResolver     caseruntime.CaseResolver
 	CaseService      *caseruntime.Service
 	QueueRepo        workplan.QueueRepository
+	PlanRepo         workplan.PlanRepository
 	AssignmentRouter workplan.AssignmentRouter
+	Planner          workplan.Planner
 	WorkService      *workplan.Service
 	Config           config.Config
 }
@@ -88,6 +90,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	caseResolver := caseruntime.NewResolver(caseRepo, clock, ids)
 	caseService := caseruntime.NewService(caseResolver, eventLog, clock, ids)
 	queueRepo := workplan.NewInMemoryQueueRepository()
+	planRepo := workplan.NewInMemoryPlanRepository()
 	defaultQueue := workplan.WorkQueue{
 		ID:               "default-intake",
 		Name:             "Default Intake",
@@ -99,7 +102,8 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		return nil, fmt.Errorf("seed default queue: %w", err)
 	}
 	assignmentRouter := workplan.NewRouter(queueRepo, defaultQueue.ID)
-	workService := workplan.NewService(queueRepo, assignmentRouter, eventLog, clock, ids)
+	planner := workplan.NewPlanner(planRepo, eventLog, clock, ids)
+	workService := workplan.NewService(queueRepo, assignmentRouter, planner, eventLog, clock, ids)
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}
@@ -113,7 +117,9 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		CaseResolver:     caseResolver,
 		CaseService:      caseService,
 		QueueRepo:        queueRepo,
+		PlanRepo:         planRepo,
 		AssignmentRouter: assignmentRouter,
+		Planner:          planner,
 		WorkService:      workService,
 		Config:           cfg,
 	}, nil
