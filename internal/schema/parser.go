@@ -19,6 +19,12 @@ var (
 	moduleRe           = regexp.MustCompile(`^\s*module\s+([A-Za-z0-9_.-]+)\s*$`)
 	reConstraintsStart = regexp.MustCompile(`^\s*constraints\s*:\s*$`)
 	reUniqueLine       = regexp.MustCompile(`^\s*unique\s*\(\s*([^)]+)\s*\)\s*$`)
+	reWorkflowStart    = regexp.MustCompile(`^\s*workflow\s*:\s*$`)
+	reActionsStart     = regexp.MustCompile(`^\s*actions\s*:\s*$`)
+	reStatusFieldLine  = regexp.MustCompile(`^\s*status_field\s*:\s*([A-Za-z_][\w]*)\s*$`)
+	reWorkflowAction   = regexp.MustCompile(`^\s*([A-Za-z_][\w]*)\s*:\s*$`)
+	reWorkflowFromLine = regexp.MustCompile(`^\s*from\s*:\s*\[(.*)\]\s*$`)
+	reWorkflowToLine   = regexp.MustCompile(`^\s*to\s*:\s*([^\s#]+)\s*$`)
 )
 
 // // parse: options tokenizer — делит "k=v k2='v 2' pattern=^[A-Z0-9 _-]+$" на токены, не рвёт по пробелам внутри кавычек/скобок
@@ -81,6 +87,9 @@ func LoadEntities(path string) ([]*Entity, error) {
 	var current *Entity
 	currentModule := ""
 	inConstraints := false
+	inWorkflow := false
+	inWorkflowActions := false
+	currentWorkflowAction := ""
 	// карта имён полей текущей сущности (для проверки дублей)
 	var fieldNames map[string]struct{}
 
@@ -106,6 +115,9 @@ func LoadEntities(path string) ([]*Entity, error) {
 			}
 			current = &Entity{Name: m[1], Module: currentModule}
 			inConstraints = false
+			inWorkflow = false
+			inWorkflowActions = false
+			currentWorkflowAction = ""
 			fieldNames = make(map[string]struct{}, 16)
 			continue
 		}
@@ -117,6 +129,9 @@ func LoadEntities(path string) ([]*Entity, error) {
 		// ----- БЛОК CONSTRAINTS -----
 		if reConstraintsStart.MatchString(line) {
 			inConstraints = true
+			inWorkflow = false
+			inWorkflowActions = false
+			currentWorkflowAction = ""
 			continue
 		}
 		if inConstraints {
@@ -144,6 +159,60 @@ func LoadEntities(path string) ([]*Entity, error) {
 			}
 		}
 		// ----- КОНЕЦ БЛОКА CONSTRAINTS -----
+
+		// ----- БЛОК WORKFLOW -----
+		if reWorkflowStart.MatchString(line) {
+			inWorkflow = true
+			inWorkflowActions = false
+			currentWorkflowAction = ""
+			if current.Workflow == nil {
+				current.Workflow = &Workflow{Actions: map[string]WorkflowAction{}}
+			}
+			continue
+		}
+		if inWorkflow {
+			switch {
+			case reStatusFieldLine.MatchString(line):
+				m := reStatusFieldLine.FindStringSubmatch(line)
+				current.Workflow.StatusField = strings.TrimSpace(m[1])
+				continue
+			case reActionsStart.MatchString(line):
+				inWorkflowActions = true
+				currentWorkflowAction = ""
+				continue
+			case inWorkflowActions && reWorkflowAction.MatchString(line):
+				m := reWorkflowAction.FindStringSubmatch(line)
+				currentWorkflowAction = strings.TrimSpace(m[1])
+				if _, exists := current.Workflow.Actions[currentWorkflowAction]; exists {
+					return nil, fmt.Errorf("%s.%s: duplicate workflow action %q", current.Module, current.Name, currentWorkflowAction)
+				}
+				current.Workflow.Actions[currentWorkflowAction] = WorkflowAction{}
+				continue
+			case inWorkflowActions && reWorkflowFromLine.MatchString(line):
+				if currentWorkflowAction == "" {
+					return nil, fmt.Errorf("%s.%s: workflow from declared before action name", current.Module, current.Name)
+				}
+				m := reWorkflowFromLine.FindStringSubmatch(line)
+				act := current.Workflow.Actions[currentWorkflowAction]
+				act.From = parseWorkflowStates(m[1])
+				current.Workflow.Actions[currentWorkflowAction] = act
+				continue
+			case inWorkflowActions && reWorkflowToLine.MatchString(line):
+				if currentWorkflowAction == "" {
+					return nil, fmt.Errorf("%s.%s: workflow to declared before action name", current.Module, current.Name)
+				}
+				m := reWorkflowToLine.FindStringSubmatch(line)
+				act := current.Workflow.Actions[currentWorkflowAction]
+				act.To = strings.Trim(strings.TrimSpace(m[1]), `"'`)
+				current.Workflow.Actions[currentWorkflowAction] = act
+				continue
+			default:
+				inWorkflow = false
+				inWorkflowActions = false
+				currentWorkflowAction = ""
+			}
+		}
+		// ----- КОНЕЦ БЛОКА WORKFLOW -----
 
 		// Поле: name: type [options]
 		if m := fieldRe.FindStringSubmatch(line); m != nil {
@@ -258,6 +327,17 @@ func LoadEntities(path string) ([]*Entity, error) {
 		entities = append(entities, current)
 	}
 	return entities, scanner.Err()
+}
+
+func parseWorkflowStates(raw string) []string {
+	parts := strings.Split(strings.TrimSpace(raw), ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.Trim(strings.TrimSpace(p), `"'`); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func LoadAllEntities(root string) (map[string]*Entity, error) {

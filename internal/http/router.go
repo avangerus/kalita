@@ -29,6 +29,7 @@ func RunServer(addr string, storage *runtime.Storage) {
 		apiGroup.GET("/meta/catalog/:name", MetaCatalogHandler(storage)) // если пользуешься catalog=
 
 		apiGroup.POST("/:module/:entity/:id/_file/:field", UploadFileHandler(storage))
+		apiGroup.POST("/:module/:entity/:id/_actions/:action", ActionHandler(storage))
 		r.GET("/api/core/attachment/:id/download", DownloadAttachmentHandler(storage))
 
 		r.POST("/api/admin/reload", AdminReloadHandler(storage))
