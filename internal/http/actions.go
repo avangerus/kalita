@@ -2,11 +2,13 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 
+	"kalita/internal/caseruntime"
 	"kalita/internal/command"
 	"kalita/internal/eventcore"
 	"kalita/internal/runtime"
@@ -21,10 +23,18 @@ type actionRequest struct {
 }
 
 func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
-	return ActionHandlerWithCommandBus(storage, nil)
+	return ActionHandlerWithServices(storage, nil, nil)
 }
 
 func ActionHandlerWithCommandBus(storage *runtime.Storage, commandBus command.CommandBus) gin.HandlerFunc {
+	return ActionHandlerWithServices(storage, commandBus, nil)
+}
+
+type commandCaseResolver interface {
+	ResolveCommand(ctx context.Context, cmd eventcore.Command) (caseruntime.ResolutionResult, error)
+}
+
+func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fqn, action, req, ok := parseActionRequest(c, storage)
 		if !ok {
@@ -33,13 +43,24 @@ func ActionHandlerWithCommandBus(storage *runtime.Storage, commandBus command.Co
 
 		if commandBus != nil {
 			cmd := buildWorkflowActionCommand(c, fqn, action, req)
-			if _, err := commandBus.Submit(c.Request.Context(), cmd); err != nil {
+			admitted, err := commandBus.Submit(c.Request.Context(), cmd)
+			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
 					Code:    validation.ErrTypeMismatch,
 					Field:   "action",
 					Message: err.Error(),
 				}}})
 				return
+			}
+			if caseService != nil {
+				if _, err := caseService.ResolveCommand(c.Request.Context(), admitted); err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+						Code:    validation.ErrTypeMismatch,
+						Field:   "action",
+						Message: err.Error(),
+					}}})
+					return
+				}
 			}
 		}
 

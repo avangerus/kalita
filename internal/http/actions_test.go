@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"kalita/internal/caseruntime"
+	"kalita/internal/command"
 	"kalita/internal/eventcore"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
@@ -164,6 +166,24 @@ func TestExistingPatchCompatibilityStillWorks(t *testing.T) {
 	}
 }
 
+type fakeClock struct{ now time.Time }
+
+func (f fakeClock) Now() time.Time { return f.now }
+
+type fakeIDGenerator struct {
+	ids []string
+	i   int
+}
+
+func (f *fakeIDGenerator) NewID() string {
+	if f.i >= len(f.ids) {
+		return ""
+	}
+	id := f.ids[f.i]
+	f.i++
+	return id
+}
+
 func testHTTPWorkflowStorage() (*runtime.Storage, *runtime.Record) {
 	entity := &schema.Entity{
 		Name:   "WorkflowTask",
@@ -195,10 +215,106 @@ func testHTTPWorkflowStorage() (*runtime.Storage, *runtime.Record) {
 	return st, rec
 }
 
+type staticCommandBus struct {
+	cmd eventcore.Command
+}
+
+func (b staticCommandBus) Submit(_ context.Context, _ eventcore.Command) (eventcore.Command, error) {
+	return b.cmd, nil
+}
+
+type failingCaseService struct {
+	err error
+}
+
+func (s failingCaseService) ResolveCommand(context.Context, eventcore.Command) (caseruntime.ResolutionResult, error) {
+	return caseruntime.ResolutionResult{}, s.err
+}
+
 type denyCommandBus struct{}
 
 func (denyCommandBus) Submit(_ context.Context, _ eventcore.Command) (eventcore.Command, error) {
 	return eventcore.Command{}, errors.New("command denied")
+}
+
+func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	storage, rec := testHTTPWorkflowStorage()
+	eventLog := eventcore.NewInMemoryEventLog()
+	clock := fakeClock{now: time.Date(2026, 3, 22, 14, 0, 0, 0, time.UTC)}
+	ids := &fakeIDGenerator{ids: []string{"cmd-1", "corr-1", "exec-1", "admission-event-1", "case-1", "case-event-1", "followup-event-1"}}
+	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, clock, ids)
+	caseRepo := caseruntime.NewInMemoryCaseRepository()
+	caseService := caseruntime.NewService(caseruntime.NewResolver(caseRepo, clock, ids), eventLog, clock, ids)
+
+	router := gin.New()
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService))
+
+	body := map[string]any{"record_version": 3}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+
+	storedCase, err := caseService.ResolveCommand(context.Background(), eventcore.Command{
+		ID: "cmd-followup", CorrelationID: "corr-1", ExecutionID: "exec-followup", Type: "workflow.action", TargetRef: "test.WorkflowTask/" + rec.ID,
+	})
+	if err != nil {
+		t.Fatalf("followup ResolveCommand error = %v", err)
+	}
+	if !storedCase.Existed || storedCase.Case.ID != "case-1" {
+		t.Fatalf("followup result = %#v", storedCase)
+	}
+	caseByID, ok, err := caseRepo.GetByID(context.Background(), "case-1")
+	if err != nil {
+		t.Fatalf("GetByID error = %v", err)
+	}
+	if !ok || caseByID.SubjectRef != "test.WorkflowTask/"+rec.ID {
+		t.Fatalf("stored case = %#v ok=%v", caseByID, ok)
+	}
+	_, executionEvents, err := eventLog.ListByCorrelation(context.Background(), "corr-1")
+	if err != nil {
+		t.Fatalf("ListByCorrelation error = %v", err)
+	}
+	if len(executionEvents) < 2 {
+		t.Fatalf("execution events len = %d, want at least 2", len(executionEvents))
+	}
+	if executionEvents[0].Step != "command_admission" || executionEvents[0].Status != "admitted" {
+		t.Fatalf("first execution event = %#v", executionEvents[0])
+	}
+	if executionEvents[1].Step != "case_resolution" || executionEvents[1].Status != "opened_new" {
+		t.Fatalf("second execution event = %#v", executionEvents[1])
+	}
+}
+
+func TestActionHandlerReturnsValidationErrorWhenCaseResolutionFails(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	storage, rec := testHTTPWorkflowStorage()
+	router := gin.New()
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, staticCommandBus{cmd: eventcore.Command{ID: "cmd-1", CorrelationID: "corr-1", ExecutionID: "exec-1", Type: "workflow.action", TargetRef: "test.WorkflowTask/" + rec.ID}}, failingCaseService{err: errors.New("case resolution failed")}))
+
+	body := map[string]any{"record_version": 3}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if got := storage.Data["test.WorkflowTask"][rec.ID].Data["status"]; got != "Draft" {
+		t.Fatalf("status mutated to %v", got)
+	}
 }
 
 func TestActionHandlerReturnsValidationErrorWhenCommandAdmissionFails(t *testing.T) {
