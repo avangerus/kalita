@@ -13,6 +13,7 @@ import (
 	"kalita/internal/eventcore"
 	"kalita/internal/runtime"
 	"kalita/internal/validation"
+	"kalita/internal/workplan"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,18 +24,22 @@ type actionRequest struct {
 }
 
 func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, nil, nil)
+	return ActionHandlerWithServices(storage, nil, nil, nil)
 }
 
 func ActionHandlerWithCommandBus(storage *runtime.Storage, commandBus command.CommandBus) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, commandBus, nil)
+	return ActionHandlerWithServices(storage, commandBus, nil, nil)
 }
 
 type commandCaseResolver interface {
 	ResolveCommand(ctx context.Context, cmd eventcore.Command) (caseruntime.ResolutionResult, error)
 }
 
-func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver) gin.HandlerFunc {
+type workItemIntakeService interface {
+	IntakeCommand(ctx context.Context, resolved caseruntime.ResolutionResult) (workplan.IntakeResult, error)
+}
+
+func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fqn, action, req, ok := parseActionRequest(c, storage)
 		if !ok {
@@ -53,13 +58,24 @@ func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.Comm
 				return
 			}
 			if caseService != nil {
-				if _, err := caseService.ResolveCommand(c.Request.Context(), admitted); err != nil {
+				resolved, err := caseService.ResolveCommand(c.Request.Context(), admitted)
+				if err != nil {
 					c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
 						Code:    validation.ErrTypeMismatch,
 						Field:   "action",
 						Message: err.Error(),
 					}}})
 					return
+				}
+				if workService != nil {
+					if _, err := workService.IntakeCommand(c.Request.Context(), resolved); err != nil {
+						c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+							Code:    validation.ErrTypeMismatch,
+							Field:   "action",
+							Message: err.Error(),
+						}}})
+						return
+					}
 				}
 			}
 		}

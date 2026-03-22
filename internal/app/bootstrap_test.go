@@ -1,12 +1,13 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestBootstrapProvidesEventCenterAndCaseRuntime(t *testing.T) {
+func TestBootstrapProvidesEventCenterCaseRuntimeAndWorkplan(t *testing.T) {
 	cfg := `{
   "port": "8080",
   "dslDir": "../../dsl",
@@ -45,5 +46,21 @@ func TestBootstrapProvidesEventCenterAndCaseRuntime(t *testing.T) {
 	}
 	if result.CaseService == nil {
 		t.Fatal("CaseService is nil")
+	}
+	if result.QueueRepo == nil {
+		t.Fatal("QueueRepo is nil")
+	}
+	if result.AssignmentRouter == nil {
+		t.Fatal("AssignmentRouter is nil")
+	}
+	if result.WorkService == nil {
+		t.Fatal("WorkService is nil")
+	}
+	queues, err := result.QueueRepo.ListQueues(context.Background())
+	if err != nil {
+		t.Fatalf("ListQueues error = %v", err)
+	}
+	if len(queues) == 0 || queues[0].ID != "default-intake" {
+		t.Fatalf("queues = %#v", queues)
 	}
 }

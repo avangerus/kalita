@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -14,17 +15,21 @@ import (
 	"kalita/internal/postgres"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
+	"kalita/internal/workplan"
 )
 
 // BootstrapResult holds the initialized application components
 type BootstrapResult struct {
-	Storage      *runtime.Storage
-	EventLog     eventcore.EventLog
-	CommandBus   command.CommandBus
-	CaseRepo     caseruntime.CaseRepository
-	CaseResolver caseruntime.CaseResolver
-	CaseService  *caseruntime.Service
-	Config       config.Config
+	Storage          *runtime.Storage
+	EventLog         eventcore.EventLog
+	CommandBus       command.CommandBus
+	CaseRepo         caseruntime.CaseRepository
+	CaseResolver     caseruntime.CaseResolver
+	CaseService      *caseruntime.Service
+	QueueRepo        workplan.QueueRepository
+	AssignmentRouter workplan.AssignmentRouter
+	WorkService      *workplan.Service
+	Config           config.Config
 }
 
 // Bootstrap initializes the application with all required components
@@ -82,19 +87,35 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	caseRepo := caseruntime.NewInMemoryCaseRepository()
 	caseResolver := caseruntime.NewResolver(caseRepo, clock, ids)
 	caseService := caseruntime.NewService(caseResolver, eventLog, clock, ids)
+	queueRepo := workplan.NewInMemoryQueueRepository()
+	defaultQueue := workplan.WorkQueue{
+		ID:               "default-intake",
+		Name:             "Default Intake",
+		Department:       "operations",
+		Purpose:          "Default operational intake for resolved cases",
+		AllowedCaseKinds: []string{"workflow.action"},
+	}
+	if err := queueRepo.SaveQueue(context.Background(), defaultQueue); err != nil {
+		return nil, fmt.Errorf("seed default queue: %w", err)
+	}
+	assignmentRouter := workplan.NewRouter(queueRepo, defaultQueue.ID)
+	workService := workplan.NewService(queueRepo, assignmentRouter, eventLog, clock, ids)
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}
 	st.Blob = &blob.LocalBlobStore{Root: cfg.FilesRoot}
 
 	return &BootstrapResult{
-		Storage:      st,
-		EventLog:     eventLog,
-		CommandBus:   commandBus,
-		CaseRepo:     caseRepo,
-		CaseResolver: caseResolver,
-		CaseService:  caseService,
-		Config:       cfg,
+		Storage:          st,
+		EventLog:         eventLog,
+		CommandBus:       commandBus,
+		CaseRepo:         caseRepo,
+		CaseResolver:     caseResolver,
+		CaseService:      caseService,
+		QueueRepo:        queueRepo,
+		AssignmentRouter: assignmentRouter,
+		WorkService:      workService,
+		Config:           cfg,
 	}, nil
 }
 
