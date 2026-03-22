@@ -42,6 +42,7 @@ type metaEntity struct {
 	Entity      string         `json:"entity"`
 	Fields      []metaField    `json:"fields"`
 	Constraints map[string]any `json:"constraints,omitempty"` // {"unique":[["code"],["base","quote","date"]]}
+	Workflow    map[string]any `json:"workflow,omitempty"`
 }
 
 func MetaEntityHandler(storage *runtime.Storage) gin.HandlerFunc {
@@ -109,12 +110,28 @@ func MetaEntityHandler(storage *runtime.Storage) gin.HandlerFunc {
 			constraints = map[string]any{"unique": uniq}
 		}
 
+		var workflow map[string]any
+		if entitySchema.Workflow != nil {
+			actions := make(map[string]any, len(entitySchema.Workflow.Actions))
+			for name, action := range entitySchema.Workflow.Actions {
+				actions[name] = map[string]any{
+					"from": append([]string(nil), action.From...),
+					"to":   action.To,
+				}
+			}
+			workflow = map[string]any{
+				"status_field": entitySchema.Workflow.StatusField,
+				"actions":      actions,
+			}
+		}
+
 		m, e := splitFQN(fqn)
 		c.JSON(http.StatusOK, metaEntity{
 			Module:      m,
 			Entity:      e,
 			Fields:      fields,
 			Constraints: constraints,
+			Workflow:    workflow,
 		})
 	}
 }

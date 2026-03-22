@@ -5,6 +5,7 @@ type Entity struct {
 	Module      string
 	Fields      []Field
 	Constraints Constraints
+	Workflow    *Workflow
 }
 
 type Constraints struct {
@@ -19,4 +20,14 @@ type Field struct {
 	RefTarget string            // целевая сущность для ref[...], если Type == "ref"
 	ElemType  string            // тип элемента для array[T], если Type == "array" (T без префикса array)
 	Options   map[string]string // required, unique, default...
+}
+
+type Workflow struct {
+	StatusField string
+	Actions     map[string]WorkflowAction
+}
+
+type WorkflowAction struct {
+	From []string
+	To   string
 }

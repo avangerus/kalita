@@ -17,7 +17,9 @@ func Lint(schemas map[string]*Entity) []SchemaIssue {
 	var issues []SchemaIssue
 
 	for fqn, e := range schemas {
+		fieldByName := make(map[string]Field, len(e.Fields))
 		for _, f := range e.Fields {
+			fieldByName[f.Name] = f
 			// валидность on_delete
 			if od := strings.TrimSpace(strings.ToLower(f.Options["on_delete"])); od != "" {
 				switch od {
@@ -57,6 +59,69 @@ func Lint(schemas map[string]*Entity) []SchemaIssue {
 
 			// array[ref] — set_null допустим (мы уже реализовали очистку массива при удалении),
 			// конфликтов тут не поднимаем.
+		}
+
+		if e.Workflow != nil {
+			if strings.TrimSpace(e.Workflow.StatusField) == "" {
+				issues = append(issues, SchemaIssue{
+					Entity:  fqn,
+					Code:    "workflow_status_field_missing",
+					Message: "workflow.status_field must be set",
+				})
+			} else {
+				statusField, ok := fieldByName[e.Workflow.StatusField]
+				if !ok {
+					issues = append(issues, SchemaIssue{
+						Entity:  fqn,
+						Field:   e.Workflow.StatusField,
+						Code:    "workflow_status_field_unknown",
+						Message: "workflow status_field does not exist on entity",
+					})
+				} else {
+					allowed := make(map[string]struct{}, len(statusField.Enum))
+					for _, v := range statusField.Enum {
+						allowed[v] = struct{}{}
+					}
+					for name, action := range e.Workflow.Actions {
+						if len(action.From) == 0 {
+							issues = append(issues, SchemaIssue{
+								Entity:  fqn,
+								Field:   e.Workflow.StatusField,
+								Code:    "workflow_action_from_empty",
+								Message: fmt.Sprintf("workflow action %q must declare at least one from state", name),
+							})
+						}
+						if strings.TrimSpace(action.To) == "" {
+							issues = append(issues, SchemaIssue{
+								Entity:  fqn,
+								Field:   e.Workflow.StatusField,
+								Code:    "workflow_action_to_empty",
+								Message: fmt.Sprintf("workflow action %q must declare target state", name),
+							})
+						}
+						if strings.EqualFold(statusField.Type, "enum") && len(allowed) > 0 {
+							for _, from := range action.From {
+								if _, ok := allowed[from]; !ok {
+									issues = append(issues, SchemaIssue{
+										Entity:  fqn,
+										Field:   e.Workflow.StatusField,
+										Code:    "workflow_from_unknown",
+										Message: fmt.Sprintf("workflow action %q references unknown from state %q", name, from),
+									})
+								}
+							}
+							if _, ok := allowed[action.To]; !ok {
+								issues = append(issues, SchemaIssue{
+									Entity:  fqn,
+									Field:   e.Workflow.StatusField,
+									Code:    "workflow_to_unknown",
+									Message: fmt.Sprintf("workflow action %q references unknown target state %q", name, action.To),
+								})
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 	return issues

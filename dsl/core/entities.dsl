@@ -36,3 +36,13 @@ module test
 entity Item:
   code: string required unique
   name: string
+
+entity WorkflowTask:
+  title: string required
+  status: enum[Draft, InApproval, Approved] required default=Draft
+  workflow:
+    status_field: status
+    actions:
+      submit:
+        from: [Draft]
+        to: InApproval
