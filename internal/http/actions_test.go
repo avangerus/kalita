@@ -15,6 +15,7 @@ import (
 	"kalita/internal/eventcore"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
+	"kalita/internal/workplan"
 
 	"github.com/gin-gonic/gin"
 )
@@ -237,6 +238,14 @@ func (denyCommandBus) Submit(_ context.Context, _ eventcore.Command) (eventcore.
 	return eventcore.Command{}, errors.New("command denied")
 }
 
+type failingWorkService struct {
+	err error
+}
+
+func (s failingWorkService) IntakeCommand(context.Context, caseruntime.ResolutionResult) (workplan.IntakeResult, error) {
+	return workplan.IntakeResult{}, s.err
+}
+
 func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
@@ -248,9 +257,14 @@ func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, clock, ids)
 	caseRepo := caseruntime.NewInMemoryCaseRepository()
 	caseService := caseruntime.NewService(caseruntime.NewResolver(caseRepo, clock, ids), eventLog, clock, ids)
+	queueRepo := workplan.NewInMemoryQueueRepository()
+	if err := queueRepo.SaveQueue(context.Background(), workplan.WorkQueue{ID: "default-intake", AllowedCaseKinds: []string{"workflow.action"}}); err != nil {
+		t.Fatalf("SaveQueue error = %v", err)
+	}
+	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, "default-intake"), eventLog, clock, ids)
 
 	router := gin.New()
-	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService))
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService))
 
 	body := map[string]any{"record_version": 3}
 	raw, _ := json.Marshal(body)
@@ -283,14 +297,27 @@ func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListByCorrelation error = %v", err)
 	}
-	if len(executionEvents) < 2 {
-		t.Fatalf("execution events len = %d, want at least 2", len(executionEvents))
+	if len(executionEvents) < 3 {
+		t.Fatalf("execution events len = %d, want at least 3", len(executionEvents))
 	}
 	if executionEvents[0].Step != "command_admission" || executionEvents[0].Status != "admitted" {
 		t.Fatalf("first execution event = %#v", executionEvents[0])
 	}
 	if executionEvents[1].Step != "case_resolution" || executionEvents[1].Status != "opened_new" {
 		t.Fatalf("second execution event = %#v", executionEvents[1])
+	}
+	if executionEvents[2].Step != "work_item_intake" || executionEvents[2].Status != "created" {
+		t.Fatalf("third execution event = %#v", executionEvents[2])
+	}
+	workItems, err := queueRepo.ListWorkItemsByCase(context.Background(), "case-1")
+	if err != nil {
+		t.Fatalf("ListWorkItemsByCase error = %v", err)
+	}
+	if len(workItems) != 1 || workItems[0].QueueID != "default-intake" {
+		t.Fatalf("workItems = %#v", workItems)
+	}
+	if got := storage.Data["test.WorkflowTask"][rec.ID].Data["status"]; got != "Draft" {
+		t.Fatalf("legacy flow mutated status to %v", got)
 	}
 }
 
@@ -300,7 +327,36 @@ func TestActionHandlerReturnsValidationErrorWhenCaseResolutionFails(t *testing.T
 
 	storage, rec := testHTTPWorkflowStorage()
 	router := gin.New()
-	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, staticCommandBus{cmd: eventcore.Command{ID: "cmd-1", CorrelationID: "corr-1", ExecutionID: "exec-1", Type: "workflow.action", TargetRef: "test.WorkflowTask/" + rec.ID}}, failingCaseService{err: errors.New("case resolution failed")}))
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, staticCommandBus{cmd: eventcore.Command{ID: "cmd-1", CorrelationID: "corr-1", ExecutionID: "exec-1", Type: "workflow.action", TargetRef: "test.WorkflowTask/" + rec.ID}}, failingCaseService{err: errors.New("case resolution failed")}, nil))
+
+	body := map[string]any{"record_version": 3}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if got := storage.Data["test.WorkflowTask"][rec.ID].Data["status"]; got != "Draft" {
+		t.Fatalf("status mutated to %v", got)
+	}
+}
+
+func TestActionHandlerReturnsValidationErrorWhenWorkItemIntakeFails(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	storage, rec := testHTTPWorkflowStorage()
+	eventLog := eventcore.NewInMemoryEventLog()
+	clock := fakeClock{now: time.Date(2026, 3, 22, 14, 0, 0, 0, time.UTC)}
+	ids := &fakeIDGenerator{ids: []string{"cmd-1", "corr-1", "exec-1", "admission-event-1", "case-1", "case-event-1"}}
+	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, clock, ids)
+	caseRepo := caseruntime.NewInMemoryCaseRepository()
+	caseService := caseruntime.NewService(caseruntime.NewResolver(caseRepo, clock, ids), eventLog, clock, ids)
+	router := gin.New()
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, failingWorkService{err: errors.New("work intake failed")}))
 
 	body := map[string]any{"record_version": 3}
 	raw, _ := json.Marshal(body)
