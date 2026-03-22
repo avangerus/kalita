@@ -86,6 +86,22 @@ func TestBootstrapProvidesEventCenterCaseRuntimeWorkplanPolicyAndExecutionContro
 	if result.ConstraintsService == nil {
 		t.Fatal("ConstraintsService is nil")
 	}
+
+	if result.ExecutionRepo == nil {
+		t.Fatal("ExecutionRepo is nil")
+	}
+	if result.ExecutionWAL == nil {
+		t.Fatal("ExecutionWAL is nil")
+	}
+	if result.ActionExecutor == nil {
+		t.Fatal("ActionExecutor is nil")
+	}
+	if result.ExecutionRunner == nil {
+		t.Fatal("ExecutionRunner is nil")
+	}
+	if result.ExecutionRuntime == nil {
+		t.Fatal("ExecutionRuntime is nil")
+	}
 	queues, err := result.QueueRepo.ListQueues(context.Background())
 	if err != nil {
 		t.Fatalf("ListQueues error = %v", err)
