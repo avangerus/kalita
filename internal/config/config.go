@@ -101,21 +101,23 @@ func LoadWithPath(jsonPath string) Config {
 	cfg.S3Endpoint = getenv("KALITA_S3_ENDPOINT", cfg.S3Endpoint)
 
 	// Flags overrides
-	configPath := flag.String("config", jsonPath, "Path to config JSON")
-	port := flag.String("port", cfg.Port, "HTTP port")
-	dsl := flag.String("dsl", cfg.DSLDir, "Path to DSL directory")
-	enums := flag.String("enums", cfg.EnumsDir, "Path to enums directory")
-	db := flag.String("db", cfg.DBURL, "Postgres URL (empty = in-memory)")
-	auto := flag.String("auto-migrate", strconv.FormatBool(cfg.AutoMigrate), "Auto-migrate add-only (true/false)")
+	fs := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	configPath := fs.String("config", jsonPath, "Path to config JSON")
+	port := fs.String("port", cfg.Port, "HTTP port")
+	dsl := fs.String("dsl", cfg.DSLDir, "Path to DSL directory")
+	enums := fs.String("enums", cfg.EnumsDir, "Path to enums directory")
+	db := fs.String("db", cfg.DBURL, "Postgres URL (empty = in-memory)")
+	auto := fs.String("auto-migrate", strconv.FormatBool(cfg.AutoMigrate), "Auto-migrate add-only (true/false)")
 
-	blob := flag.String("blob-driver", cfg.BlobDriver, "Blob driver (local/s3)")
-	files := flag.String("files-root", cfg.FilesRoot, "Local files root (if blob=local)")
-	s3r := flag.String("s3-region", cfg.S3Region, "S3 region")
-	s3b := flag.String("s3-bucket", cfg.S3Bucket, "S3 bucket")
-	s3p := flag.String("s3-prefix", cfg.S3Prefix, "S3 key prefix")
-	s3e := flag.String("s3-endpoint", cfg.S3Endpoint, "S3 custom endpoint")
+	blob := fs.String("blob-driver", cfg.BlobDriver, "Blob driver (local/s3)")
+	files := fs.String("files-root", cfg.FilesRoot, "Local files root (if blob=local)")
+	s3r := fs.String("s3-region", cfg.S3Region, "S3 region")
+	s3b := fs.String("s3-bucket", cfg.S3Bucket, "S3 bucket")
+	s3p := fs.String("s3-prefix", cfg.S3Prefix, "S3 key prefix")
+	s3e := fs.String("s3-endpoint", cfg.S3Endpoint, "S3 custom endpoint")
 
-	flag.Parse()
+	_ = fs.Parse(os.Args[1:])
 
 	// Если через флаг передали другой конфиг — перечитаем
 	if *configPath != jsonPath {

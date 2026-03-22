@@ -2,12 +2,15 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"kalita/internal/eventcore"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
 
@@ -190,6 +193,35 @@ func testHTTPWorkflowStorage() (*runtime.Storage, *runtime.Record) {
 	}
 	st.Data["test.WorkflowTask"] = map[string]*runtime.Record{rec.ID: rec}
 	return st, rec
+}
+
+type denyCommandBus struct{}
+
+func (denyCommandBus) Submit(_ context.Context, _ eventcore.Command) (eventcore.Command, error) {
+	return eventcore.Command{}, errors.New("command denied")
+}
+
+func TestActionHandlerReturnsValidationErrorWhenCommandAdmissionFails(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	storage, rec := testHTTPWorkflowStorage()
+	router := gin.New()
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithCommandBus(storage, denyCommandBus{}))
+
+	body := map[string]any{"record_version": 3}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/api/test/WorkflowTask/"+rec.ID+"/_actions/submit", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	if got := storage.Data["test.WorkflowTask"][rec.ID].Data["status"]; got != "Draft" {
+		t.Fatalf("status mutated to %v", got)
+	}
 }
 
 func TestCreateActionRequestAndGetByID(t *testing.T) {

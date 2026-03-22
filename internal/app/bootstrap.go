@@ -7,7 +7,9 @@ import (
 
 	"kalita/internal/blob"
 	"kalita/internal/catalog"
+	"kalita/internal/command"
 	"kalita/internal/config"
+	"kalita/internal/eventcore"
 	"kalita/internal/postgres"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
@@ -15,8 +17,10 @@ import (
 
 // BootstrapResult holds the initialized application components
 type BootstrapResult struct {
-	Storage *runtime.Storage
-	Config  config.Config
+	Storage    *runtime.Storage
+	EventLog   eventcore.EventLog
+	CommandBus command.CommandBus
+	Config     config.Config
 }
 
 // Bootstrap initializes the application with all required components
@@ -67,14 +71,18 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 
 	// In-memory API (данные пока в памяти; PG — только схема)
 	st := runtime.NewStorage(entities, enumCatalog)
+	eventLog := eventcore.NewInMemoryEventLog()
+	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, eventcore.RealClock{}, eventcore.NewULIDGenerator())
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}
 	st.Blob = &blob.LocalBlobStore{Root: cfg.FilesRoot}
 
 	return &BootstrapResult{
-		Storage: st,
-		Config:  cfg,
+		Storage:    st,
+		EventLog:   eventLog,
+		CommandBus: commandBus,
+		Config:     cfg,
 	}, nil
 }
 

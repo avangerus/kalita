@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 
+	"kalita/internal/command"
+	"kalita/internal/eventcore"
 	"kalita/internal/runtime"
 	"kalita/internal/validation"
 
@@ -19,10 +21,26 @@ type actionRequest struct {
 }
 
 func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
+	return ActionHandlerWithCommandBus(storage, nil)
+}
+
+func ActionHandlerWithCommandBus(storage *runtime.Storage, commandBus command.CommandBus) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fqn, action, req, ok := parseActionRequest(c, storage)
 		if !ok {
 			return
+		}
+
+		if commandBus != nil {
+			cmd := buildWorkflowActionCommand(c, fqn, action, req)
+			if _, err := commandBus.Submit(c.Request.Context(), cmd); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+					Code:    validation.ErrTypeMismatch,
+					Field:   "action",
+					Message: err.Error(),
+				}}})
+				return
+			}
 		}
 
 		result, errs := runtime.ExecuteWorkflowAction(storage, fqn, c.Param("id"), action, req.RecordVersion)
@@ -95,4 +113,28 @@ func mustReadBody(c *gin.Context) []byte {
 	}
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))
 	return body
+}
+
+func buildWorkflowActionCommand(c *gin.Context, fqn, action string, req actionRequest) eventcore.Command {
+	requestID := c.GetHeader("X-Request-Id")
+	if requestID == "" {
+		requestID = c.GetHeader("X-Request-ID")
+	}
+
+	return eventcore.Command{
+		Type:           "workflow.action",
+		CaseID:         c.Param("id"),
+		TargetRef:      fmt.Sprintf("%s/%s", fqn, c.Param("id")),
+		IdempotencyKey: fmt.Sprintf("%s:%s:%d", fqn, action, req.RecordVersion),
+		Actor: eventcore.ActorContext{
+			ActorType: eventcore.ActorHuman,
+			RequestID: requestID,
+		},
+		Payload: map[string]any{
+			"entity":         fqn,
+			"record_id":      c.Param("id"),
+			"action":         action,
+			"record_version": req.RecordVersion,
+		},
+	}
 }
