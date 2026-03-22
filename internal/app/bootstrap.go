@@ -14,6 +14,7 @@ import (
 	"kalita/internal/config"
 	"kalita/internal/eventcore"
 	"kalita/internal/executioncontrol"
+	"kalita/internal/executionruntime"
 	"kalita/internal/policy"
 	"kalita/internal/postgres"
 	"kalita/internal/runtime"
@@ -46,6 +47,11 @@ type BootstrapResult struct {
 	ActionCompiler     actionplan.Compiler
 	ActionValidator    actionplan.Validator
 	ActionPlanService  actionplan.Service
+	ExecutionRepo      executionruntime.ExecutionRepository
+	ExecutionWAL       executionruntime.WAL
+	ActionExecutor     executionruntime.ActionExecutor
+	ExecutionRunner    executionruntime.Runner
+	ExecutionRuntime   executionruntime.Service
 	Config             config.Config
 }
 
@@ -148,6 +154,11 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	actionCompiler := actionplan.NewCompiler(actionRegistry, clock, ids)
 	actionValidator := actionplan.NewValidator(actionRegistry)
 	actionPlanService := actionplan.NewService(actionCompiler, actionValidator, eventLog, clock, ids)
+	executionRepo := executionruntime.NewInMemoryExecutionRepository()
+	executionWAL := executionruntime.NewInMemoryWAL()
+	actionExecutor := executionruntime.NewStubExecutor()
+	executionRunner := executionruntime.NewRunner(executionRepo, executionWAL, actionExecutor, eventLog, clock, ids)
+	executionRuntime := executionruntime.NewService(executionRunner)
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}
@@ -177,6 +188,11 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		ActionCompiler:     actionCompiler,
 		ActionValidator:    actionValidator,
 		ActionPlanService:  actionPlanService,
+		ExecutionRepo:      executionRepo,
+		ExecutionWAL:       executionWAL,
+		ActionExecutor:     actionExecutor,
+		ExecutionRunner:    executionRunner,
+		ExecutionRuntime:   executionRuntime,
 		Config:             cfg,
 	}, nil
 }

@@ -13,6 +13,7 @@ import (
 	"kalita/internal/command"
 	"kalita/internal/eventcore"
 	"kalita/internal/executioncontrol"
+	"kalita/internal/executionruntime"
 	"kalita/internal/policy"
 	"kalita/internal/runtime"
 	"kalita/internal/validation"
@@ -27,11 +28,11 @@ type actionRequest struct {
 }
 
 func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, nil, nil, nil, nil, nil, nil)
+	return ActionHandlerWithServices(storage, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func ActionHandlerWithCommandBus(storage *runtime.Storage, commandBus command.CommandBus) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, commandBus, nil, nil, nil, nil, nil)
+	return ActionHandlerWithServices(storage, commandBus, nil, nil, nil, nil, nil, nil)
 }
 
 type commandCaseResolver interface {
@@ -55,7 +56,15 @@ type actionPlanService interface {
 	CreatePlan(ctx context.Context, workItemID string, caseID string, input map[string]any) (actionplan.ActionPlan, error)
 }
 
-func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService) gin.HandlerFunc {
+type executionRuntimeService interface {
+	StartExecution(ctx context.Context, plan actionplan.ActionPlan, constraints executioncontrol.ExecutionConstraints, metadata executionruntime.RunMetadata) (executionruntime.ExecutionSession, error)
+}
+
+func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, executionRuntimeServices ...executionRuntimeService) gin.HandlerFunc {
+	var executionRuntimeService executionRuntimeService
+	if len(executionRuntimeServices) > 0 {
+		executionRuntimeService = executionRuntimeServices[0]
+	}
 	return func(c *gin.Context) {
 		fqn, action, req, ok := parseActionRequest(c, storage)
 		if !ok {
@@ -108,13 +117,16 @@ func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.Comm
 							}}})
 							return
 						}
+						var constraints executioncontrol.ExecutionConstraints
 						if constraintsService != nil && policyDecision.Outcome != policy.PolicyDeny {
 							constraintsCtx := executioncontrol.ContextWithExecution(c.Request.Context(), executioncontrol.ExecutionContext{
 								ExecutionID:   intakeResult.Command.ExecutionID,
 								CorrelationID: intakeResult.Command.CorrelationID,
 								CausationID:   intakeResult.Command.ID,
 							})
-							if _, err := constraintsService.CreateAndRecord(constraintsCtx, intakeResult.CoordinationDecision, policyDecision); err != nil {
+							var err error
+							constraints, err = constraintsService.CreateAndRecord(constraintsCtx, intakeResult.CoordinationDecision, policyDecision)
+							if err != nil {
 								c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
 									Code:    validation.ErrTypeMismatch,
 									Field:   "action",
@@ -157,6 +169,13 @@ func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.Comm
 									Message: err.Error(),
 								}}})
 								return
+							}
+							if executionRuntimeService != nil {
+								runtimeCtx := executionruntime.ContextWithExecution(c.Request.Context(), executionruntime.ExecutionContext{ExecutionID: intakeResult.Command.ExecutionID, CorrelationID: intakeResult.Command.CorrelationID, CausationID: intakeResult.Command.ID})
+								if _, err := executionRuntimeService.StartExecution(runtimeCtx, plan, constraints, executionruntime.RunMetadata{CaseID: intakeResult.Case.ID, WorkItemID: intakeResult.WorkItem.ID, CoordinationDecisionID: intakeResult.CoordinationDecision.ID, PolicyDecisionID: policyDecision.ID}); err != nil {
+									c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{Code: validation.ErrTypeMismatch, Field: "action", Message: err.Error()}}})
+									return
+								}
 							}
 						}
 					}
