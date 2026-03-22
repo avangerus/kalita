@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 
+	"kalita/internal/actionplan"
 	"kalita/internal/caseruntime"
 	"kalita/internal/command"
 	"kalita/internal/eventcore"
@@ -26,11 +27,11 @@ type actionRequest struct {
 }
 
 func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, nil, nil, nil, nil, nil)
+	return ActionHandlerWithServices(storage, nil, nil, nil, nil, nil, nil)
 }
 
 func ActionHandlerWithCommandBus(storage *runtime.Storage, commandBus command.CommandBus) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, commandBus, nil, nil, nil, nil)
+	return ActionHandlerWithServices(storage, commandBus, nil, nil, nil, nil, nil)
 }
 
 type commandCaseResolver interface {
@@ -39,6 +40,7 @@ type commandCaseResolver interface {
 
 type workItemIntakeService interface {
 	IntakeCommand(ctx context.Context, resolved caseruntime.ResolutionResult) (workplan.IntakeResult, error)
+	AttachActionPlan(ctx context.Context, workItemID string, plan actionplan.ActionPlan) (workplan.WorkItem, error)
 }
 
 type policyService interface {
@@ -49,7 +51,11 @@ type constraintsService interface {
 	CreateAndRecord(ctx context.Context, coordination workplan.CoordinationDecision, policyDecision policy.PolicyDecision) (executioncontrol.ExecutionConstraints, error)
 }
 
-func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService, constraintsService constraintsService) gin.HandlerFunc {
+type actionPlanService interface {
+	CreatePlan(ctx context.Context, workItemID string, caseID string, input map[string]any) (actionplan.ActionPlan, error)
+}
+
+func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fqn, action, req, ok := parseActionRequest(c, storage)
 		if !ok {
@@ -128,6 +134,30 @@ func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.Comm
 								Message: message,
 							}}})
 							return
+						}
+						if actionPlanService != nil {
+							planCtx := actionplan.ContextWithExecution(c.Request.Context(), actionplan.ExecutionContext{
+								ExecutionID:   intakeResult.Command.ExecutionID,
+								CorrelationID: intakeResult.Command.CorrelationID,
+								CausationID:   intakeResult.Command.ID,
+							})
+							plan, err := actionPlanService.CreatePlan(planCtx, intakeResult.WorkItem.ID, intakeResult.Case.ID, actionPlanInput(fqn, c.Param("id"), action, req))
+							if err != nil {
+								c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+									Code:    validation.ErrTypeMismatch,
+									Field:   "action",
+									Message: err.Error(),
+								}}})
+								return
+							}
+							if _, err := workService.AttachActionPlan(c.Request.Context(), intakeResult.WorkItem.ID, plan); err != nil {
+								c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+									Code:    validation.ErrTypeMismatch,
+									Field:   "action",
+									Message: err.Error(),
+								}}})
+								return
+							}
 						}
 					}
 				}
@@ -227,5 +257,20 @@ func buildWorkflowActionCommand(c *gin.Context, fqn, action string, req actionRe
 			"action":         action,
 			"record_version": req.RecordVersion,
 		},
+	}
+}
+
+func actionPlanInput(fqn, recordID, action string, req actionRequest) map[string]any {
+	return map[string]any{
+		"reason": "legacy workflow action approved for execution",
+		"actions": []any{map[string]any{
+			"type": "legacy_workflow_action",
+			"params": map[string]any{
+				"entity":         fqn,
+				"record_id":      recordID,
+				"action":         action,
+				"record_version": req.RecordVersion,
+			},
+		}},
 	}
 }

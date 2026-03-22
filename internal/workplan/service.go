@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"kalita/internal/actionplan"
 	"kalita/internal/caseruntime"
 	"kalita/internal/eventcore"
 )
@@ -130,4 +131,23 @@ func workItemReason(c caseruntime.Case, cmd eventcore.Command) string {
 		return fmt.Sprintf("intake %s for %s", c.Kind, cmd.TargetRef)
 	}
 	return fmt.Sprintf("intake %s", c.Kind)
+}
+
+func (s *Service) AttachActionPlan(ctx context.Context, workItemID string, plan actionplan.ActionPlan) (WorkItem, error) {
+	if s.repo == nil {
+		return WorkItem{}, fmt.Errorf("queue repository is nil")
+	}
+	workItem, ok, err := s.repo.GetWorkItem(ctx, workItemID)
+	if err != nil {
+		return WorkItem{}, err
+	}
+	if !ok {
+		return WorkItem{}, fmt.Errorf("work item %s not found", workItemID)
+	}
+	workItem.ActionPlan = &plan
+	workItem.UpdatedAt = s.clock.Now()
+	if err := s.repo.SaveWorkItem(ctx, workItem); err != nil {
+		return WorkItem{}, err
+	}
+	return workItem, nil
 }
