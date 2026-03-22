@@ -8,7 +8,7 @@ This document defines Kalita's target architecture as an event-driven enterprise
 ### From what -> to what
 Kalita must evolve:
 - from a schema-driven CRUD/meta platform with partial workflow proposal ideas
-- to an event-driven enterprise agent runtime built around `Event -> Case -> Plan -> Execution`
+- to an event-driven enterprise agent runtime built around `Event -> Case -> Coordination -> Execution`
 
 The operating center of gravity therefore moves:
 - from HTTP handlers mutating records directly
@@ -38,7 +38,7 @@ Digital employees are long-lived operational actors. They must:
 - retry safely after transient failures
 - expose deterministic execution history for audit and debugging
 
-That requires an event-driven runtime with durable execution state, explicit commands, and replayable history. The runtime must be the place where decisions become controlled actions, but it cannot be the only business construct. Real departments operate through owned cases, staffed queues, and daily plans, so Kalita needs an operational layer between signals and execution.
+That requires an event-driven runtime with durable execution state, explicit commands, and replayable history. The runtime must be the place where decisions become controlled actions, but it cannot be the only business construct. Real departments operate through owned cases, staffed queues, and multiple coordination modes, so Kalita needs an operational layer between signals and execution.
 
 ## 2. Core architecture layers
 
@@ -89,10 +89,10 @@ This turns opaque automation into traceable enterprise execution graphs.
 The operational layer converts events into department work before any execution starts. It is the missing business department model between raw signals and runtime mechanics.
 
 #### Why a case-centric layer is required
-A real department does not react to every event by immediately executing tools. It groups related facts into business matters, decides who owns them, places them into work queues, and plans the day before workers perform actions. Kalita therefore needs first-class operational objects for:
+A real department does not react to every event by immediately executing tools. It groups related facts into business matters, decides who owns them, places them into work queues, and coordinates backlog before workers perform actions. Kalita therefore needs first-class operational objects for:
 - cases as the unit of departmental responsibility
 - queues as the unit of work intake and balancing
-- daily plans as the unit of managerial prioritization
+- coordination decisions as the unit of execution readiness
 - assignments as the unit of accountability
 
 #### Case model
@@ -111,17 +111,19 @@ The operational layer creates work items from cases instead of handing events di
 - SLA monitoring by queue and stage
 - controlled carry-over from prior days
 
-#### Planning model
-A department works from a daily plan rather than a flat stream of triggers. Planning decides:
-- what must be handled today
-- what can wait
-- which employee owns which cases
-- which escalations or high-risk actions require manager attention
+#### Coordination model
+A department must coordinate backlog work before execution, but that coordination cannot be hardcoded to a daily plan. The runtime needs a transport-free coordination layer that can support multiple modes such as continuous queue release, human manager gating, digital manager orchestration, batch planning, and SLA-driven prioritization.
 
-Only after the case is in plan does Kalita authorize concrete execution steps.
+The coordination layer decides:
+- whether work is ready, deferred, held, assigned, or escalated
+- who or what currently owns the next move
+- when work may become executable
+- why that decision was made
+
+Only after a work item has a valid coordination outcome does Kalita authorize concrete execution steps.
 
 ### Layer 3 - Execution Runtime
-The execution runtime converts planned case work into controlled multi-step work.
+The execution runtime converts coordinated case work into controlled multi-step work.
 
 #### ExecutionInstance
 An `ExecutionInstance` is the durable state machine for one business execution. It tracks:
@@ -859,27 +861,28 @@ Do not rewrite the repository. Introduce runtime-first seams in small steps.
 - Unit test case correlation, reopening, and queue routing rules.
 - Integration test that repeated related events enrich the same case rather than spawning disconnected executions.
 
-### Slice 4 - Daily planning and assignment
+### Slice 4 - Coordination decisions and execution readiness
 **Goal**
-- Add a minimal `DailyPlan` generator and assignment mechanism for one queue.
+- Add a minimal transport-free coordination layer between `WorkItem` backlog and execution.
 
 **Scope**
-- Produce a dated plan from queue backlog, deadlines, and employee capacity.
-- Allow a manager override and publish assignments to a named employee.
+- Define a `CoordinationDecision` record for one queue or backlog slice.
+- Support basic outcomes such as `ready`, `hold`, `assign`, and `defer`.
+- Allow an initial manager override without making day planning mandatory.
 
 **Why it matters**
-- Makes Kalita operate like a real staffed department instead of an always-fire execution engine.
+- Makes Kalita operate like a real department while still supporting continuous, manager-driven, and future digital-manager modes.
 
 **Testability**
-- Unit test prioritization and manager override behavior.
-- Integration test that only planned or assigned work can start execution.
+- Unit test readiness, defer, assignment, and override behavior.
+- Integration test that only coordinated-eligible work can start execution.
 
 ### Slice 5 - Execution runtime skeleton
 **Goal**
-- Create durable `ExecutionInstance` and `ExecutionEvent` records with a minimal step runner for planned work.
+- Create durable `ExecutionInstance` and `ExecutionEvent` records with a minimal step runner for coordinated work.
 
 **Scope**
-- Start a runtime execution from an assigned `WorkItem` rather than directly from raw event arrival.
+- Start a runtime execution from a coordinated-eligible `WorkItem` rather than directly from raw event arrival.
 - Record statuses such as `pending`, `running`, `waiting_approval`, `succeeded`, and `failed`.
 
 **Why it matters**

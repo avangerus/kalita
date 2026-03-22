@@ -68,16 +68,15 @@
   - blob transport specifics
 
 ### `internal/workplan`
-- **Purpose**: represent queue intake, work assignment, and daily planning so events land in operational structures before tool execution.
+- **Purpose**: represent queue intake, work assignment, and transport-free coordination so events land in operational structures before tool execution.
 - **Key types**:
   - `WorkItem`
   - `WorkQueue`
-  - `DailyPlan`
   - `Assignment`
   - `QueueMetrics`
 - **Key interfaces**:
   - `QueueRepository`
-  - `Planner`
+  - `CoordinationService`
   - `AssignmentStrategy`
 - **Dependencies allowed**:
   - `internal/eventcore`
@@ -284,27 +283,31 @@
   - `AllowedCaseKinds []string`
   - `DefaultEmployeeIDs []string`
   - `PolicyRef string`
-- **Why needed now**: queues are necessary to represent ownership and intake routing before the system can support assignment and daily planning.
+- **Why needed now**: queues are necessary to represent ownership and intake routing before the system can support coordination, assignment, and multiple execution modes.
 - **What can wait until later**:
   - staffing forecasts
   - dynamic backlog thresholds
   - multi-region routing
 
-### `DailyPlan`
+### `CoordinationDecision`
 - **Fields**:
   - `ID string`
-  - `QueueID string`
-  - `PlanDate string`
-  - `Status string`
-  - `WorkItemIDs []string`
-  - `Assignments map[string][]string`
+  - `WorkItemID string`
+  - `CaseID string`
+  - `Mode string`
+  - `Decision string`
+  - `AssigneeRef string`
+  - `Priority int`
+  - `ReasonCodes []string`
+  - `NotBefore *time.Time`
+  - `ExpiresAt *time.Time`
+  - `DecidedBy ActorContext`
   - `CreatedAt time.Time`
-  - `ApprovedAt *time.Time`
-- **Why needed now**: a minimal plan object lets the runtime distinguish intake from authorized execution, even if planning is initially simple and single-queue.
+- **Why needed now**: a minimal coordination object lets the runtime distinguish intake from execution readiness without forcing every department into day-based planning.
 - **What can wait until later**:
-  - scenario versions
-  - capacity balancing metrics
-  - manager notes/history
+  - richer planning artifacts such as `DailyPlan`
+  - capacity optimization models
+  - manager note history and scenario simulation
 
 ### `DigitalEmployee`
 - **Fields**:
@@ -483,8 +486,8 @@
   - daily planning
   - digital employee selection
 
-### Slice 3: add work queues and daily plan primitives
-- **Goal**: introduce queue intake and plan gating so case work becomes schedulable rather than immediately executable.
+### Slice 3: add work queues and coordination handoff primitives
+- **Goal**: introduce queue intake and work-item gating so case work becomes schedulable rather than immediately executable.
 - **Exact package/files likely affected**:
   - new: `internal/workplan/*.go`
   - update: `internal/caseruntime/*.go`
@@ -493,7 +496,7 @@
 - **New tests needed**:
   - work item creation from case event
   - assignment to queue by case kind
-  - command execution blocked until work item is planned
+  - command execution blocked until work item has a coordination outcome
 - **What becomes possible after this slice**:
   - backlog and assignment concepts exist in code
   - future digital employees have an operational home
@@ -502,7 +505,27 @@
   - approval routing
   - tool execution runtime
 
-### Slice 4: add policy proposals and approval requests
+### Slice 4: add coordination decisions and execution eligibility
+- **Goal**: formalize `CoordinationDecision` and a minimal coordination service so work can become ready, held, deferred, or assigned without hardcoding day-based planning.
+- **Exact package/files likely affected**:
+  - new: `internal/workplan/*.go`
+  - update: `internal/caseruntime/*.go`
+  - update: `internal/app/bootstrap.go`
+  - optional adapter updates for read visibility
+- **New tests needed**:
+  - latest decision lookup by `WorkItem`
+  - execution eligibility derived from coordination outcome
+  - manager override or assignee update does not require a daily plan model
+- **What becomes possible after this slice**:
+  - continuous backlog-to-execution release
+  - later batch planning as an optional mode
+  - future digital-manager and SLA-driven coordination
+- **What must explicitly wait**:
+  - rich planning artifacts such as `DailyPlan`
+  - advanced capacity optimization
+  - policy proposal and approval routing
+
+### Slice 5: add policy proposals and approval requests
 - **Goal**: formalize `DecisionProposal`, `PolicyDecision`, and `ApprovalRequest` so side-effectful commands stop bypassing policy.
 - **Exact package/files likely affected**:
   - new: `internal/policy/*.go`
