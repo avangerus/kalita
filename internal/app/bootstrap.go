@@ -12,6 +12,7 @@ import (
 	"kalita/internal/command"
 	"kalita/internal/config"
 	"kalita/internal/eventcore"
+	"kalita/internal/executioncontrol"
 	"kalita/internal/policy"
 	"kalita/internal/postgres"
 	"kalita/internal/runtime"
@@ -21,23 +22,26 @@ import (
 
 // BootstrapResult holds the initialized application components
 type BootstrapResult struct {
-	Storage          *runtime.Storage
-	EventLog         eventcore.EventLog
-	CommandBus       command.CommandBus
-	CaseRepo         caseruntime.CaseRepository
-	CaseResolver     caseruntime.CaseResolver
-	CaseService      *caseruntime.Service
-	QueueRepo        workplan.QueueRepository
-	PlanRepo         workplan.PlanRepository
-	CoordinationRepo workplan.CoordinationRepository
-	AssignmentRouter workplan.AssignmentRouter
-	Planner          workplan.Planner
-	Coordinator      workplan.Coordinator
-	WorkService      *workplan.Service
-	PolicyRepo       policy.PolicyRepository
-	PolicyEvaluator  policy.Evaluator
-	PolicyService    policy.Service
-	Config           config.Config
+	Storage            *runtime.Storage
+	EventLog           eventcore.EventLog
+	CommandBus         command.CommandBus
+	CaseRepo           caseruntime.CaseRepository
+	CaseResolver       caseruntime.CaseResolver
+	CaseService        *caseruntime.Service
+	QueueRepo          workplan.QueueRepository
+	PlanRepo           workplan.PlanRepository
+	CoordinationRepo   workplan.CoordinationRepository
+	AssignmentRouter   workplan.AssignmentRouter
+	Planner            workplan.Planner
+	Coordinator        workplan.Coordinator
+	WorkService        *workplan.Service
+	PolicyRepo         policy.PolicyRepository
+	PolicyEvaluator    policy.Evaluator
+	PolicyService      policy.Service
+	ConstraintsRepo    executioncontrol.ConstraintsRepository
+	ConstraintsPlanner executioncontrol.ConstraintsPlanner
+	ConstraintsService executioncontrol.ConstraintsService
+	Config             config.Config
 }
 
 // Bootstrap initializes the application with all required components
@@ -115,29 +119,35 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	policyRepo := policy.NewInMemoryRepository()
 	policyEvaluator := policy.NewEvaluator()
 	policyService := policy.NewService(policyRepo, policyEvaluator, eventLog, clock, ids)
+	constraintsRepo := executioncontrol.NewInMemoryConstraintsRepository()
+	constraintsPlanner := executioncontrol.NewPlanner()
+	constraintsService := executioncontrol.NewService(constraintsRepo, constraintsPlanner, eventLog, clock, ids)
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}
 	st.Blob = &blob.LocalBlobStore{Root: cfg.FilesRoot}
 
 	return &BootstrapResult{
-		Storage:          st,
-		EventLog:         eventLog,
-		CommandBus:       commandBus,
-		CaseRepo:         caseRepo,
-		CaseResolver:     caseResolver,
-		CaseService:      caseService,
-		QueueRepo:        queueRepo,
-		PlanRepo:         planRepo,
-		CoordinationRepo: coordinationRepo,
-		AssignmentRouter: assignmentRouter,
-		Planner:          planner,
-		Coordinator:      coordinator,
-		WorkService:      workService,
-		PolicyRepo:       policyRepo,
-		PolicyEvaluator:  policyEvaluator,
-		PolicyService:    policyService,
-		Config:           cfg,
+		Storage:            st,
+		EventLog:           eventLog,
+		CommandBus:         commandBus,
+		CaseRepo:           caseRepo,
+		CaseResolver:       caseResolver,
+		CaseService:        caseService,
+		QueueRepo:          queueRepo,
+		PlanRepo:           planRepo,
+		CoordinationRepo:   coordinationRepo,
+		AssignmentRouter:   assignmentRouter,
+		Planner:            planner,
+		Coordinator:        coordinator,
+		WorkService:        workService,
+		PolicyRepo:         policyRepo,
+		PolicyEvaluator:    policyEvaluator,
+		PolicyService:      policyService,
+		ConstraintsRepo:    constraintsRepo,
+		ConstraintsPlanner: constraintsPlanner,
+		ConstraintsService: constraintsService,
+		Config:             cfg,
 	}, nil
 }
 

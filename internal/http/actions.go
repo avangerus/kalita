@@ -11,6 +11,7 @@ import (
 	"kalita/internal/caseruntime"
 	"kalita/internal/command"
 	"kalita/internal/eventcore"
+	"kalita/internal/executioncontrol"
 	"kalita/internal/policy"
 	"kalita/internal/runtime"
 	"kalita/internal/validation"
@@ -25,11 +26,11 @@ type actionRequest struct {
 }
 
 func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, nil, nil, nil, nil)
+	return ActionHandlerWithServices(storage, nil, nil, nil, nil, nil)
 }
 
 func ActionHandlerWithCommandBus(storage *runtime.Storage, commandBus command.CommandBus) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, commandBus, nil, nil, nil)
+	return ActionHandlerWithServices(storage, commandBus, nil, nil, nil, nil)
 }
 
 type commandCaseResolver interface {
@@ -44,7 +45,11 @@ type policyService interface {
 	EvaluateAndRecord(ctx context.Context, d workplan.CoordinationDecision) (policy.PolicyDecision, *policy.ApprovalRequest, error)
 }
 
-func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService) gin.HandlerFunc {
+type constraintsService interface {
+	CreateAndRecord(ctx context.Context, coordination workplan.CoordinationDecision, policyDecision policy.PolicyDecision) (executioncontrol.ExecutionConstraints, error)
+}
+
+func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService, constraintsService constraintsService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fqn, action, req, ok := parseActionRequest(c, storage)
 		if !ok {
@@ -96,6 +101,21 @@ func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.Comm
 								Message: err.Error(),
 							}}})
 							return
+						}
+						if constraintsService != nil && policyDecision.Outcome != policy.PolicyDeny {
+							constraintsCtx := executioncontrol.ContextWithExecution(c.Request.Context(), executioncontrol.ExecutionContext{
+								ExecutionID:   intakeResult.Command.ExecutionID,
+								CorrelationID: intakeResult.Command.CorrelationID,
+								CausationID:   intakeResult.Command.ID,
+							})
+							if _, err := constraintsService.CreateAndRecord(constraintsCtx, intakeResult.CoordinationDecision, policyDecision); err != nil {
+								c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
+									Code:    validation.ErrTypeMismatch,
+									Field:   "action",
+									Message: err.Error(),
+								}}})
+								return
+							}
 						}
 						if policyDecision.Outcome != policy.PolicyAllow {
 							message := policyDecision.Reason
