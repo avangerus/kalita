@@ -253,10 +253,31 @@ func (s *service) GetSummary(ctx context.Context) (Summary, error) {
 	if err != nil {
 		return Summary{}, err
 	}
-	summary := Summary{WorkItemCount: len(items), ApprovalPendingCount: len(approvals), BlockedOrDeferredCount: len(blocked)}
+	summary := Summary{WorkItemCount: len(items), ApprovalPendingCount: len(approvals), BlockedOrDeferredCount: len(blocked), TrustLevelCounts: map[string]int{}}
 	for _, c := range cases {
 		if c.Status == string(caseruntime.CaseOpen) || c.Status == "open" {
 			summary.OpenCaseCount++
+		}
+	}
+	for _, wi := range items {
+		switch wi.Coordination.DecisionType {
+		case string(workplan.CoordinationDefer):
+			summary.DeferredCount++
+		case string(workplan.CoordinationBlock), string(workplan.CoordinationEscalate):
+			summary.BlockedCount++
+		}
+		if wi.Execution.Status == string(executionruntime.ExecutionSessionRunning) {
+			summary.ExecutingSessionCount++
+		}
+	}
+	actors, err := s.ListActors(ctx)
+	if err == nil {
+		for _, actor := range actors {
+			level := strings.TrimSpace(actor.TrustLevel)
+			if level == "" {
+				level = "unclassified"
+			}
+			summary.TrustLevelCounts[level]++
 		}
 	}
 	return summary, nil
@@ -648,6 +669,8 @@ func normalizeTimelineStep(e eventcore.ExecutionEvent) (string, bool) {
 		return "approval_rejected", true
 	case "execution_session_created":
 		return "execution_started", true
+	case "escalation_waiting":
+		return "escalation_waiting", true
 	default:
 		return "", false
 	}
