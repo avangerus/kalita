@@ -39,6 +39,7 @@ func BuildDomainCaseContext(overview controlplane.CaseOverview, workItem *contro
 	if overview.Kind != "missed_container_pickup_review" {
 		return ctx
 	}
+
 	meta := aisScenarioMetadata()
 	ctx.ScenarioKey = "ais-otkhody"
 	ctx.Title = "Missed Container Pickup Review"
@@ -55,12 +56,33 @@ func BuildDomainCaseContext(overview controlplane.CaseOverview, workItem *contro
 	ctx.Zone = stringValue(meta["zone"])
 	ctx.YardID = stringValue(meta["yard_id"])
 	ctx.IncidentSource = stringValue(meta["incident_source"])
-	ctx.IncidentSummary = fmt.Sprintf("Route %s completed, but container site %s remained unserviced after %s was detected.", fallback(ctx.RouteID, "-"), fallback(ctx.ContainerSiteID, "-"), strings.ToLower(fallback(ctx.ReasonLabel, "a fact mismatch")))
-	ctx.ReferenceLine = strings.Trim(strings.Join([]string{prefixed("Carrier", ctx.CarrierID), prefixed("District", ctx.District), prefixed("Zone", ctx.Zone), prefixed("Yard", ctx.YardID)}, " · "), " ·")
+	ctx.IncidentSummary = fmt.Sprintf(
+		"Route %s completed, but container site %s remained unserviced after %s was detected.",
+		fallback(ctx.RouteID, "-"),
+		fallback(ctx.ContainerSiteID, "-"),
+		strings.ToLower(fallback(ctx.ReasonLabel, "a fact mismatch")),
+	)
+	ctx.ReferenceLine = strings.Trim(
+		strings.Join([]string{
+			prefixed("Carrier", ctx.CarrierID),
+			prefixed("District", ctx.District),
+			prefixed("Zone", ctx.Zone),
+			prefixed("Yard", ctx.YardID),
+		}, " · "),
+		" ·",
+	)
 	ctx.TimelineDescription = "Universal control-plane events rendered with AIS Otkhody incident labels."
+
 	if workItem != nil {
-		ctx.ControlPlaneState = fmt.Sprintf("case %s · coordination %s · policy %s", overview.Status, workItem.Coordination.DecisionType, workItem.PolicyApproval.Outcome)
+		ctx.ControlPlaneState = fmt.Sprintf(
+			"case %s · coordination %s · policy %s",
+			overview.Status,
+			workItem.Coordination.DecisionType,
+			workItem.PolicyApproval.Outcome,
+		)
 	}
+
+	_ = timeline
 	return ctx
 }
 
@@ -68,6 +90,7 @@ func BuildDomainTimelineEntry(caseKind string, entry controlplane.TimelineEntry)
 	if caseKind != "missed_container_pickup_review" {
 		return DomainTimelineEntry{Title: entry.Step, Description: entry.Status}
 	}
+
 	title := map[string]string{
 		"incident_detected":    "Incident detected",
 		"case_created":         "Review case opened",
@@ -78,14 +101,20 @@ func BuildDomainTimelineEntry(caseKind string, entry controlplane.TimelineEntry)
 		"approval_granted":     "Approval granted",
 		"approval_rejected":    "Approval rejected",
 	}[entry.Step]
+
 	if title == "" {
 		title = entry.Step
 	}
+
 	description := entry.Status
 	if entry.Step == "incident_detected" {
 		description = stringValue(aisScenarioMetadata()["incident_source"])
 	}
-	return DomainTimelineEntry{Title: title, Description: strings.Trim(description, " ·")}
+
+	return DomainTimelineEntry{
+		Title:       title,
+		Description: strings.Trim(description, " ·"),
+	}
 }
 
 func prefixed(label string, value string) string {

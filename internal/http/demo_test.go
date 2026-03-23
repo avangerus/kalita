@@ -69,7 +69,16 @@ func TestDemoCaseListAndDetailRenderDomainLabels(t *testing.T) {
 		t.Fatalf("GET %s status=%d body=%s", path, w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Missed Container Pickup Review", "Incident summary", "Fact Reconciliation", "Supervisor review required", "Incident detected", "Review case opened", "Reconciliation task created", "Follow-up coordination performed"} {
+	for _, want := range []string{
+		"Missed Container Pickup Review",
+		"Incident summary",
+		"Fact Reconciliation",
+		"Supervisor review required",
+		"Incident detected",
+		"Review case opened",
+		"Reconciliation task created",
+		"Follow-up coordination performed",
+	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q: %s", want, body)
 		}
