@@ -14,14 +14,18 @@ import (
 )
 
 func RunServer(addr string, storage *runtime.Storage) {
-	RunServerWithServices(addr, storage, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	RunServerWithServices(addr, storage, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func RunServerWithCommandBus(addr string, storage *runtime.Storage, commandBus command.CommandBus) {
-	RunServerWithServices(addr, storage, commandBus, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	RunServerWithServices(addr, storage, commandBus, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
-func RunServerWithServices(addr string, storage *runtime.Storage, commandBus command.CommandBus, caseService *caseruntime.Service, workService workItemIntakeService, coordinator coordinator, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, controlPlane *controlplane.Service, employeeServices ...employeeService) {
+func RunServerWithServices(addr string, storage *runtime.Storage, commandBus command.CommandBus, caseService *caseruntime.Service, workService workItemIntakeService, coordinator coordinator, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, employeeServices ...employeeService) {
+	RunServerWithControlPlane(addr, storage, commandBus, caseService, workService, coordinator, policyService, constraintsService, actionPlanService, proposalService, employeeDirectory, nil, employeeServices...)
+}
+
+func RunServerWithControlPlane(addr string, storage *runtime.Storage, commandBus command.CommandBus, caseService *caseruntime.Service, workService workItemIntakeService, coordinator coordinator, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, controlPlane *controlplane.Service, employeeServices ...employeeService) {
 	// fail-fast, если есть критичные проблемы схемы
 	if issues := schema.Lint(storage.Schemas); len(issues) > 0 {
 		for _, it := range issues {
