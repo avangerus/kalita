@@ -4,12 +4,11 @@
   "enumsDir": "reference/enums",
   "dbUrl": "postgresql://postgres:gogagoga123@192.168.1.4:9091/postgres",
   "autoMigrate": true,
-
   "blobDriver": "local",
   "filesRoot": "uploads",
-
   "s3Region": "",
   "s3Bucket": "",
   "s3Prefix": "",
-  "s3Endpoint": ""
+  "s3Endpoint": "",
+  "demoMode": false
 }
