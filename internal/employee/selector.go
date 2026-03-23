@@ -23,6 +23,10 @@ func NewSelectorWithMatcher(directory Directory, matcher ActorMatcher) Selector 
 	return &deterministicSelector{directory: directory, matcher: matcher}
 }
 
+func NewSelectorWithActorMatcher(directory Directory, matcher ActorMatcher) Selector {
+	return NewSelectorWithMatcher(directory, matcher)
+}
+
 func (s *deterministicSelector) SelectForWorkItem(ctx context.Context, wi workplan.WorkItem, plan actionplan.ActionPlan) (DigitalEmployee, string, error) {
 	if s.directory == nil {
 		return DigitalEmployee{}, "", fmt.Errorf("employee directory is nil")
