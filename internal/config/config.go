@@ -10,6 +10,7 @@ import (
 
 type Config struct {
 	Port        string `json:"port"`
+	DemoMode    bool   `json:"demoMode"`
 	DSLDir      string `json:"dslDir"`
 	EnumsDir    string `json:"enumsDir"`
 	DBURL       string `json:"dbUrl"`
@@ -29,6 +30,7 @@ type Config struct {
 func def() Config {
 	return Config{
 		Port:        "8080",
+		DemoMode:    false,
 		DSLDir:      "dsl",
 		EnumsDir:    "reference/enums",
 		DBURL:       "",
@@ -88,6 +90,7 @@ func LoadWithPath(jsonPath string) Config {
 
 	// ENV overrides
 	cfg.Port = getenv("KALITA_PORT", cfg.Port)
+	cfg.DemoMode = getenvBool("KALITA_DEMO_MODE", cfg.DemoMode)
 	cfg.DSLDir = getenv("KALITA_DSL_DIR", cfg.DSLDir)
 	cfg.EnumsDir = getenv("KALITA_ENUMS_DIR", cfg.EnumsDir)
 	cfg.DBURL = getenv("KALITA_DB_URL", cfg.DBURL)
@@ -105,6 +108,7 @@ func LoadWithPath(jsonPath string) Config {
 	fs.SetOutput(os.Stderr)
 	configPath := fs.String("config", jsonPath, "Path to config JSON")
 	port := fs.String("port", cfg.Port, "HTTP port")
+	demoMode := fs.String("demo-mode", strconv.FormatBool(cfg.DemoMode), "Run deterministic demo console scenario (true/false)")
 	dsl := fs.String("dsl", cfg.DSLDir, "Path to DSL directory")
 	enums := fs.String("enums", cfg.EnumsDir, "Path to enums directory")
 	db := fs.String("db", cfg.DBURL, "Postgres URL (empty = in-memory)")
@@ -125,6 +129,9 @@ func LoadWithPath(jsonPath string) Config {
 	}
 
 	cfg.Port = strings.TrimSpace(*port)
+	cfg.DemoMode = strings.EqualFold(strings.TrimSpace(*demoMode), "true") ||
+		strings.EqualFold(strings.TrimSpace(*demoMode), "1") ||
+		strings.EqualFold(strings.TrimSpace(*demoMode), "yes")
 	cfg.DSLDir = strings.TrimSpace(*dsl)
 	cfg.EnumsDir = strings.TrimSpace(*enums)
 	cfg.DBURL = strings.TrimSpace(*db)
