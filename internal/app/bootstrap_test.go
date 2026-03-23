@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"kalita/internal/actionplan"
+	"kalita/internal/workplan"
 )
 
-func TestBootstrapProvidesEventCenterCaseRuntimeWorkplanPolicyAndExecutionControl(t *testing.T) {
+func TestBootstrapProvidesEventCenterCaseRuntimeWorkplanPolicyExecutionControlAndEmployeeLayer(t *testing.T) {
 	cfg := `{
   "port": "8080",
   "dslDir": "../../dsl",
@@ -86,7 +89,18 @@ func TestBootstrapProvidesEventCenterCaseRuntimeWorkplanPolicyAndExecutionContro
 	if result.ConstraintsService == nil {
 		t.Fatal("ConstraintsService is nil")
 	}
-
+	if result.EmployeeDirectory == nil {
+		t.Fatal("EmployeeDirectory is nil")
+	}
+	if result.AssignmentRepo == nil {
+		t.Fatal("AssignmentRepo is nil")
+	}
+	if result.EmployeeSelector == nil {
+		t.Fatal("EmployeeSelector is nil")
+	}
+	if result.EmployeeService == nil {
+		t.Fatal("EmployeeService is nil")
+	}
 	if result.ExecutionRepo == nil {
 		t.Fatal("ExecutionRepo is nil")
 	}
@@ -108,5 +122,19 @@ func TestBootstrapProvidesEventCenterCaseRuntimeWorkplanPolicyAndExecutionContro
 	}
 	if len(queues) == 0 || queues[0].ID != "default-intake" {
 		t.Fatalf("queues = %#v", queues)
+	}
+	employees, err := result.EmployeeDirectory.ListEmployees(context.Background())
+	if err != nil {
+		t.Fatalf("ListEmployees error = %v", err)
+	}
+	if len(employees) == 0 || employees[0].Role != "legacy_operator" {
+		t.Fatalf("employees = %#v", employees)
+	}
+	selected, reason, err := result.EmployeeSelector.SelectForWorkItem(context.Background(), workplan.WorkItem{ID: "work-1", QueueID: "default-intake"}, actionplan.ActionPlan{ID: "plan-1", Actions: []actionplan.Action{{ID: "action-1", Type: "legacy_workflow_action"}}})
+	if err != nil {
+		t.Fatalf("SelectForWorkItem error = %v", err)
+	}
+	if selected.ID != employees[0].ID || reason == "" {
+		t.Fatalf("selected = %#v reason=%q", selected, reason)
 	}
 }

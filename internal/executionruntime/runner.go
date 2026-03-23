@@ -22,6 +22,10 @@ func executionFromContext(ctx context.Context) ExecutionContext {
 	return meta
 }
 
+func ExecutionMetadataFromContext(ctx context.Context) ExecutionContext {
+	return executionFromContext(ctx)
+}
+
 type DefaultRunner struct {
 	repo     ExecutionRepository
 	wal      WAL
