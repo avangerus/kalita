@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"kalita/internal/controlplane"
+	"kalita/internal/demo"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,13 +47,16 @@ func (c *demoOperatorClient) post(path string, out any) error {
 }
 
 type dashboardMetrics struct {
-	ActiveCases            int
-	BlockedCases           int
-	DeferredWorkItems      int
-	PendingApprovals       int
-	ExecutingSessions      int
-	FailedExecutions       int
-	ActorTrustDistribution []trustBucket
+	ActiveCases                 int
+	BlockedCases                int
+	DeferredWorkItems           int
+	PendingApprovals            int
+	ExecutingSessions           int
+	FailedExecutions            int
+	ActorTrustDistribution      []trustBucket
+	UnresolvedRouteIncidents    int
+	PendingSupervisorReviews    int
+	DeferredReconciliationTasks int
 }
 
 type trustBucket struct {
@@ -63,15 +67,29 @@ type trustBucket struct {
 type caseListRow struct {
 	CaseID               string
 	Type                 string
+	TypeLabel            string
 	Status               string
 	BlockingOrDeferred   string
 	PendingApprovalCount int
+	RouteRef             string
+	DomainReason         string
+	ReferenceLine        string
+}
+
+type caseDetailTimelineRow struct {
+	OccurredAt   time.Time
+	Step         string
+	Status       string
+	Payload      map[string]any
+	DomainTitle  string
+	DomainDetail string
 }
 
 type caseDetailPage struct {
-	Case     controlplane.CaseOverview
-	WorkItem *controlplane.WorkItemOverview
-	Timeline []controlplane.TimelineEntry
+	Case          controlplane.CaseOverview
+	WorkItem      *controlplane.WorkItemOverview
+	Timeline      []caseDetailTimelineRow
+	DomainContext demo.DomainCaseContext
 }
 
 func registerDemoRoutes(r *gin.Engine) {
@@ -110,13 +128,15 @@ func renderDemoCaseDetail(c *gin.Context, client *demoOperatorClient, caseID str
 		renderDemoError(c, err)
 		return
 	}
-	page := caseDetailPage{Case: overview, Timeline: timeline}
+	page := caseDetailPage{Case: overview}
 	for _, wi := range workItems {
 		if wi.CaseID == caseID {
 			copy := wi
 			page.WorkItem = &copy
 		}
 	}
+	page.DomainContext = demo.BuildDomainCaseContext(overview, page.WorkItem, timeline)
+	page.Timeline = buildCaseDetailTimeline(overview.Kind, timeline)
 	renderDemoHTML(c, "Case Detail · Kalita Demo Console", demoCaseDetailTemplate, map[string]any{"Page": page})
 }
 
@@ -201,6 +221,15 @@ func buildDashboardMetrics(summary controlplane.Summary, workItems []controlplan
 		if wi.Coordination.DecisionType == "block" {
 			blockedCaseIDs[wi.CaseID] = struct{}{}
 		}
+		if wi.Type == "missed_container_pickup_review" {
+			metrics.UnresolvedRouteIncidents++
+			if wi.Coordination.DecisionType == "defer" {
+				metrics.DeferredReconciliationTasks++
+			}
+			if wi.PolicyApproval.ApprovalRequestStatus == "pending" {
+				metrics.PendingSupervisorReviews++
+			}
+		}
 		switch wi.Execution.Status {
 		case "running":
 			metrics.ExecutingSessions++
@@ -236,7 +265,7 @@ func buildCaseRows(cases []controlplane.CaseOverview, workItems []controlplane.W
 	}
 	rows := make([]caseListRow, 0, len(cases))
 	for _, item := range cases {
-		row := caseListRow{CaseID: item.CaseID, Type: item.Kind, Status: item.Status, PendingApprovalCount: pendingByCase[item.CaseID]}
+		row := caseListRow{CaseID: item.CaseID, Type: item.Kind, TypeLabel: item.Kind, Status: item.Status, PendingApprovalCount: pendingByCase[item.CaseID]}
 		reasons := make([]string, 0)
 		for _, wi := range workByCase[item.CaseID] {
 			if wi.Coordination.Reason != "" {
@@ -246,10 +275,40 @@ func buildCaseRows(cases []controlplane.CaseOverview, workItems []controlplane.W
 				reasons = append(reasons, wi.PolicyApproval.Reason)
 			}
 		}
+		ctx := demo.BuildDomainCaseContext(item, latestWorkItem(workByCase[item.CaseID]), nil)
+		if ctx.CaseTypeLabel != "" {
+			row.TypeLabel = ctx.CaseTypeLabel
+			row.RouteRef = ctx.RouteID
+			row.DomainReason = ctx.ReasonLabel
+			row.ReferenceLine = strings.Trim(strings.Join([]string{ctx.ContainerSiteID, ctx.ReferenceLine}, " · "), " ·")
+		}
 		row.BlockingOrDeferred = strings.Join(uniqueStrings(reasons), " | ")
 		rows = append(rows, row)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].CaseID < rows[j].CaseID })
+	return rows
+}
+
+func latestWorkItem(items []controlplane.WorkItemOverview) *controlplane.WorkItemOverview {
+	if len(items) == 0 {
+		return nil
+	}
+	best := items[0]
+	for _, item := range items[1:] {
+		if item.UpdatedAt.After(best.UpdatedAt) {
+			best = item
+		}
+	}
+	copy := best
+	return &copy
+}
+
+func buildCaseDetailTimeline(caseKind string, timeline []controlplane.TimelineEntry) []caseDetailTimelineRow {
+	rows := make([]caseDetailTimelineRow, 0, len(timeline))
+	for _, entry := range timeline {
+		mapped := demo.BuildDomainTimelineEntry(caseKind, entry)
+		rows = append(rows, caseDetailTimelineRow{OccurredAt: entry.OccurredAt, Step: entry.Step, Status: entry.Status, Payload: entry.Payload, DomainTitle: mapped.Title, DomainDetail: mapped.Description})
+	}
 	return rows
 }
 
@@ -308,7 +367,7 @@ func renderDemoHTML(c *gin.Context, title string, body string, data map[string]a
 const demoLayoutTemplate = `{{define "layout"}}<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>{{.Title}}</title>
 <style>
-body{font-family:Arial,sans-serif;margin:24px;color:#222}nav a{margin-right:12px}table{border-collapse:collapse;width:100%;margin-top:12px}th,td{border:1px solid #ccc;padding:8px;vertical-align:top;text-align:left} .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:16px 0}.card{border:1px solid #ccc;padding:12px}.muted{color:#666}.pill{display:inline-block;border:1px solid #999;border-radius:999px;padding:2px 8px;font-size:12px}.actions form{display:inline-block;margin-right:8px}pre{white-space:pre-wrap;word-break:break-word;margin:0}
+body{font-family:Arial,sans-serif;margin:24px;color:#222}nav a{margin-right:12px}table{border-collapse:collapse;width:100%;margin-top:12px}th,td{border:1px solid #ccc;padding:8px;vertical-align:top;text-align:left} .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:16px 0}.card{border:1px solid #ccc;padding:12px}.muted{color:#666}.pill{display:inline-block;border:1px solid #999;border-radius:999px;padding:2px 8px;font-size:12px}.actions form{display:inline-block;margin-right:8px}pre{white-space:pre-wrap;word-break:break-word;margin:0}.section-title{margin-top:28px}.lede{max-width:900px;margin-top:8px}.domain{background:#f7f8fa;border:1px solid #d8dce3;padding:16px;margin-top:16px}
 </style></head><body>
 <h1>{{.Title}}</h1>
 <nav><a href="/demo">Dashboard</a><a href="/demo/cases">Cases</a><a href="/demo/approvals">Approval Inbox</a></nav>
@@ -316,6 +375,12 @@ body{font-family:Arial,sans-serif;margin:24px;color:#222}nav a{margin-right:12px
 </body></html>{{end}}`
 
 const demoDashboardTemplate = `{{define "body"}}
+<p class="lede">AIS Otkhody demo slice: a missed container pickup incident enters Kalita, generates governed work, waits for supervisor approval, and only then continues through the same universal control-plane pipeline.</p>
+<div class="cards">
+  <div class="card"><strong>Unresolved route incidents</strong><div>{{.Metrics.UnresolvedRouteIncidents}}</div></div>
+  <div class="card"><strong>Pending supervisor reviews</strong><div>{{.Metrics.PendingSupervisorReviews}}</div></div>
+  <div class="card"><strong>Deferred reconciliation tasks</strong><div>{{.Metrics.DeferredReconciliationTasks}}</div></div>
+</div>
 <div class="cards">
   <div class="card"><strong>Active cases</strong><div>{{.Metrics.ActiveCases}}</div></div>
   <div class="card"><strong>Blocked cases</strong><div>{{.Metrics.BlockedCases}}</div></div>
@@ -332,28 +397,34 @@ const demoDashboardTemplate = `{{define "body"}}
 {{end}}`
 
 const demoCasesTemplate = `{{define "body"}}
-<table><thead><tr><th>Case ID</th><th>Type</th><th>Status</th><th>Blocking / deferred reason</th><th>Pending approval</th></tr></thead><tbody>
-{{range .Cases}}<tr><td><a href="/demo/cases/{{.CaseID}}">{{.CaseID}}</a></td><td>{{.Type}}</td><td>{{.Status}}</td><td>{{if .BlockingOrDeferred}}{{.BlockingOrDeferred}}{{else}}-{{end}}</td><td>{{if gt .PendingApprovalCount 0}}<span class="pill">pending ({{.PendingApprovalCount}})</span>{{else}}-{{end}}</td></tr>{{else}}<tr><td colspan="5">No cases found.</td></tr>{{end}}
+<table><thead><tr><th>Case ID</th><th>Operational type</th><th>Status</th><th>Route / site reference</th><th>Domain reason</th><th>Blocking / deferred reason</th><th>Pending approval</th></tr></thead><tbody>
+{{range .Cases}}<tr><td><a href="/demo/cases/{{.CaseID}}">{{.CaseID}}</a></td><td>{{.TypeLabel}}</td><td>{{.Status}}</td><td>{{if .RouteRef}}Route {{.RouteRef}}{{if .ReferenceLine}} · {{.ReferenceLine}}{{end}}{{else if .ReferenceLine}}{{.ReferenceLine}}{{else}}-{{end}}</td><td>{{if .DomainReason}}{{.DomainReason}}{{else}}-{{end}}</td><td>{{if .BlockingOrDeferred}}{{.BlockingOrDeferred}}{{else}}-{{end}}</td><td>{{if gt .PendingApprovalCount 0}}<span class="pill">pending ({{.PendingApprovalCount}})</span>{{else}}-{{end}}</td></tr>{{else}}<tr><td colspan="7">No cases found.</td></tr>{{end}}
 </tbody></table>
 {{end}}`
 
 const demoCaseDetailTemplate = `{{define "body"}}
-<h2>Case header</h2>
+{{if .Page.DomainContext.Title}}<div class="domain"><strong>{{.Page.DomainContext.Title}}</strong><p>{{.Page.DomainContext.IncidentSummary}}</p><p class="muted">{{.Page.DomainContext.TimelineDescription}}</p></div>{{end}}
+<h2>Incident summary</h2>
 <table><tbody>
 <tr><th>Case ID</th><td>{{.Page.Case.CaseID}}</td></tr>
-<tr><th>Type</th><td>{{.Page.Case.Kind}}</td></tr>
+<tr><th>Operational type</th><td>{{if .Page.DomainContext.CaseTypeLabel}}{{.Page.DomainContext.CaseTypeLabel}}{{else}}{{.Page.Case.Kind}}{{end}}</td></tr>
 <tr><th>Status</th><td>{{.Page.Case.Status}}</td></tr>
 <tr><th>Correlation ID</th><td>{{.Page.Case.CorrelationID}}</td></tr>
 <tr><th>Subject</th><td>{{.Page.Case.SubjectRef}}</td></tr>
+<tr><th>Route</th><td>{{if .Page.DomainContext.RouteID}}{{.Page.DomainContext.RouteID}}{{else}}-{{end}}</td></tr>
+<tr><th>Container site</th><td>{{if .Page.DomainContext.ContainerSiteID}}{{.Page.DomainContext.ContainerSiteID}}{{else}}-{{end}}</td></tr>
+<tr><th>Carrier</th><td>{{if .Page.DomainContext.CarrierID}}{{.Page.DomainContext.CarrierID}}{{else}}-{{end}}</td></tr>
+<tr><th>Incident source</th><td>{{if .Page.DomainContext.IncidentSource}}{{.Page.DomainContext.IncidentSource}}{{else}}-{{end}}</td></tr>
+<tr><th>Operational reason</th><td>{{if .Page.DomainContext.ReasonLabel}}{{.Page.DomainContext.ReasonLabel}}{{else}}-{{end}}</td></tr>
 </tbody></table>
 {{if .Page.WorkItem}}
-<h2>Latest work item</h2>
+<h2 class="section-title">Control plane state</h2>
 <table><tbody>
 <tr><th>Work item</th><td>{{.Page.WorkItem.WorkItemID}}</td></tr>
-<tr><th>Status</th><td>{{.Page.WorkItem.Status}}</td></tr>
+<tr><th>Work type</th><td>{{if .Page.DomainContext.WorkTypeLabel}}{{.Page.DomainContext.WorkTypeLabel}}{{else}}{{.Page.WorkItem.Type}}{{end}}</td></tr>
 <tr><th>Queue</th><td>{{.Page.WorkItem.QueueID}}</td></tr>
 <tr><th>Latest coordination</th><td>{{.Page.WorkItem.Coordination.DecisionType}} {{if .Page.WorkItem.Coordination.Reason}}— {{.Page.WorkItem.Coordination.Reason}}{{end}}</td></tr>
-<tr><th>Latest policy</th><td>{{.Page.WorkItem.PolicyApproval.Outcome}} {{if .Page.WorkItem.PolicyApproval.Reason}}— {{.Page.WorkItem.PolicyApproval.Reason}}{{end}}</td></tr>
+<tr><th>Latest policy</th><td>{{.Page.WorkItem.PolicyApproval.Outcome}} {{if .Page.DomainContext.ApprovalLabel}}— {{.Page.DomainContext.ApprovalLabel}}{{else if .Page.WorkItem.PolicyApproval.Reason}}— {{.Page.WorkItem.PolicyApproval.Reason}}{{end}}</td></tr>
 <tr><th>Latest approval state</th><td>{{if .Page.WorkItem.PolicyApproval.ApprovalRequestID}}{{.Page.WorkItem.PolicyApproval.ApprovalRequestStatus}} ({{.Page.WorkItem.PolicyApproval.ApprovalRequestID}}){{else}}-{{end}}</td></tr>
 <tr><th>Latest execution state</th><td>{{if .Page.WorkItem.Execution.SessionID}}{{.Page.WorkItem.Execution.Status}} ({{.Page.WorkItem.Execution.SessionID}}){{else}}not started{{end}}</td></tr>
 </tbody></table>
@@ -361,9 +432,9 @@ const demoCaseDetailTemplate = `{{define "body"}}
 <div class="actions"><form method="post" action="/demo/approvals/{{.Page.WorkItem.PolicyApproval.ApprovalRequestID}}/approve"><input type="hidden" name="redirect" value="/demo/cases/{{.Page.Case.CaseID}}"><button type="submit">Approve</button></form><form method="post" action="/demo/approvals/{{.Page.WorkItem.PolicyApproval.ApprovalRequestID}}/reject"><input type="hidden" name="redirect" value="/demo/cases/{{.Page.Case.CaseID}}"><button type="submit">Reject</button></form></div>
 {{end}}
 {{end}}
-<h2>Timeline</h2>
-<table><thead><tr><th>Occurred at</th><th>Step</th><th>Status</th><th>Payload</th></tr></thead><tbody>
-{{range .Page.Timeline}}<tr><td>{{fmtTime .OccurredAt}}</td><td>{{.Step}}</td><td>{{if .Status}}{{.Status}}{{else}}-{{end}}</td><td><pre>{{payload .Payload}}</pre></td></tr>{{else}}<tr><td colspan="4">No timeline entries found.</td></tr>{{end}}
+<h2 class="section-title">Timeline</h2>
+<table><thead><tr><th>Occurred at</th><th>Domain event</th><th>Control plane step</th><th>Status</th><th>Payload</th></tr></thead><tbody>
+{{range .Page.Timeline}}<tr><td>{{fmtTime .OccurredAt}}</td><td>{{.DomainTitle}}{{if .DomainDetail}}<div class="muted">{{.DomainDetail}}</div>{{end}}</td><td>{{.Step}}</td><td>{{if .Status}}{{.Status}}{{else}}-{{end}}</td><td><pre>{{payload .Payload}}</pre></td></tr>{{else}}<tr><td colspan="5">No timeline entries found.</td></tr>{{end}}
 </tbody></table>
 {{end}}`
 
