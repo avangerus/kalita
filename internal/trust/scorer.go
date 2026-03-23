@@ -2,7 +2,7 @@ package trust
 
 import "time"
 
-type deterministicScorer struct {
+type DeterministicScorer struct {
 	now func() time.Time
 }
 
@@ -14,41 +14,78 @@ func NewScorerWithClock(now func() time.Time) Scorer {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &deterministicScorer{now: now}
+	return &DeterministicScorer{now: now}
 }
 
-func (s *deterministicScorer) Score(current TrustProfile, outcome ExecutionOutcome) TrustProfile {
-	next := current
-	if next.ActorID == "" {
-		next.ActorID = outcome.ActorID
+func NewDeterministicScorer(now func() time.Time) *DeterministicScorer {
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
 	}
-	if outcome.Succeeded {
-		next.CompletedExecutions++
+	return &DeterministicScorer{now: now}
+}
+
+func DefaultTrustProfile(actorID string, now time.Time) TrustProfile {
+	return TrustProfile{
+		ActorID:      actorID,
+		TrustLevel:   TrustLow,
+		AutonomyTier: AutonomyRestricted,
+		UpdatedAt:    now,
 	}
-	if !outcome.Succeeded {
-		next.FailedExecutions++
-	}
-	if outcome.Compensated {
-		next.CompensatedExecutions++
-	}
-	if outcome.RequiredApproval {
-		next.ApprovalRequests++
-	}
-	if outcome.Approved {
-		next.ApprovedExecutions++
+}
+
+func (s *DeterministicScorer) Score(current TrustProfile, outcome ExecutionOutcome) TrustProfile {
+	updated := current
+	if updated.ActorID == "" {
+		updated = DefaultTrustProfile(outcome.ActorID, s.now())
 	}
 
-	next.TrustLevel, next.AutonomyTier = deriveTrust(next)
-	next.UpdatedAt = s.now()
-	return next
+	if outcome.Succeeded {
+		updated.CompletedExecutions++
+	} else {
+		updated.FailedExecutions++
+	}
+	if outcome.Compensated {
+		updated.CompensatedExecutions++
+	}
+	if outcome.RequiredApproval {
+		updated.ApprovalRequests++
+	}
+	if outcome.Approved {
+		updated.ApprovedExecutions++
+	}
+
+	updated.TrustLevel, updated.AutonomyTier = deriveTrust(updated)
+	updated.UpdatedAt = s.now()
+	return updated
 }
 
 func deriveTrust(profile TrustProfile) (TrustLevel, AutonomyTier) {
-	if profile.CompletedExecutions >= 10 && profile.FailedExecutions <= 1 && profile.CompensatedExecutions == 0 {
-		return TrustHigh, AutonomyStandard
-	}
+	trustLevel := TrustLow
+	autonomyTier := AutonomyRestricted
+
 	if profile.CompletedExecutions >= 3 && profile.FailedExecutions == 0 {
-		return TrustMedium, AutonomySupervised
+		trustLevel = TrustMedium
+		autonomyTier = AutonomySupervised
 	}
-	return TrustLow, AutonomyRestricted
+
+	if profile.CompletedExecutions >= 10 && profile.FailedExecutions <= 1 && profile.CompensatedExecutions == 0 {
+		trustLevel = TrustHigh
+		autonomyTier = AutonomyStandard
+	}
+
+	if profile.FailedExecutions >= 2 {
+		trustLevel = TrustLow
+		autonomyTier = AutonomyRestricted
+	}
+
+	if profile.CompensatedExecutions >= 1 && trustLevel == TrustHigh {
+		trustLevel = TrustMedium
+		autonomyTier = AutonomySupervised
+		if profile.FailedExecutions >= 2 {
+			trustLevel = TrustLow
+			autonomyTier = AutonomyRestricted
+		}
+	}
+
+	return trustLevel, autonomyTier
 }

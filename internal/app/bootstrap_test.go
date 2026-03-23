@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"kalita/internal/actionplan"
+	"kalita/internal/trust"
 	"kalita/internal/workplan"
 )
 
@@ -101,6 +102,15 @@ func TestBootstrapProvidesEventCenterCaseRuntimeWorkplanPolicyExecutionControlAn
 	if result.EmployeeService == nil {
 		t.Fatal("EmployeeService is nil")
 	}
+	if result.TrustRepo == nil {
+		t.Fatal("TrustRepo is nil")
+	}
+	if result.TrustScorer == nil {
+		t.Fatal("TrustScorer is nil")
+	}
+	if result.TrustService == nil {
+		t.Fatal("TrustService is nil")
+	}
 	if result.ExecutionRepo == nil {
 		t.Fatal("ExecutionRepo is nil")
 	}
@@ -148,5 +158,40 @@ func TestBootstrapProvidesEventCenterCaseRuntimeWorkplanPolicyExecutionControlAn
 	}
 	if selected.ID != employees[0].ID || reason == "" {
 		t.Fatalf("selected = %#v reason=%q", selected, reason)
+	}
+}
+
+func TestBootstrapExposesTrustService(t *testing.T) {
+	cfg := `{
+  "port": "8080",
+  "dslDir": "../../dsl",
+  "enumsDir": "../../reference/enums",
+  "dbUrl": "",
+  "autoMigrate": false,
+  "blobDriver": "local",
+  "filesRoot": "../../uploads"
+}`
+	cfgPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+
+	result, err := Bootstrap(cfgPath)
+	if err != nil {
+		t.Fatalf("Bootstrap error = %v", err)
+	}
+	profile, err := result.TrustService.RecordOutcome(context.Background(), trust.ExecutionOutcome{ActorID: "employee-legacy-operator", ExecutionID: "exec-1", Succeeded: true})
+	if err != nil {
+		t.Fatalf("RecordOutcome error = %v", err)
+	}
+	if profile.ActorID != "employee-legacy-operator" || profile.CompletedExecutions != 1 {
+		t.Fatalf("profile = %#v", profile)
+	}
+	got, ok, err := result.TrustService.GetTrustProfile(context.Background(), "employee-legacy-operator")
+	if err != nil {
+		t.Fatalf("GetTrustProfile error = %v", err)
+	}
+	if !ok || got != profile {
+		t.Fatalf("GetTrustProfile = %#v, %v", got, ok)
 	}
 }
