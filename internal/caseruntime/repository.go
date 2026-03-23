@@ -61,9 +61,9 @@ func (r *InMemoryCaseRepository) GetByID(_ context.Context, id string) (Case, bo
 func (r *InMemoryCaseRepository) List(_ context.Context) ([]Case, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]Case, 0, len(r.order))
-	for _, id := range r.order {
-		out = append(out, cloneCase(r.byID[id]))
+	out := make([]Case, 0, len(r.byID))
+	for _, c := range r.byID {
+		out = append(out, cloneCase(c))
 	}
 	return out, nil
 }

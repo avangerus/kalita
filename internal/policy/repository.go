@@ -90,6 +90,16 @@ func (r *InMemoryRepository) GetApprovalRequest(_ context.Context, id string) (A
 	return a, true, nil
 }
 
+func (r *InMemoryRepository) ListApprovalRequests(_ context.Context) ([]ApprovalRequest, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]ApprovalRequest, 0, len(r.approvalOrder))
+	for _, id := range r.approvalOrder {
+		out = append(out, r.approvalsByID[id])
+	}
+	return out, nil
+}
+
 func (r *InMemoryRepository) ListApprovalRequestsByCoordinationDecision(_ context.Context, coordinationDecisionID string) ([]ApprovalRequest, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

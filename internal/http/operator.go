@@ -2,61 +2,67 @@ package http
 
 import (
 	"net/http"
+	"strings"
 
 	"kalita/internal/controlplane"
 
 	"github.com/gin-gonic/gin"
 )
 
-func OperatorCaseDetailHandler(service *controlplane.Service) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if service == nil {
-			c.JSON(http.StatusNotImplemented, gin.H{"error": "operator control plane unavailable"})
-			return
-		}
-		detail, ok, err := service.GetCaseDetail(c.Request.Context(), c.Param("id"))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "case not found"})
-			return
-		}
-		c.JSON(http.StatusOK, detail)
+func registerOperatorRoutes(group *gin.RouterGroup, svc controlplane.Service) {
+	if svc == nil {
+		return
 	}
+
+	operator := group.Group("/operator")
+	operator.GET("/cases", func(c *gin.Context) {
+		payload, err := svc.ListCases(c.Request.Context())
+		respondOperator(c, payload, err)
+	})
+	operator.GET("/cases/:id", func(c *gin.Context) {
+		payload, err := svc.GetCaseOverview(c.Request.Context(), c.Param("id"))
+		respondOperator(c, payload, err)
+	})
+	operator.GET("/work-items", func(c *gin.Context) {
+		payload, err := svc.ListWorkItems(c.Request.Context())
+		respondOperator(c, payload, err)
+	})
+	operator.GET("/work-items/:id", func(c *gin.Context) {
+		payload, err := svc.GetWorkItemOverview(c.Request.Context(), c.Param("id"))
+		respondOperator(c, payload, err)
+	})
+	operator.GET("/actors", func(c *gin.Context) {
+		payload, err := svc.ListActors(c.Request.Context())
+		respondOperator(c, payload, err)
+	})
+	operator.GET("/actors/:id", func(c *gin.Context) {
+		payload, err := svc.GetActorOverview(c.Request.Context(), c.Param("id"))
+		respondOperator(c, payload, err)
+	})
+	operator.GET("/approvals", func(c *gin.Context) {
+		payload, err := svc.GetApprovalInbox(c.Request.Context())
+		respondOperator(c, payload, err)
+	})
+	operator.GET("/blocked-work", func(c *gin.Context) {
+		payload, err := svc.GetBlockedOrDeferredWork(c.Request.Context())
+		respondOperator(c, payload, err)
+	})
 }
 
-func OperatorCaseTimelineHandler(service *controlplane.Service) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if service == nil {
-			c.JSON(http.StatusNotImplemented, gin.H{"error": "operator control plane unavailable"})
-			return
-		}
-		entries, ok, err := service.GetCaseTimeline(c.Request.Context(), c.Param("id"))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "case not found"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"entries": entries})
+func respondOperator[T any](c *gin.Context, payload T, err error) {
+	if err != nil {
+		c.JSON(statusForOperatorError(err), gin.H{"error": err.Error()})
+		return
 	}
+	c.JSON(http.StatusOK, payload)
 }
 
-func OperatorSummaryHandler(service *controlplane.Service) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if service == nil {
-			c.JSON(http.StatusNotImplemented, gin.H{"error": "operator control plane unavailable"})
-			return
-		}
-		summary, err := service.GetSummary(c.Request.Context())
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, summary)
+func statusForOperatorError(err error) int {
+	if err == nil {
+		return http.StatusOK
 	}
+	if strings.HasSuffix(err.Error(), " not found") {
+		return http.StatusNotFound
+	}
+	return http.StatusInternalServerError
 }

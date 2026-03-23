@@ -19,6 +19,5 @@ func main() {
 
 	// HTTP
 	fmt.Printf("Стартуем сервер Kalita на :%s...\n", result.Config.Port)
-	operatorControlPlane := controlplane.NewService(result.CaseRepo, result.QueueRepo, result.CoordinationRepo, result.PolicyRepo, result.ProposalRepo, result.ExecutionRepo, result.EmployeeDirectory, result.TrustRepo, result.EventLog)
-	http.RunServerWithControlPlane(":"+result.Config.Port, result.Storage, result.CommandBus, result.CaseService, result.WorkService, result.Coordinator, result.PolicyService, result.ConstraintsService, result.ActionPlanService, result.ProposalService, result.EmployeeDirectory, operatorControlPlane, result.EmployeeService)
+	http.RunServerWithServices(":"+result.Config.Port, result.Storage, result.CommandBus, result.CaseService, result.WorkService, result.Coordinator, result.PolicyService, result.ConstraintsService, result.ActionPlanService, result.ProposalService, result.EmployeeDirectory, result.ControlPlane, result.EmployeeService)
 }
