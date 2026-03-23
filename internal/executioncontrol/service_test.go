@@ -32,7 +32,7 @@ func TestServiceCreateAndRecordCreatesConstraintsAndEvent(t *testing.T) {
 	log := eventcore.NewInMemoryEventLog()
 	service := NewService(repo, NewPlanner(), log, fakeClock{now: time.Date(2026, 3, 22, 16, 0, 0, 0, time.UTC)}, &fakeIDs{ids: []string{"constraints-1", "event-1"}})
 	ctx := ContextWithExecution(context.Background(), ExecutionContext{ExecutionID: "exec-1", CorrelationID: "corr-1", CausationID: "cause-1"})
-	coordination := workplan.CoordinationDecision{ID: "coord-1", CaseID: "case-1", WorkItemID: "work-1", QueueID: "queue-1", Strategy: workplan.DefaultCoordinationStrategy}
+	coordination := workplan.CoordinationDecision{ID: "coord-1", CaseID: "case-1", WorkItemID: "work-1", QueueID: "queue-1", DecisionType: workplan.CoordinationExecuteNow}
 	decision := policy.PolicyDecision{ID: "pol-1", Outcome: policy.PolicyAllow}
 
 	constraints, err := service.CreateAndRecord(ctx, coordination, decision)
@@ -65,7 +65,7 @@ func TestServiceDeniedPolicyDoesNotCreateConstraints(t *testing.T) {
 	t.Parallel()
 	repo := NewInMemoryConstraintsRepository()
 	service := NewService(repo, NewPlanner(), nil, fakeClock{now: time.Date(2026, 3, 22, 16, 0, 0, 0, time.UTC)}, &fakeIDs{ids: []string{"constraints-1"}})
-	_, err := service.CreateAndRecord(context.Background(), workplan.CoordinationDecision{ID: "coord-1", Strategy: workplan.DefaultCoordinationStrategy}, policy.PolicyDecision{ID: "pol-1", Outcome: policy.PolicyDeny})
+	_, err := service.CreateAndRecord(context.Background(), workplan.CoordinationDecision{ID: "coord-1", DecisionType: workplan.CoordinationExecuteNow}, policy.PolicyDecision{ID: "pol-1", Outcome: policy.PolicyDeny})
 	if err == nil {
 		t.Fatal("expected error")
 	}

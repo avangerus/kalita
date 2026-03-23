@@ -9,7 +9,7 @@ import (
 func TestInMemoryCoordinationRepositorySaveAndGetDecision(t *testing.T) {
 	t.Parallel()
 	repo := NewInMemoryCoordinationRepository()
-	decision := CoordinationDecision{ID: "coord-1", CaseID: "case-1", WorkItemID: "wi-1", QueueID: "queue-1", Strategy: DefaultCoordinationStrategy, SelectedBy: "system", Outcome: CoordinationSelected, Reason: "selected", CreatedAt: time.Date(2026, 3, 22, 16, 0, 0, 0, time.UTC)}
+	decision := CoordinationDecision{ID: "coord-1", CaseID: "case-1", WorkItemID: "wi-1", DecisionType: CoordinationExecuteNow, Priority: CoordinationPriorityExecuteNow, Reason: "selected", CreatedAt: time.Date(2026, 3, 22, 16, 0, 0, 0, time.UTC)}
 	if err := repo.SaveDecision(context.Background(), decision); err != nil {
 		t.Fatalf("SaveDecision error = %v", err)
 	}

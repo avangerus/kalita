@@ -53,7 +53,7 @@ func TestServiceCreatesWorkItemAndExecutionEventDeterministically(t *testing.T) 
 	if result.WorkItem.PlanID != "plan-1" {
 		t.Fatalf("plan id = %q", result.WorkItem.PlanID)
 	}
-	if result.CoordinationDecision.ID != "coord-1" || result.CoordinationDecision.Outcome != CoordinationSelected {
+	if result.CoordinationDecision.ID != "coord-1" || result.CoordinationDecision.DecisionType != CoordinationExecuteNow {
 		t.Fatalf("coordination decision = %#v", result.CoordinationDecision)
 	}
 	if !result.WorkItem.CreatedAt.Equal(clock.now) || !result.WorkItem.UpdatedAt.Equal(clock.now) {
@@ -72,10 +72,10 @@ func TestServiceCreatesWorkItemAndExecutionEventDeterministically(t *testing.T) 
 	if executionEvents[1].Step != "daily_plan_intake" || executionEvents[1].Status != "attached" {
 		t.Fatalf("second execution event = %#v", executionEvents[1])
 	}
-	if executionEvents[2].Step != "coordination_decision" || executionEvents[2].Status != "selected" {
+	if executionEvents[2].Step != "coordination_decision_made" || executionEvents[2].Status != string(CoordinationExecuteNow) {
 		t.Fatalf("third execution event = %#v", executionEvents[2])
 	}
-	if executionEvents[2].Payload["case_id"] != "case-1" || executionEvents[2].Payload["queue_id"] != "queue-1" || executionEvents[2].Payload["work_item_id"] != "work-1" || executionEvents[2].Payload["coordination_decision_id"] != "coord-1" || executionEvents[2].Payload["strategy"] != DefaultCoordinationStrategy {
+	if executionEvents[2].Payload["case_id"] != "case-1" || executionEvents[2].Payload["queue_id"] != "queue-1" || executionEvents[2].Payload["work_item_id"] != "work-1" || executionEvents[2].Payload["coordination_decision_id"] != "coord-1" || executionEvents[2].Payload["decision_type"] != CoordinationExecuteNow {
 		t.Fatalf("execution event payload = %#v", executionEvents[2].Payload)
 	}
 }

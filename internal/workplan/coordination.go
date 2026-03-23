@@ -5,25 +5,52 @@ import (
 	"time"
 )
 
-type CoordinationOutcome string
+type CoordinationDecisionType string
 
 const (
-	CoordinationSelected  CoordinationOutcome = "selected"
-	CoordinationDeferred  CoordinationOutcome = "deferred"
-	CoordinationBlocked   CoordinationOutcome = "blocked"
-	CoordinationEscalated CoordinationOutcome = "escalated"
+	CoordinationExecuteNow CoordinationDecisionType = "execute_now"
+	CoordinationDefer      CoordinationDecisionType = "defer"
+	CoordinationEscalate   CoordinationDecisionType = "escalate"
+	CoordinationBlock      CoordinationDecisionType = "block"
+)
+
+const (
+	CoordinationPriorityBlock      = 1
+	CoordinationPriorityDefer      = 2
+	CoordinationPriorityExecuteNow = 3
+	CoordinationPriorityEscalate   = 4
 )
 
 type CoordinationDecision struct {
-	ID         string
-	CaseID     string
-	WorkItemID string
-	QueueID    string
-	Strategy   string
-	SelectedBy string
-	Outcome    CoordinationOutcome
-	Reason     string
-	CreatedAt  time.Time
+	ID           string
+	WorkItemID   string
+	CaseID       string
+	QueueID      string
+	DecisionType CoordinationDecisionType
+	Priority     int
+	Reason       string
+	CreatedAt    time.Time
+}
+
+type CoordinationActor struct {
+	ID                 string
+	Enabled            bool
+	QueueMemberships   []string
+	AllowedActionTypes []string
+}
+
+type CoordinationActorProfile struct {
+	ActorID        string
+	MaxComplexity  int
+	TrustLevel     string
+	TrustAvailable bool
+}
+
+type CoordinationContext struct {
+	ActionTypes []string
+	Complexity  int
+	Actors      []CoordinationActor
+	Profiles    map[string]CoordinationActorProfile
 }
 
 type CoordinationRepository interface {
@@ -35,5 +62,5 @@ type CoordinationRepository interface {
 }
 
 type Coordinator interface {
-	CoordinateWorkItem(ctx context.Context, wi WorkItem) (CoordinationDecision, error)
+	Decide(ctx context.Context, wi WorkItem, coordinationContext CoordinationContext) (CoordinationDecision, error)
 }

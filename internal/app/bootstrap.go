@@ -141,8 +141,6 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	assignmentRouter := workplan.NewRouter(queueRepo, defaultQueue.ID)
 	planner := workplan.NewPlanner(planRepo, eventLog, clock, ids)
 	coordinationRepo := workplan.NewInMemoryCoordinationRepository()
-	coordinator := workplan.NewCoordinator(coordinationRepo, eventLog, clock, ids)
-	workService := workplan.NewService(queueRepo, assignmentRouter, planner, coordinator, eventLog, clock, ids)
 	policyRepo := policy.NewInMemoryRepository()
 	policyEvaluator := policy.NewEvaluator()
 	policyService := policy.NewService(policyRepo, policyEvaluator, eventLog, clock, ids)
@@ -214,6 +212,8 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	if err := profileRepo.SaveProfile(context.Background(), profile.CompetencyProfile{ID: "profile-legacy-operator", ActorID: defaultEmployee.ID, Name: "Legacy Operator", MaxComplexity: 10, PreferredWorkKinds: []string{"workflow.action"}}); err != nil {
 		return nil, fmt.Errorf("seed competency profile: %w", err)
 	}
+	coordinator := workplan.NewCoordinator(coordinationRepo, eventLog, clock, ids)
+	workService := workplan.NewService(queueRepo, assignmentRouter, planner, coordinator, eventLog, clock, ids)
 	employeeSelector := employee.NewSelectorWithMatcher(employeeDirectory, profile.NewMatcher(profileRepo, profileRepo, capabilityRepo, capabilityRepo, trustService))
 	employeeService := employee.NewService(assignmentRepo, employeeSelector, executionRuntime, eventLog, clock, ids, trustService)
 	if strings.EqualFold(cfg.BlobDriver, "s3") {

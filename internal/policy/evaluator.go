@@ -14,14 +14,14 @@ func NewEvaluator() *DeterministicEvaluator {
 }
 
 func (e *DeterministicEvaluator) EvaluateCoordinationDecision(_ context.Context, d workplan.CoordinationDecision) (PolicyOutcome, string, error) {
-	switch d.Strategy {
-	case "requires_manager_approval":
-		return PolicyRequireApproval, fmt.Sprintf("strategy %s requires manager approval before execution", d.Strategy), nil
-	case "blocked_strategy":
-		return PolicyDeny, fmt.Sprintf("strategy %s is blocked from execution", d.Strategy), nil
+	switch d.DecisionType {
+	case workplan.CoordinationExecuteNow:
+		return PolicyAllow, fmt.Sprintf("coordination decision %s authorized execution for work item %s", d.ID, d.WorkItemID), nil
+	case workplan.CoordinationDefer:
+		return PolicyRequireApproval, fmt.Sprintf("coordination decision %s deferred work item %s pending approval or rescheduling", d.ID, d.WorkItemID), nil
+	case workplan.CoordinationEscalate, workplan.CoordinationBlock:
+		return PolicyDeny, fmt.Sprintf("coordination decision %s blocked automatic execution for work item %s", d.ID, d.WorkItemID), nil
+	default:
+		return PolicyDeny, fmt.Sprintf("coordination decision %s has unsupported decision type %q", d.ID, d.DecisionType), nil
 	}
-	if d.Outcome == workplan.CoordinationSelected {
-		return PolicyAllow, fmt.Sprintf("coordination decision %s selected work item %s for execution", d.ID, d.WorkItemID), nil
-	}
-	return PolicyAllow, fmt.Sprintf("coordination strategy %s allowed by default for work item %s", d.Strategy, d.WorkItemID), nil
 }
