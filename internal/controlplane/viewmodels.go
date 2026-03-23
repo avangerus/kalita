@@ -115,6 +115,9 @@ type ActorOverview struct {
 	QueueMemberships  []string `json:"queue_memberships,omitempty"`
 	TrustLevel        string   `json:"trust_level,omitempty"`
 	AutonomyTier      string   `json:"autonomy_tier,omitempty"`
+	SuccessCount      int      `json:"success_count,omitempty"`
+	FailureCount      int      `json:"failure_count,omitempty"`
+	CompensationCount int      `json:"compensation_count,omitempty"`
 	ProfileSummary    string   `json:"profile_summary,omitempty"`
 	CapabilitySummary string   `json:"capability_summary,omitempty"`
 }

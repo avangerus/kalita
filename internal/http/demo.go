@@ -110,7 +110,7 @@ func renderDemoDashboard(c *gin.Context, client *demoOperatorClient) {
 		return
 	}
 	metrics := buildDashboardMetrics(summary, workItems, actors)
-	renderDemoHTML(c, "Kalita Demo Console", demoDashboardTemplate, map[string]any{"Metrics": metrics, "Now": time.Now().UTC()})
+	renderDemoHTML(c, "Kalita Demo Console", demoDashboardTemplate, map[string]any{"Metrics": metrics, "Actors": actors, "Now": time.Now().UTC()})
 }
 
 func renderDemoCases(c *gin.Context, client *demoOperatorClient) {
@@ -411,6 +411,10 @@ const demoDashboardTemplate = `{{define "body"}}
 <h2>Actor trust distribution</h2>
 <table><thead><tr><th>Trust level</th><th>Actors</th></tr></thead><tbody>
 {{range .Metrics.ActorTrustDistribution}}<tr><td>{{.Level}}</td><td>{{.Count}}</td></tr>{{else}}<tr><td colspan="2">No actors found.</td></tr>{{end}}
+</tbody></table>
+<h2>Actor trust state</h2>
+<table><thead><tr><th>Actor</th><th>Role</th><th>Trust</th><th>Autonomy</th><th>Successes</th><th>Failures</th><th>Compensations</th></tr></thead><tbody>
+{{range .Actors}}<tr><td>{{.ActorID}}</td><td>{{.Role}}</td><td>{{if .TrustLevel}}{{.TrustLevel}}{{else}}-{{end}}</td><td>{{if .AutonomyTier}}{{.AutonomyTier}}{{else}}-{{end}}</td><td>{{.SuccessCount}}</td><td>{{.FailureCount}}</td><td>{{.CompensationCount}}</td></tr>{{else}}<tr><td colspan="7">No actors found.</td></tr>{{end}}
 </tbody></table>
 <p class="muted">Refresh the page after approving work to watch the timeline continue.</p>
 {{end}}`

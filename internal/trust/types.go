@@ -21,8 +21,15 @@ const (
 	AutonomyStandard   AutonomyTier = "standard"
 )
 
+type TrustMetrics struct {
+	SuccessCount      int
+	FailureCount      int
+	CompensationCount int
+}
+
 type TrustProfile struct {
 	ActorID               string
+	Metrics               TrustMetrics
 	CompletedExecutions   int
 	FailedExecutions      int
 	CompensatedExecutions int

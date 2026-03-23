@@ -80,6 +80,7 @@ type scenarioRuntime struct {
 	proposalRepo     *proposal.InMemoryRepository
 	directory        *employee.InMemoryDirectory
 	trustRepo        *trust.InMemoryRepository
+	trustService     trust.Service
 	profileRepo      *profile.InMemoryRepository
 	capRepo          *capability.InMemoryCapabilityRepository
 	executionRepo    *executionruntime.InMemoryExecutionRepository
@@ -104,12 +105,16 @@ type scenarioOutcome struct {
 }
 
 type actorSeed struct {
-	ID            string
-	Role          string
-	TrustLevel    trust.TrustLevel
-	AutonomyTier  trust.AutonomyTier
-	MaxComplexity int
-	CapabilityLvl int
+	ID                string
+	Role              string
+	TrustLevel        trust.TrustLevel
+	AutonomyTier      trust.AutonomyTier
+	SuccessCount      int
+	FailureCount      int
+	CompensationCount int
+	PreserveTrust     bool
+	MaxComplexity     int
+	CapabilityLvl     int
 }
 
 type multiCaseSeed struct {
@@ -117,6 +122,8 @@ type multiCaseSeed struct {
 	ids               scenarioDefinition
 	metadata          map[string]any
 	actors            []actorSeed
+	executionActorID  string
+	actionParams      map[string]any
 	complexity        int
 	approveAfterDefer bool
 	promoteHighTrust  bool
@@ -157,6 +164,7 @@ func newScenarioRuntime(clock *scriptedClock, ids *fixedIDs) (*scenarioRuntime, 
 	proposalRepo := proposal.NewInMemoryRepository()
 	directory := employee.NewInMemoryDirectory()
 	trustRepo := trust.NewInMemoryRepository()
+	trustService := trust.NewService(trustRepo, trust.NewDeterministicScorer(clock.Now))
 	profileRepo := profile.NewInMemoryRepository()
 	capRepo := capability.NewInMemoryRepository()
 	executionRepo := executionruntime.NewInMemoryExecutionRepository()
@@ -170,10 +178,10 @@ func newScenarioRuntime(clock *scriptedClock, ids *fixedIDs) (*scenarioRuntime, 
 	coordinator := workplan.NewCoordinator(coordinationRepo, eventLog, clock, ids)
 	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, DemoQueueID), planner, coordinator, eventLog, clock, ids)
 	policyService := policy.NewService(policyRepo, policy.NewEvaluator(), eventLog, clock, ids)
-	runner := executionruntime.NewRunner(executionRepo, wal, executionruntime.NewLegacyWorkflowActionExecutor(), eventLog, clock, ids)
+	runner := executionruntime.NewRunner(executionRepo, wal, executionruntime.NewLegacyWorkflowActionExecutor(), eventLog, clock, ids, trustService)
 	runtimeService := executionruntime.NewService(runner)
 	controlPlaneService := controlplane.NewService(caseRepo, queueRepo, coordinationRepo, policyRepo, proposalRepo, directory, trustRepo, profileRepo, capRepo, executionRepo, wal, eventLog, coordinator)
-	return &scenarioRuntime{baseTime: baseTime, clock: clock, ids: ids, eventLog: eventLog, caseRepo: caseRepo, queueRepo: queueRepo, coordinationRepo: coordinationRepo, policyRepo: policyRepo, proposalRepo: proposalRepo, directory: directory, trustRepo: trustRepo, profileRepo: profileRepo, capRepo: capRepo, executionRepo: executionRepo, wal: wal, commandBus: commandBus, caseService: caseService, coordinator: coordinator, workService: workService, policyService: policyService, controlPlane: controlPlaneService, runtimeService: runtimeService}, nil
+	return &scenarioRuntime{baseTime: baseTime, clock: clock, ids: ids, eventLog: eventLog, caseRepo: caseRepo, queueRepo: queueRepo, coordinationRepo: coordinationRepo, policyRepo: policyRepo, proposalRepo: proposalRepo, directory: directory, trustRepo: trustRepo, trustService: trustService, profileRepo: profileRepo, capRepo: capRepo, executionRepo: executionRepo, wal: wal, commandBus: commandBus, caseService: caseService, coordinator: coordinator, workService: workService, policyService: policyService, controlPlane: controlPlaneService, runtimeService: runtimeService}, nil
 }
 
 func defaultDemoClock() *scriptedClock {
@@ -233,7 +241,7 @@ func (r *scenarioRuntime) runGenericScenario(ctx context.Context) (*ScenarioResu
 		commandPayload: map[string]any{"namespace": "payments", "severity": "high"},
 		caseID:         DemoCaseID, workItemID: DemoWorkItemID, coordinationID: DemoCoordinationID,
 		policyDecisionID: DemoPolicyDecisionID, approvalRequestID: DemoApprovalRequestID,
-	}, 1)
+	}, 1, "", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +263,7 @@ func (r *scenarioRuntime) runAISScenario(ctx context.Context) (*ScenarioResult, 
 		commandPayload: aisScenarioMetadata(),
 		caseID:         AISDemoCaseID, workItemID: AISDemoWorkItemID, coordinationID: AISDemoCoordinationID,
 		policyDecisionID: AISDemoPolicyDecisionID, approvalRequestID: AISDemoApprovalRequestID,
-	}, 1)
+	}, 1, "", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -264,11 +272,11 @@ func (r *scenarioRuntime) runAISScenario(ctx context.Context) (*ScenarioResult, 
 
 func (r *scenarioRuntime) runAISMultiScenario(ctx context.Context) (*ScenarioResult, error) {
 	seeds := []multiCaseSeed{
-		{label: "A", ids: scenarioDefinition{eventID: "evt-ais-multi-a", commandID: "cmd-ais-multi-a", correlationID: "corr-ais-multi-a", executionID: "exec-ais-multi-a", caseID: "case-ais-multi-a", workItemID: "work-ais-multi-a", coordinationID: "coord-ais-multi-a", policyDecisionID: "policy-ais-multi-a", approvalRequestID: "approval-ais-multi-a"}, metadata: aisScenarioMetadataFor(0), actors: defaultLowTrustActors(), complexity: 1},
-		{label: "B", ids: scenarioDefinition{eventID: "evt-ais-multi-b", commandID: "cmd-ais-multi-b", correlationID: "corr-ais-multi-b", executionID: "exec-ais-multi-b", caseID: "case-ais-multi-b", workItemID: "work-ais-multi-b", coordinationID: "coord-ais-multi-b", policyDecisionID: "policy-ais-multi-b", approvalRequestID: "approval-ais-multi-b"}, metadata: aisScenarioMetadataFor(1), actors: []actorSeed{{ID: "actor-high-1", Role: "container_triage", TrustLevel: trust.TrustHigh, AutonomyTier: trust.AutonomyStandard, MaxComplexity: 3, CapabilityLvl: 2}}, complexity: 1, simulateExecuting: true},
-		{label: "C", ids: scenarioDefinition{eventID: "evt-ais-multi-c", commandID: "cmd-ais-multi-c", correlationID: "corr-ais-multi-c", executionID: "exec-ais-multi-c", caseID: "case-ais-multi-c", workItemID: "work-ais-multi-c", coordinationID: "coord-ais-multi-c", policyDecisionID: "policy-ais-multi-c", approvalRequestID: "approval-ais-multi-c"}, metadata: aisScenarioMetadataFor(2), actors: defaultLowTrustActors(), complexity: 1, approveAfterDefer: true, promoteHighTrust: true},
-		{label: "D", ids: scenarioDefinition{eventID: "evt-ais-multi-d", commandID: "cmd-ais-multi-d", correlationID: "corr-ais-multi-d", executionID: "exec-ais-multi-d", caseID: "case-ais-multi-d", workItemID: "work-ais-multi-d", coordinationID: "coord-ais-multi-d", policyDecisionID: "policy-ais-multi-d", approvalRequestID: "approval-ais-multi-d"}, metadata: aisScenarioMetadataFor(3), actors: nil, complexity: 1},
-		{label: "E", ids: scenarioDefinition{eventID: "evt-ais-multi-e", commandID: "cmd-ais-multi-e", correlationID: "corr-ais-multi-e", executionID: "exec-ais-multi-e", caseID: "case-ais-multi-e", workItemID: "work-ais-multi-e", coordinationID: "coord-ais-multi-e", policyDecisionID: "policy-ais-multi-e", approvalRequestID: "approval-ais-multi-e"}, metadata: aisScenarioMetadataFor(4), actors: []actorSeed{{ID: "actor-low-escalate", Role: "container_triage", TrustLevel: trust.TrustLow, AutonomyTier: trust.AutonomyRestricted, MaxComplexity: 1, CapabilityLvl: 1}}, complexity: 3},
+		{label: "A", ids: scenarioDefinition{eventID: "evt-ais-multi-a", commandID: "cmd-ais-multi-a", correlationID: "corr-ais-multi-a", executionID: "exec-ais-multi-a", caseID: "case-ais-multi-a", workItemID: "work-ais-multi-a", coordinationID: "coord-ais-multi-a", policyDecisionID: "policy-ais-multi-a", approvalRequestID: "approval-ais-multi-a"}, metadata: aisScenarioMetadataFor(0), actors: []actorSeed{{ID: "actor-growth-1", Role: "container_triage", TrustLevel: trust.TrustLow, AutonomyTier: trust.AutonomyRestricted, SuccessCount: 2, MaxComplexity: 3, CapabilityLvl: 2}}, executionActorID: "actor-growth-1", complexity: 1, approveAfterDefer: true, promoteHighTrust: true},
+		{label: "B", ids: scenarioDefinition{eventID: "evt-ais-multi-b", commandID: "cmd-ais-multi-b", correlationID: "corr-ais-multi-b", executionID: "exec-ais-multi-b", caseID: "case-ais-multi-b", workItemID: "work-ais-multi-b", coordinationID: "coord-ais-multi-b", policyDecisionID: "policy-ais-multi-b", approvalRequestID: "approval-ais-multi-b"}, metadata: aisScenarioMetadataFor(1), actors: []actorSeed{{ID: "actor-growth-1", Role: "container_triage", PreserveTrust: true, MaxComplexity: 3, CapabilityLvl: 2}}, executionActorID: "actor-growth-1", complexity: 1, simulateExecuting: true},
+		{label: "C", ids: scenarioDefinition{eventID: "evt-ais-multi-c", commandID: "cmd-ais-multi-c", correlationID: "corr-ais-multi-c", executionID: "exec-ais-multi-c", caseID: "case-ais-multi-c", workItemID: "work-ais-multi-c", coordinationID: "coord-ais-multi-c", policyDecisionID: "policy-ais-multi-c", approvalRequestID: "approval-ais-multi-c"}, metadata: aisScenarioMetadataFor(2), actors: []actorSeed{{ID: "actor-growth-1", Role: "container_triage", TrustLevel: trust.TrustMedium, AutonomyTier: trust.AutonomySupervised, SuccessCount: 3, FailureCount: 1, MaxComplexity: 3, CapabilityLvl: 2}}, executionActorID: "actor-growth-1", actionParams: map[string]any{"fail": true}, complexity: 1},
+		{label: "D", ids: scenarioDefinition{eventID: "evt-ais-multi-d", commandID: "cmd-ais-multi-d", correlationID: "corr-ais-multi-d", executionID: "exec-ais-multi-d", caseID: "case-ais-multi-d", workItemID: "work-ais-multi-d", coordinationID: "coord-ais-multi-d", policyDecisionID: "policy-ais-multi-d", approvalRequestID: "approval-ais-multi-d"}, metadata: aisScenarioMetadataFor(3), actors: []actorSeed{{ID: "actor-growth-1", Role: "container_triage", PreserveTrust: true, MaxComplexity: 3, CapabilityLvl: 2}}, complexity: 1},
+		{label: "E", ids: scenarioDefinition{eventID: "evt-ais-multi-e", commandID: "cmd-ais-multi-e", correlationID: "corr-ais-multi-e", executionID: "exec-ais-multi-e", caseID: "case-ais-multi-e", workItemID: "work-ais-multi-e", coordinationID: "coord-ais-multi-e", policyDecisionID: "policy-ais-multi-e", approvalRequestID: "approval-ais-multi-e"}, metadata: aisScenarioMetadataFor(4), actors: []actorSeed{{ID: "actor-comp-1", Role: "container_triage", TrustLevel: trust.TrustHigh, AutonomyTier: trust.AutonomyStandard, SuccessCount: 6, MaxComplexity: 3, CapabilityLvl: 2}}, executionActorID: "actor-comp-1", actionParams: map[string]any{"first_action_fail": true}, complexity: 2},
 	}
 	outcomes := make([]scenarioOutcome, 0, len(seeds))
 	for _, seed := range seeds {
@@ -280,7 +288,7 @@ func (r *scenarioRuntime) runAISMultiScenario(ctx context.Context) (*ScenarioRes
 		def.targetRef = fmt.Sprintf("route:%s/container:%s", seed.metadata["route_id"], seed.metadata["container_site_id"])
 		def.eventPayload = cloneMap(seed.metadata)
 		def.commandPayload = cloneMap(seed.metadata)
-		outcome, err := r.runScenarioFlow(ctx, def, seed.complexity)
+		outcome, err := r.runScenarioFlow(ctx, def, seed.complexity, seed.executionActorID, seed.actionParams)
 		if err != nil {
 			return nil, fmt.Errorf("run multi-scenario case %s: %w", seed.label, err)
 		}
@@ -293,7 +301,7 @@ func (r *scenarioRuntime) runAISMultiScenario(ctx context.Context) (*ScenarioRes
 			if _, err := r.controlPlane.ApproveApprovalRequest(ctx, outcome.approvalRequestID); err != nil {
 				return nil, err
 			}
-			if err := r.evaluateLatestDecisionAndMaybeExecute(ctx, outcome.caseID, outcome.workItemID, outcome.executionID, false); err != nil {
+			if err := r.evaluateLatestDecisionAndMaybeExecute(ctx, outcome.caseID, outcome.workItemID, outcome.executionID, seed.executionActorID, seed.actionParams, false); err != nil {
 				return nil, err
 			}
 		}
@@ -302,7 +310,7 @@ func (r *scenarioRuntime) runAISMultiScenario(ctx context.Context) (*ScenarioRes
 				return nil, err
 			}
 		}
-		if seed.label == "E" {
+		if seed.label == "D" {
 			if err := r.appendEscalationWaitEvent(ctx, outcome); err != nil {
 				return nil, err
 			}
@@ -329,7 +337,7 @@ type scenarioDefinition struct {
 	approvalRequestID string
 }
 
-func (r *scenarioRuntime) runScenarioFlow(ctx context.Context, def scenarioDefinition, complexity int) (scenarioOutcome, error) {
+func (r *scenarioRuntime) runScenarioFlow(ctx context.Context, def scenarioDefinition, complexity int, executionActorID string, actionParams map[string]any) (scenarioOutcome, error) {
 	if err := r.eventLog.AppendEvent(ctx, eventcore.Event{ID: def.eventID, Type: def.eventType, OccurredAt: r.baseTime, Source: "demo.scenario", CorrelationID: def.correlationID, CausationID: def.eventID, ExecutionID: def.executionID, Payload: cloneMap(def.eventPayload)}); err != nil {
 		return scenarioOutcome{}, fmt.Errorf("append demo event: %w", err)
 	}
@@ -348,7 +356,7 @@ func (r *scenarioRuntime) runScenarioFlow(ctx context.Context, def scenarioDefin
 	if err != nil {
 		return scenarioOutcome{}, fmt.Errorf("intake demo command: %w", err)
 	}
-	intake.WorkItem, err = r.workService.AttachActionPlan(ctx, intake.WorkItem.ID, actionplan.ActionPlan{ID: "action-plan-" + intake.WorkItem.ID, Actions: []actionplan.Action{{ID: "action-" + intake.WorkItem.ID, Type: actionplan.ActionType("legacy_workflow_action"), Params: map[string]any{"route_id": def.commandPayload["route_id"], "case_id": resolved.Case.ID}}}})
+	intake.WorkItem, err = r.workService.AttachActionPlan(ctx, intake.WorkItem.ID, demoActionPlan(intake.WorkItem.ID, resolved.Case.ID, def.commandPayload["route_id"], actionParams))
 	if err != nil {
 		return scenarioOutcome{}, fmt.Errorf("attach demo action plan: %w", err)
 	}
@@ -370,7 +378,7 @@ func (r *scenarioRuntime) runScenarioFlow(ctx context.Context, def scenarioDefin
 		return scenarioOutcome{}, fmt.Errorf("demo scenario expected approval request")
 	}
 	if approvalRequest == nil && decision.DecisionType == workplan.CoordinationExecuteNow {
-		if err := r.startExecutionForWorkItem(ctx, intake.WorkItem, decision, policyDecision, cmd.ExecutionID); err != nil {
+		if err := r.startExecutionForWorkItem(ctx, intake.WorkItem, decision, policyDecision, cmd.ExecutionID, executionActorID); err != nil {
 			return scenarioOutcome{}, err
 		}
 	}
@@ -420,8 +428,30 @@ func (r *scenarioRuntime) replaceActors(ctx context.Context, actors []actorSeed)
 		if err := r.capRepo.AssignCapability(ctx, capability.ActorCapability{ActorID: actor.ID, CapabilityID: "cap-demo-container-ops", Level: actor.CapabilityLvl}); err != nil {
 			return err
 		}
-		if err := r.trustRepo.Save(ctx, trust.TrustProfile{ActorID: actor.ID, TrustLevel: actor.TrustLevel, AutonomyTier: actor.AutonomyTier, UpdatedAt: now}); err != nil {
-			return err
+		if actor.PreserveTrust {
+			if _, ok, err := r.trustRepo.GetByActor(ctx, actor.ID); err != nil {
+				return err
+			} else if !ok {
+				actor.PreserveTrust = false
+			}
+		}
+		if !actor.PreserveTrust {
+			profile := trust.TrustProfile{
+				ActorID:               actor.ID,
+				Metrics:               trust.TrustMetrics{SuccessCount: actor.SuccessCount, FailureCount: actor.FailureCount, CompensationCount: actor.CompensationCount},
+				CompletedExecutions:   actor.SuccessCount,
+				FailedExecutions:      actor.FailureCount,
+				CompensatedExecutions: actor.CompensationCount,
+				TrustLevel:            actor.TrustLevel,
+				AutonomyTier:          actor.AutonomyTier,
+				UpdatedAt:             now,
+			}
+			if profile.TrustLevel == "" {
+				profile.TrustLevel, profile.AutonomyTier = deriveSeedTrust(profile)
+			}
+			if err := r.trustRepo.Save(ctx, profile); err != nil {
+				return err
+			}
 		}
 		if err := r.profileRepo.SaveProfile(ctx, profile.CompetencyProfile{ID: "profile-" + actor.ID, ActorID: actor.ID, Name: actor.Role + " " + actor.ID, MaxComplexity: actor.MaxComplexity, PreferredWorkKinds: []string{"container_incident_detected", "missed_container_pickup_review"}}); err != nil {
 			return err
@@ -430,7 +460,7 @@ func (r *scenarioRuntime) replaceActors(ctx context.Context, actors []actorSeed)
 	return nil
 }
 
-func (r *scenarioRuntime) evaluateLatestDecisionAndMaybeExecute(ctx context.Context, caseID, workItemID, executionID string, simulateRunning bool) error {
+func (r *scenarioRuntime) evaluateLatestDecisionAndMaybeExecute(ctx context.Context, caseID, workItemID, executionID, actorID string, actionParams map[string]any, simulateRunning bool) error {
 	decisions, err := r.coordinationRepo.ListByWorkItem(ctx, workItemID)
 	if err != nil || len(decisions) == 0 {
 		return err
@@ -447,7 +477,11 @@ func (r *scenarioRuntime) evaluateLatestDecisionAndMaybeExecute(ctx context.Cont
 	if err != nil || !ok {
 		return err
 	}
-	if err := r.startExecutionForWorkItem(ctx, wi, decision, policyDecision, executionID); err != nil {
+	if len(actionParams) > 0 {
+		plan := demoActionPlan(wi.ID, wi.CaseID, "", actionParams)
+		wi.ActionPlan = &plan
+	}
+	if err := r.startExecutionForWorkItem(ctx, wi, decision, policyDecision, executionID, actorID); err != nil {
 		return err
 	}
 	if simulateRunning {
@@ -456,16 +490,45 @@ func (r *scenarioRuntime) evaluateLatestDecisionAndMaybeExecute(ctx context.Cont
 	return nil
 }
 
-func (r *scenarioRuntime) startExecutionForWorkItem(ctx context.Context, wi workplan.WorkItem, decision workplan.CoordinationDecision, policyDecision policy.PolicyDecision, executionID string) error {
+func (r *scenarioRuntime) startExecutionForWorkItem(ctx context.Context, wi workplan.WorkItem, decision workplan.CoordinationDecision, policyDecision policy.PolicyDecision, executionID, actorID string) error {
 	if wi.ActionPlan == nil {
 		return fmt.Errorf("work item %s missing action plan", wi.ID)
 	}
-	session, err := r.runtimeService.StartExecution(executionruntime.ContextWithExecution(ctx, executionruntime.ExecutionContext{ExecutionID: executionID, CorrelationID: r.caseCorrelationID(ctx, wi.CaseID), CausationID: policyDecision.ID}), *wi.ActionPlan, executioncontrol.ExecutionConstraints{ID: "constraints-" + wi.ID, ExecutionMode: executioncontrol.ExecutionModeDeterministicAPI, MaxSteps: 8, MaxDurationSec: 300}, executionruntime.RunMetadata{CaseID: wi.CaseID, WorkItemID: wi.ID, CoordinationDecisionID: decision.ID, PolicyDecisionID: policyDecision.ID})
+	session, err := r.runtimeService.StartExecution(executionruntime.ContextWithExecution(ctx, executionruntime.ExecutionContext{ExecutionID: executionID, CorrelationID: r.caseCorrelationID(ctx, wi.CaseID), CausationID: policyDecision.ID}), *wi.ActionPlan, executioncontrol.ExecutionConstraints{ID: "constraints-" + wi.ID, ExecutionMode: executioncontrol.ExecutionModeDeterministicAPI, MaxSteps: 8, MaxDurationSec: 300}, executionruntime.RunMetadata{CaseID: wi.CaseID, WorkItemID: wi.ID, CoordinationDecisionID: decision.ID, PolicyDecisionID: policyDecision.ID, ActorID: actorID})
 	if err != nil {
 		return fmt.Errorf("start execution for %s: %w", wi.ID, err)
 	}
 	_ = session
 	return nil
+}
+
+func demoActionPlan(workItemID, caseID string, routeID any, actionParams map[string]any) actionplan.ActionPlan {
+	params := map[string]any{"route_id": routeID, "case_id": caseID}
+	for k, v := range actionParams {
+		params[k] = v
+	}
+	actions := []actionplan.Action{
+		{ID: "action-" + workItemID + "-1", Type: actionplan.ActionType("legacy_workflow_action"), Params: cloneMap(params)},
+	}
+	if first, _ := actionParams["first_action_fail"].(bool); first {
+		actions[0].Reversibility = actionplan.ReversibilityCompensatable
+		actions[0].Compensation = &actionplan.Action{ID: "compensation-" + workItemID + "-1", Type: actionplan.ActionType("legacy_workflow_action"), Params: map[string]any{"route_id": routeID, "case_id": caseID}}
+		actions = append(actions, actionplan.Action{ID: "action-" + workItemID + "-2", Type: actionplan.ActionType("legacy_workflow_action"), Params: map[string]any{"route_id": routeID, "case_id": caseID, "fail": true}})
+		delete(actions[0].Params, "first_action_fail")
+	} else {
+		delete(actions[0].Params, "first_action_fail")
+	}
+	return actionplan.ActionPlan{ID: "action-plan-" + workItemID, Actions: actions}
+}
+
+func deriveSeedTrust(profile trust.TrustProfile) (trust.TrustLevel, trust.AutonomyTier) {
+	if profile.Metrics.SuccessCount >= 6 {
+		return trust.TrustHigh, trust.AutonomyStandard
+	}
+	if profile.Metrics.SuccessCount >= 3 {
+		return trust.TrustMedium, trust.AutonomySupervised
+	}
+	return trust.TrustLow, trust.AutonomyRestricted
 }
 
 func (r *scenarioRuntime) simulateRunningExecution(ctx context.Context, workItemID, executionID string) error {

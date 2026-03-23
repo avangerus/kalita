@@ -107,4 +107,5 @@ type RunMetadata struct {
 	WorkItemID             string
 	CoordinationDecisionID string
 	PolicyDecisionID       string
+	ActorID                string
 }

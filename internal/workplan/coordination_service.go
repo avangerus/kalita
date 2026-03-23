@@ -55,7 +55,7 @@ func (s *DefaultCoordinator) evaluate(wi WorkItem, coordinationContext Coordinat
 		return CoordinationExecuteNow, "coordination context not yet enriched with actors; continue to downstream eligibility checks"
 	}
 	eligibleActors := make([]string, 0)
-	highTrustActors := make([]string, 0)
+	executableActors := make([]string, 0)
 	lowTrustActors := make([]string, 0)
 	complexityLimited := false
 	for _, actor := range coordinationContext.Actors {
@@ -74,8 +74,8 @@ func (s *DefaultCoordinator) evaluate(wi WorkItem, coordinationContext Coordinat
 		if profile, ok := coordinationContext.Profiles[actor.ID]; ok && profile.TrustAvailable {
 			trustLevel = profile.TrustLevel
 		}
-		if trustLevel == "high" {
-			highTrustActors = append(highTrustActors, actor.ID)
+		if trustLevel == "high" || trustLevel == "medium" {
+			executableActors = append(executableActors, actor.ID)
 		} else {
 			lowTrustActors = append(lowTrustActors, actor.ID)
 		}
@@ -86,10 +86,10 @@ func (s *DefaultCoordinator) evaluate(wi WorkItem, coordinationContext Coordinat
 		}
 		return CoordinationBlock, fmt.Sprintf("no eligible actor available for queue %s", wi.QueueID)
 	}
-	if len(highTrustActors) > 0 {
-		return CoordinationExecuteNow, fmt.Sprintf("high-trust actor available: %s", strings.Join(highTrustActors, ","))
+	if len(executableActors) > 0 {
+		return CoordinationExecuteNow, fmt.Sprintf("trusted actor available for execution: %s", strings.Join(executableActors, ","))
 	}
-	return CoordinationDefer, fmt.Sprintf("only low-trust actors available: %s; defer until stronger trust or supervised release", strings.Join(lowTrustActors, ","))
+	return CoordinationDefer, fmt.Sprintf("only low-trust actors available: %s; defer until trust improves or supervised release is granted", strings.Join(lowTrustActors, ","))
 }
 
 func coordinationPriority(decisionType CoordinationDecisionType) int {

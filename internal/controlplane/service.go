@@ -505,6 +505,9 @@ func (s *service) buildActorOverview(ctx context.Context, actor employee.Digital
 	} else if ok {
 		overview.TrustLevel = string(p.TrustLevel)
 		overview.AutonomyTier = string(p.AutonomyTier)
+		overview.SuccessCount = p.Metrics.SuccessCount
+		overview.FailureCount = p.Metrics.FailureCount
+		overview.CompensationCount = p.Metrics.CompensationCount
 	}
 	if prof, ok, err := s.profiles.GetProfileByActor(ctx, actor.ID); err != nil {
 		return ActorOverview{}, err
@@ -669,6 +672,14 @@ func normalizeTimelineStep(e eventcore.ExecutionEvent) (string, bool) {
 		return "approval_rejected", true
 	case "execution_session_created":
 		return "execution_started", true
+	case "execution_succeeded":
+		return "execution_succeeded", true
+	case "execution_failed":
+		return "execution_failed", true
+	case "compensation_completed":
+		return "compensation_completed", true
+	case "trust_updated":
+		return "trust_updated", true
 	case "escalation_waiting":
 		return "escalation_waiting", true
 	default:

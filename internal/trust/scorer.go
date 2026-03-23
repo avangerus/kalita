@@ -25,12 +25,9 @@ func NewDeterministicScorer(now func() time.Time) *DeterministicScorer {
 }
 
 func DefaultTrustProfile(actorID string, now time.Time) TrustProfile {
-	return TrustProfile{
-		ActorID:      actorID,
-		TrustLevel:   TrustLow,
-		AutonomyTier: AutonomyRestricted,
-		UpdatedAt:    now,
-	}
+	profile := TrustProfile{ActorID: actorID, UpdatedAt: now}
+	profile.TrustLevel, profile.AutonomyTier = deriveTrust(profile)
+	return profile
 }
 
 func (s *DeterministicScorer) Score(current TrustProfile, outcome ExecutionOutcome) TrustProfile {
@@ -38,13 +35,17 @@ func (s *DeterministicScorer) Score(current TrustProfile, outcome ExecutionOutco
 	if updated.ActorID == "" {
 		updated = DefaultTrustProfile(outcome.ActorID, s.now())
 	}
+	updated = withNormalizedMetrics(updated)
 
 	if outcome.Succeeded {
+		updated.Metrics.SuccessCount++
 		updated.CompletedExecutions++
 	} else {
+		updated.Metrics.FailureCount++
 		updated.FailedExecutions++
 	}
 	if outcome.Compensated {
+		updated.Metrics.CompensationCount++
 		updated.CompensatedExecutions++
 	}
 	if outcome.RequiredApproval {
@@ -60,32 +61,53 @@ func (s *DeterministicScorer) Score(current TrustProfile, outcome ExecutionOutco
 }
 
 func deriveTrust(profile TrustProfile) (TrustLevel, AutonomyTier) {
-	trustLevel := TrustLow
-	autonomyTier := AutonomyRestricted
-
-	if profile.CompletedExecutions >= 3 && profile.FailedExecutions == 0 {
-		trustLevel = TrustMedium
-		autonomyTier = AutonomySupervised
+	profile = withNormalizedMetrics(profile)
+	level := TrustLow
+	if profile.Metrics.SuccessCount >= 6 {
+		level = TrustHigh
+	} else if profile.Metrics.SuccessCount >= 3 {
+		level = TrustMedium
 	}
-
-	if profile.CompletedExecutions >= 10 && profile.FailedExecutions <= 1 && profile.CompensatedExecutions == 0 {
-		trustLevel = TrustHigh
-		autonomyTier = AutonomyStandard
+	if profile.Metrics.FailureCount >= 2 {
+		level = downgradeTrust(level)
 	}
-
-	if profile.FailedExecutions >= 2 {
-		trustLevel = TrustLow
-		autonomyTier = AutonomyRestricted
+	if profile.Metrics.CompensationCount >= 1 {
+		level = downgradeTrust(level)
 	}
+	return level, autonomyForTrust(level)
+}
 
-	if profile.CompensatedExecutions >= 1 && trustLevel == TrustHigh {
-		trustLevel = TrustMedium
-		autonomyTier = AutonomySupervised
-		if profile.FailedExecutions >= 2 {
-			trustLevel = TrustLow
-			autonomyTier = AutonomyRestricted
-		}
+func withNormalizedMetrics(profile TrustProfile) TrustProfile {
+	if profile.Metrics.SuccessCount < profile.CompletedExecutions {
+		profile.Metrics.SuccessCount = profile.CompletedExecutions
 	}
+	if profile.Metrics.FailureCount < profile.FailedExecutions {
+		profile.Metrics.FailureCount = profile.FailedExecutions
+	}
+	if profile.Metrics.CompensationCount < profile.CompensatedExecutions {
+		profile.Metrics.CompensationCount = profile.CompensatedExecutions
+	}
+	return profile
+}
 
-	return trustLevel, autonomyTier
+func downgradeTrust(level TrustLevel) TrustLevel {
+	switch level {
+	case TrustHigh:
+		return TrustMedium
+	case TrustMedium:
+		return TrustLow
+	default:
+		return TrustLow
+	}
+}
+
+func autonomyForTrust(level TrustLevel) AutonomyTier {
+	switch level {
+	case TrustHigh:
+		return AutonomyStandard
+	case TrustMedium:
+		return AutonomySupervised
+	default:
+		return AutonomyRestricted
+	}
 }

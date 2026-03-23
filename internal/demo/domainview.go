@@ -80,16 +80,20 @@ func BuildDomainTimelineEntry(caseKind string, entry controlplane.TimelineEntry)
 	}
 
 	title := map[string]string{
-		"incident_detected":    "Incident detected",
-		"case_created":         "Review case opened",
-		"work_item_created":    "Reconciliation task created",
-		"coordination_decided": "Follow-up coordination performed",
-		"policy_decided":       "Policy gate evaluated",
-		"approval_requested":   "Supervisor approval requested",
-		"approval_granted":     "Approval granted",
-		"approval_rejected":    "Approval rejected",
-		"execution_started":    "Execution started",
-		"escalation_waiting":   "Escalated for supervisor capacity",
+		"incident_detected":      "Incident detected",
+		"case_created":           "Review case opened",
+		"work_item_created":      "Reconciliation task created",
+		"coordination_decided":   "Follow-up coordination performed",
+		"policy_decided":         "Policy gate evaluated",
+		"approval_requested":     "Supervisor approval requested",
+		"approval_granted":       "Approval granted",
+		"approval_rejected":      "Approval rejected",
+		"execution_started":      "Execution started",
+		"execution_succeeded":    "Execution succeeded",
+		"execution_failed":       "Execution failed",
+		"compensation_completed": "Compensation completed",
+		"trust_updated":          "Trust updated",
+		"escalation_waiting":     "Escalated for supervisor capacity",
 	}[entry.Step]
 	if title == "" {
 		title = entry.Step
@@ -100,6 +104,9 @@ func BuildDomainTimelineEntry(caseKind string, entry controlplane.TimelineEntry)
 	}
 	if entry.Step == "escalation_waiting" {
 		description = "Long-waiting work remained queued after escalation."
+	}
+	if entry.Step == "trust_updated" {
+		description = fmt.Sprintf("Actor trust is now %s.", stringValue(entry.Payload["trust_level"]))
 	}
 	return DomainTimelineEntry{Title: title, Description: description}
 }

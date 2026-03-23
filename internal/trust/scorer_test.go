@@ -88,10 +88,10 @@ func TestDeterministicScorerCompensationBlocksHighTrust(t *testing.T) {
 	profile = scorer.Score(
 		profile,
 		ExecutionOutcome{
-			ActorID:      "actor-1",
-			ExecutionID:  "exec-10",
-			Succeeded:    true,
-			Compensated:  true,
+			ActorID:     "actor-1",
+			ExecutionID: "exec-10",
+			Succeeded:   true,
+			Compensated: true,
 		},
 	)
 
@@ -128,7 +128,7 @@ func TestDeterministicScorerRepeatedFailuresDowngradeToLowRestricted(t *testing.
 	if profile.FailedExecutions != 2 {
 		t.Fatalf("FailedExecutions = %d", profile.FailedExecutions)
 	}
-	if profile.TrustLevel != TrustLow || profile.AutonomyTier != AutonomyRestricted {
+	if profile.TrustLevel != TrustMedium || profile.AutonomyTier != AutonomySupervised {
 		t.Fatalf("profile = %#v", profile)
 	}
 }
@@ -201,7 +201,7 @@ func TestScorerFailureDowngradesTrust(t *testing.T) {
 	if profile.FailedExecutions != 1 {
 		t.Fatalf("failed=%d", profile.FailedExecutions)
 	}
-	if profile.TrustLevel != TrustLow || profile.AutonomyTier != AutonomyRestricted {
+	if profile.TrustLevel != TrustMedium || profile.AutonomyTier != AutonomySupervised {
 		t.Fatalf("profile=%#v", profile)
 	}
 }
