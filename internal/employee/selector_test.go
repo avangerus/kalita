@@ -59,3 +59,30 @@ func TestSelectorUsesDeterministicInsertionOrder(t *testing.T) {
 		t.Fatalf("selected employee = %#v", emp)
 	}
 }
+
+type stubActorMatcher struct {
+	actor  DigitalEmployee
+	reason string
+	err    error
+	calls  int
+}
+
+func (s *stubActorMatcher) MatchActor(context.Context, workplan.WorkItem, actionplan.ActionPlan, []DigitalEmployee) (DigitalEmployee, string, error) {
+	s.calls++
+	return s.actor, s.reason, s.err
+}
+
+func TestSelectorWithMatcherDelegatesToCapabilityMatcher(t *testing.T) {
+	t.Parallel()
+	directory := NewInMemoryDirectory()
+	_ = directory.SaveEmployee(context.Background(), DigitalEmployee{ID: "emp-1", Enabled: true, QueueMemberships: []string{"q-1"}, AllowedActionTypes: []actionplan.ActionType{"legacy_workflow_action"}})
+	matcher := &stubActorMatcher{actor: DigitalEmployee{ID: "emp-1"}, reason: "matched via capabilities"}
+	selector := NewSelectorWithMatcher(directory, matcher)
+	emp, reason, err := selector.SelectForWorkItem(context.Background(), workplan.WorkItem{ID: "work-1", QueueID: "q-1"}, actionplan.ActionPlan{Actions: []actionplan.Action{{ID: "a-1", Type: "legacy_workflow_action"}}})
+	if err != nil {
+		t.Fatalf("SelectForWorkItem error = %v", err)
+	}
+	if matcher.calls != 1 || emp.ID != "emp-1" || reason != "matched via capabilities" {
+		t.Fatalf("calls=%d emp=%#v reason=%q", matcher.calls, emp, reason)
+	}
+}
