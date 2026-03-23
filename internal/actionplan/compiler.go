@@ -25,6 +25,10 @@ func executionFromContext(ctx context.Context) ExecutionContext {
 	return meta
 }
 
+func ExecutionMetadataFromContext(ctx context.Context) ExecutionContext {
+	return executionFromContext(ctx)
+}
+
 type DefaultCompiler struct {
 	registry Registry
 	clock    eventcore.Clock

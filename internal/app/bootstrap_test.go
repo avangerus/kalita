@@ -110,6 +110,18 @@ func TestBootstrapProvidesEventCenterCaseRuntimeWorkplanPolicyExecutionControlAn
 	if result.ActionExecutor == nil {
 		t.Fatal("ActionExecutor is nil")
 	}
+	if result.ProposalRepo == nil {
+		t.Fatal("ProposalRepo is nil")
+	}
+	if result.ProposalValidator == nil {
+		t.Fatal("ProposalValidator is nil")
+	}
+	if result.ProposalCompiler == nil {
+		t.Fatal("ProposalCompiler is nil")
+	}
+	if result.ProposalService == nil {
+		t.Fatal("ProposalService is nil")
+	}
 	if result.ExecutionRunner == nil {
 		t.Fatal("ExecutionRunner is nil")
 	}

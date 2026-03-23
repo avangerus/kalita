@@ -16,6 +16,7 @@ import (
 	"kalita/internal/executioncontrol"
 	"kalita/internal/executionruntime"
 	"kalita/internal/policy"
+	"kalita/internal/proposal"
 	"kalita/internal/runtime"
 	"kalita/internal/validation"
 	"kalita/internal/workplan"
@@ -29,11 +30,11 @@ type actionRequest struct {
 }
 
 func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, nil, nil, nil, nil, nil, nil, nil)
+	return ActionHandlerWithServices(storage, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func ActionHandlerWithCommandBus(storage *runtime.Storage, commandBus command.CommandBus) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, commandBus, nil, nil, nil, nil, nil, nil)
+	return ActionHandlerWithServices(storage, commandBus, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 type commandCaseResolver interface {
@@ -61,7 +62,13 @@ type employeeService interface {
 	AssignAndStartExecution(ctx context.Context, wi workplan.WorkItem, plan actionplan.ActionPlan, constraints executioncontrol.ExecutionConstraints, metadata employee.RunMetadata) (employee.Assignment, executionruntime.ExecutionSession, error)
 }
 
-func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, employeeServices ...employeeService) gin.HandlerFunc {
+type proposalService interface {
+	CreateProposal(ctx context.Context, actor employee.DigitalEmployee, wi workplan.WorkItem, assignment employee.Assignment, payload map[string]any, justification string) (proposal.Proposal, error)
+	ValidateProposal(ctx context.Context, proposalID string, actor employee.DigitalEmployee) (proposal.Proposal, error)
+	CompileProposal(ctx context.Context, proposalID string) (proposal.Proposal, actionplan.ActionPlan, error)
+}
+
+func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, employeeServices ...employeeService) gin.HandlerFunc {
 	var employeeService employeeService
 	if len(employeeServices) > 0 {
 		employeeService = employeeServices[0]
@@ -154,7 +161,8 @@ func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.Comm
 								CorrelationID: intakeResult.Command.CorrelationID,
 								CausationID:   intakeResult.Command.ID,
 							})
-							plan, err := actionPlanService.CreatePlan(planCtx, intakeResult.WorkItem.ID, intakeResult.Case.ID, actionPlanInput(fqn, c.Param("id"), action, req))
+							planInput := actionPlanInput(fqn, c.Param("id"), action, req)
+							plan, err := createGovernedPlan(planCtx, actionPlanService, proposalService, employeeDirectory, intakeResult.WorkItem, planInput)
 							if err != nil {
 								c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
 									Code:    validation.ErrTypeMismatch,
@@ -293,4 +301,117 @@ func actionPlanInput(fqn, recordID, action string, req actionRequest) map[string
 			},
 		}},
 	}
+}
+
+func createGovernedPlan(ctx context.Context, actionPlanService actionPlanService, proposalSvc proposalService, directory employee.Directory, wi workplan.WorkItem, input map[string]any) (actionplan.ActionPlan, error) {
+	if proposalSvc == nil || directory == nil {
+		return actionPlanService.CreatePlan(ctx, wi.ID, wi.CaseID, input)
+	}
+	actor, assignment, err := selectProposalActor(ctx, directory, wi, input)
+	if err != nil {
+		return actionplan.ActionPlan{}, err
+	}
+	meta := actionplan.ExecutionMetadataFromContext(ctx)
+	proposalCtx := proposal.ContextWithExecution(ctx, proposal.ExecutionContext{ExecutionID: meta.ExecutionID, CorrelationID: meta.CorrelationID, CausationID: meta.CausationID})
+	created, err := proposalSvc.CreateProposal(proposalCtx, actor, wi, assignment, input, legacyProposalJustification(input))
+	if err != nil {
+		return actionplan.ActionPlan{}, err
+	}
+	validated, err := proposalSvc.ValidateProposal(proposalCtx, created.ID, actor)
+	if err != nil {
+		return actionplan.ActionPlan{}, err
+	}
+	if validated.Status != proposal.ProposalValidated {
+		if validated.RejectionReason == "" {
+			return actionplan.ActionPlan{}, fmt.Errorf("proposal %s rejected", validated.ID)
+		}
+		return actionplan.ActionPlan{}, fmt.Errorf("proposal rejected: %s", validated.RejectionReason)
+	}
+	_, plan, err := proposalSvc.CompileProposal(proposalCtx, validated.ID)
+	if err != nil {
+		return actionplan.ActionPlan{}, err
+	}
+	return plan, nil
+}
+
+func selectProposalActor(ctx context.Context, directory employee.Directory, wi workplan.WorkItem, payload map[string]any) (employee.DigitalEmployee, employee.Assignment, error) {
+	if directory == nil {
+		return employee.DigitalEmployee{}, employee.Assignment{}, fmt.Errorf("employee directory is nil")
+	}
+	actions, err := proposalActionTypes(payload)
+	if err != nil {
+		return employee.DigitalEmployee{}, employee.Assignment{}, err
+	}
+	employees, err := directory.ListEmployeesByQueue(ctx, wi.QueueID)
+	if err != nil {
+		return employee.DigitalEmployee{}, employee.Assignment{}, err
+	}
+	for _, actor := range employees {
+		if !actor.Enabled || !allowsProposalActions(actor, actions) {
+			continue
+		}
+		return actor, employee.Assignment{ID: fmt.Sprintf("proposal-%s-%s", wi.ID, actor.ID), WorkItemID: wi.ID, CaseID: wi.CaseID, QueueID: wi.QueueID, EmployeeID: actor.ID}, nil
+	}
+	return employee.DigitalEmployee{}, employee.Assignment{}, fmt.Errorf("no eligible proposal actor for queue %s and work item %s", wi.QueueID, wi.ID)
+}
+
+func proposalActionTypes(payload map[string]any) ([]actionplan.ActionType, error) {
+	rawActions, ok := payload["actions"]
+	if !ok {
+		return nil, fmt.Errorf("proposal payload actions are required")
+	}
+	items, err := proposalActionItems(rawActions)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]actionplan.ActionType, 0, len(items))
+	for i, item := range items {
+		rawType, _ := item["type"].(string)
+		typeName := actionplan.ActionType(rawType)
+		if typeName == "" {
+			return nil, fmt.Errorf("proposal action %d type is required", i)
+		}
+		out = append(out, typeName)
+	}
+	return out, nil
+}
+
+func proposalActionItems(raw any) ([]map[string]any, error) {
+	switch v := raw.(type) {
+	case []any:
+		out := make([]map[string]any, 0, len(v))
+		for i, item := range v {
+			m, ok := item.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("actions[%d] must be an object", i)
+			}
+			out = append(out, m)
+		}
+		return out, nil
+	case []map[string]any:
+		return v, nil
+	default:
+		return nil, fmt.Errorf("actions must be an array")
+	}
+}
+
+func allowsProposalActions(actor employee.DigitalEmployee, actions []actionplan.ActionType) bool {
+	allowed := map[actionplan.ActionType]struct{}{}
+	for _, actionType := range actor.AllowedActionTypes {
+		allowed[actionType] = struct{}{}
+	}
+	for _, actionType := range actions {
+		if _, ok := allowed[actionType]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func legacyProposalJustification(input map[string]any) string {
+	reason, _ := input["reason"].(string)
+	if reason == "" {
+		return "legacy workflow action approved for execution"
+	}
+	return reason
 }

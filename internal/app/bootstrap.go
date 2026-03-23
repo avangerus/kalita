@@ -18,6 +18,7 @@ import (
 	"kalita/internal/executionruntime"
 	"kalita/internal/policy"
 	"kalita/internal/postgres"
+	"kalita/internal/proposal"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
 	"kalita/internal/workplan"
@@ -48,6 +49,10 @@ type BootstrapResult struct {
 	ActionCompiler     actionplan.Compiler
 	ActionValidator    actionplan.Validator
 	ActionPlanService  actionplan.Service
+	ProposalRepo       proposal.Repository
+	ProposalValidator  proposal.Validator
+	ProposalCompiler   proposal.CompilerAdapter
+	ProposalService    proposal.Service
 	EmployeeDirectory  employee.Directory
 	AssignmentRepo     employee.AssignmentRepository
 	EmployeeSelector   employee.Selector
@@ -159,6 +164,10 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	actionCompiler := actionplan.NewCompiler(actionRegistry, clock, ids)
 	actionValidator := actionplan.NewValidator(actionRegistry)
 	actionPlanService := actionplan.NewService(actionCompiler, actionValidator, eventLog, clock, ids)
+	proposalRepo := proposal.NewInMemoryRepository()
+	proposalValidator := proposal.NewValidator()
+	proposalCompiler := proposal.NewCompilerAdapter(actionPlanService)
+	proposalService := proposal.NewService(proposalRepo, proposalValidator, proposalCompiler, eventLog, clock, ids)
 	executionRepo := executionruntime.NewInMemoryExecutionRepository()
 	executionWAL := executionruntime.NewInMemoryWAL()
 	actionExecutor := executionruntime.NewStubExecutor()
@@ -213,6 +222,10 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		ActionCompiler:     actionCompiler,
 		ActionValidator:    actionValidator,
 		ActionPlanService:  actionPlanService,
+		ProposalRepo:       proposalRepo,
+		ProposalValidator:  proposalValidator,
+		ProposalCompiler:   proposalCompiler,
+		ProposalService:    proposalService,
 		EmployeeDirectory:  employeeDirectory,
 		AssignmentRepo:     assignmentRepo,
 		EmployeeSelector:   employeeSelector,
