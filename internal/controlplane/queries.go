@@ -20,4 +20,8 @@ type Service interface {
 
 	ApproveApprovalRequest(ctx context.Context, approvalRequestID string) (ApprovalInboxItem, error)
 	RejectApprovalRequest(ctx context.Context, approvalRequestID string) (ApprovalInboxItem, error)
+	AcknowledgeCase(ctx context.Context, caseID string) (CaseOverview, error)
+	AddCaseNote(ctx context.Context, caseID string, text string) (CaseOverview, error)
+	RequestCaseRecoordination(ctx context.Context, caseID string) (CaseOverview, error)
+	RecordExternalInput(ctx context.Context, caseID string, source string, text string) (CaseOverview, error)
 }

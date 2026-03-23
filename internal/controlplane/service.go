@@ -321,7 +321,11 @@ func (s *service) GetCaseOverview(ctx context.Context, caseID string) (CaseOverv
 	if !ok {
 		return CaseOverview{}, fmt.Errorf("case %s not found", caseID)
 	}
-	return mapCase(c), nil
+	overview := mapCase(c)
+	if err := s.populateOperatorCaseData(ctx, &overview); err != nil {
+		return CaseOverview{}, err
+	}
+	return overview, nil
 }
 
 func (s *service) ListCases(ctx context.Context) ([]CaseOverview, error) {
@@ -334,10 +338,113 @@ func (s *service) ListCases(ctx context.Context) ([]CaseOverview, error) {
 	}
 	out := make([]CaseOverview, 0, len(cases))
 	for _, c := range cases {
-		out = append(out, mapCase(c))
+		overview := mapCase(c)
+		if err := s.populateOperatorCaseData(ctx, &overview); err != nil {
+			return nil, err
+		}
+		out = append(out, overview)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].OpenedAt.Before(out[j].OpenedAt) })
 	return out, nil
+}
+
+func (s *service) AcknowledgeCase(ctx context.Context, caseID string) (CaseOverview, error) {
+	c, err := s.requireCase(ctx, caseID)
+	if err != nil {
+		return CaseOverview{}, err
+	}
+	overview, err := s.GetCaseOverview(ctx, caseID)
+	if err != nil {
+		return CaseOverview{}, err
+	}
+	if overview.Acknowledged {
+		return overview, nil
+	}
+	now := c.UpdatedAt.Add(time.Nanosecond)
+	if err := s.appendCaseEvent(ctx, c, "operator_case_acknowledged", "recorded", now, fmt.Sprintf("operator-ack:%s", caseID), map[string]any{
+		"case_id": caseID,
+	}); err != nil {
+		return CaseOverview{}, err
+	}
+	return s.GetCaseOverview(ctx, caseID)
+}
+
+func (s *service) AddCaseNote(ctx context.Context, caseID string, text string) (CaseOverview, error) {
+	c, err := s.requireCase(ctx, caseID)
+	if err != nil {
+		return CaseOverview{}, err
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return CaseOverview{}, fmt.Errorf("text is required")
+	}
+	now := c.UpdatedAt.Add(2 * time.Nanosecond)
+	if err := s.appendCaseEvent(ctx, c, "operator_note_added", "recorded", now, fmt.Sprintf("operator-note:%s:%d", caseID, now.UnixNano()), map[string]any{
+		"case_id": caseID,
+		"text":    text,
+	}); err != nil {
+		return CaseOverview{}, err
+	}
+	return s.GetCaseOverview(ctx, caseID)
+}
+
+func (s *service) RequestCaseRecoordination(ctx context.Context, caseID string) (CaseOverview, error) {
+	c, err := s.requireCase(ctx, caseID)
+	if err != nil {
+		return CaseOverview{}, err
+	}
+	workItem, err := s.latestCaseWorkItem(ctx, caseID)
+	if err != nil {
+		return CaseOverview{}, err
+	}
+	now := workItem.UpdatedAt.Add(time.Nanosecond)
+	eventID := fmt.Sprintf("operator-recoordinate:%s:%s:%d", caseID, workItem.ID, now.UnixNano())
+	if err := s.appendCaseEvent(ctx, c, "operator_recoordination_requested", "requested", now, eventID, map[string]any{
+		"case_id":      caseID,
+		"work_item_id": workItem.ID,
+		"queue_id":     workItem.QueueID,
+	}); err != nil {
+		return CaseOverview{}, err
+	}
+	if s.coordinator != nil {
+		coordinationCtx, err := s.buildCoordinationContext(ctx, workItem)
+		if err != nil {
+			return CaseOverview{}, err
+		}
+		planningCtx := workplan.ContextWithPlanningExecution(ctx, workplan.PlanningExecutionContext{
+			ExecutionID:   fmt.Sprintf("operator-recoordinate:%s", caseID),
+			CorrelationID: c.CorrelationID,
+			CausationID:   eventID,
+		})
+		if _, err := s.coordinator.Decide(planningCtx, workItem, coordinationCtx); err != nil {
+			return CaseOverview{}, err
+		}
+	}
+	return s.GetCaseOverview(ctx, caseID)
+}
+
+func (s *service) RecordExternalInput(ctx context.Context, caseID string, source string, text string) (CaseOverview, error) {
+	c, err := s.requireCase(ctx, caseID)
+	if err != nil {
+		return CaseOverview{}, err
+	}
+	source = strings.TrimSpace(source)
+	text = strings.TrimSpace(text)
+	if source == "" {
+		return CaseOverview{}, fmt.Errorf("source is required")
+	}
+	if text == "" {
+		return CaseOverview{}, fmt.Errorf("text is required")
+	}
+	now := c.UpdatedAt.Add(3 * time.Nanosecond)
+	if err := s.appendCaseEvent(ctx, c, "external_input_received", "recorded", now, fmt.Sprintf("external-input:%s:%d", caseID, now.UnixNano()), map[string]any{
+		"case_id": caseID,
+		"source":  source,
+		"text":    text,
+	}); err != nil {
+		return CaseOverview{}, err
+	}
+	return s.GetCaseOverview(ctx, caseID)
 }
 
 func (s *service) GetWorkItemOverview(ctx context.Context, workItemID string) (WorkItemOverview, error) {
@@ -682,9 +789,103 @@ func normalizeTimelineStep(e eventcore.ExecutionEvent) (string, bool) {
 		return "trust_updated", true
 	case "escalation_waiting":
 		return "escalation_waiting", true
+	case "operator_case_acknowledged":
+		return "operator_case_acknowledged", true
+	case "operator_note_added":
+		return "operator_note_added", true
+	case "operator_recoordination_requested":
+		return "operator_recoordination_requested", true
+	case "external_input_received":
+		return "external_input_received", true
 	default:
 		return "", false
 	}
+}
+
+func (s *service) requireCase(ctx context.Context, caseID string) (caseruntime.Case, error) {
+	c, ok, err := s.cases.GetByID(ctx, caseID)
+	if err != nil {
+		return caseruntime.Case{}, err
+	}
+	if !ok {
+		return caseruntime.Case{}, fmt.Errorf("case %s not found", caseID)
+	}
+	return c, nil
+}
+
+func (s *service) latestCaseWorkItem(ctx context.Context, caseID string) (workplan.WorkItem, error) {
+	items, err := s.workItems.ListWorkItemsByCase(ctx, caseID)
+	if err != nil {
+		return workplan.WorkItem{}, err
+	}
+	if len(items) == 0 {
+		return workplan.WorkItem{}, fmt.Errorf("case %s has no work items", caseID)
+	}
+	latest := items[0]
+	for _, item := range items[1:] {
+		if item.UpdatedAt.After(latest.UpdatedAt) || (item.UpdatedAt.Equal(latest.UpdatedAt) && item.ID > latest.ID) {
+			latest = item
+		}
+	}
+	return latest, nil
+}
+
+func (s *service) appendCaseEvent(ctx context.Context, c caseruntime.Case, step string, status string, occurredAt time.Time, id string, payload map[string]any) error {
+	if s.eventLog == nil {
+		return nil
+	}
+	return s.eventLog.AppendExecutionEvent(ctx, eventcore.ExecutionEvent{
+		ID:            id,
+		ExecutionID:   fmt.Sprintf("operator:%s", c.ID),
+		CaseID:        c.ID,
+		Step:          step,
+		Status:        status,
+		OccurredAt:    occurredAt,
+		CorrelationID: c.CorrelationID,
+		CausationID:   id,
+		Payload:       payload,
+	})
+}
+
+func (s *service) populateOperatorCaseData(ctx context.Context, overview *CaseOverview) error {
+	if overview == nil || s.eventLog == nil || strings.TrimSpace(overview.CorrelationID) == "" {
+		return nil
+	}
+	_, executionEvents, err := s.eventLog.ListByCorrelation(ctx, overview.CorrelationID)
+	if err != nil {
+		return err
+	}
+	for _, e := range executionEvents {
+		if e.CaseID != "" && e.CaseID != overview.CaseID {
+			continue
+		}
+		switch e.Step {
+		case "operator_case_acknowledged":
+			if !overview.Acknowledged || (overview.AcknowledgedAt != nil && e.OccurredAt.Before(*overview.AcknowledgedAt)) {
+				ackAt := e.OccurredAt
+				overview.Acknowledged = true
+				overview.AcknowledgedAt = &ackAt
+			}
+		case "operator_note_added":
+			overview.OperatorNotes = append(overview.OperatorNotes, OperatorNoteOverview{
+				Text:       fmt.Sprint(e.Payload["text"]),
+				RecordedAt: e.OccurredAt,
+			})
+		case "external_input_received":
+			overview.ExternalInputs = append(overview.ExternalInputs, ExternalInputOverview{
+				Source:     fmt.Sprint(e.Payload["source"]),
+				Text:       fmt.Sprint(e.Payload["text"]),
+				RecordedAt: e.OccurredAt,
+			})
+		}
+	}
+	sort.SliceStable(overview.OperatorNotes, func(i, j int) bool {
+		return overview.OperatorNotes[i].RecordedAt.Before(overview.OperatorNotes[j].RecordedAt)
+	})
+	sort.SliceStable(overview.ExternalInputs, func(i, j int) bool {
+		return overview.ExternalInputs[i].RecordedAt.Before(overview.ExternalInputs[j].RecordedAt)
+	})
+	return nil
 }
 
 func clonePayload(in map[string]any) map[string]any {

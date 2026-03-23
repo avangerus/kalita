@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -33,8 +34,11 @@ func (c *demoOperatorClient) get(path string, out any) error {
 	return json.Unmarshal(rec.Body.Bytes(), out)
 }
 
-func (c *demoOperatorClient) post(path string, out any) error {
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(nil))
+func (c *demoOperatorClient) post(path string, body []byte, contentType string, out any) error {
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 	rec := httptest.NewRecorder()
 	c.handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -91,6 +95,7 @@ type caseDetailPage struct {
 	WorkItem      *controlplane.WorkItemOverview
 	Timeline      []caseDetailTimelineRow
 	DomainContext demo.DomainCaseContext
+	ErrorMessage  string
 }
 
 func registerDemoRoutes(r *gin.Engine) {
@@ -98,6 +103,10 @@ func registerDemoRoutes(r *gin.Engine) {
 	r.GET("/demo", func(c *gin.Context) { renderDemoDashboard(c, client) })
 	r.GET("/demo/cases", func(c *gin.Context) { renderDemoCases(c, client) })
 	r.GET("/demo/cases/:id", func(c *gin.Context) { renderDemoCaseDetail(c, client, c.Param("id")) })
+	r.POST("/demo/cases/:id/acknowledge", func(c *gin.Context) { postDemoCaseAction(c, client, c.Param("id"), "acknowledge") })
+	r.POST("/demo/cases/:id/notes", func(c *gin.Context) { postDemoCaseAction(c, client, c.Param("id"), "notes") })
+	r.POST("/demo/cases/:id/recoordinate", func(c *gin.Context) { postDemoCaseAction(c, client, c.Param("id"), "recoordinate") })
+	r.POST("/demo/cases/:id/external-input", func(c *gin.Context) { postDemoCaseAction(c, client, c.Param("id"), "external-input") })
 	r.GET("/demo/approvals", func(c *gin.Context) { renderDemoApprovals(c, client) })
 	r.POST("/demo/approvals/:id/approve", func(c *gin.Context) { postDemoApprovalAction(c, client, c.Param("id"), "approve") })
 	r.POST("/demo/approvals/:id/reject", func(c *gin.Context) { postDemoApprovalAction(c, client, c.Param("id"), "reject") })
@@ -138,7 +147,33 @@ func renderDemoCaseDetail(c *gin.Context, client *demoOperatorClient, caseID str
 	}
 	page.DomainContext = demo.BuildDomainCaseContext(overview, page.WorkItem, timeline)
 	page.Timeline = buildCaseDetailTimeline(overview.Kind, timeline)
+	page.ErrorMessage = strings.TrimSpace(c.Query("error"))
 	renderDemoHTML(c, "Case Detail · Kalita Demo Console", demoCaseDetailTemplate, map[string]any{"Page": page})
+}
+
+func postDemoCaseAction(c *gin.Context, client *demoOperatorClient, caseID string, action string) {
+	redirectTarget := "/demo/cases/" + caseID
+	var (
+		body        []byte
+		contentType string
+		updated     controlplane.CaseOverview
+	)
+	switch action {
+	case "acknowledge", "recoordinate":
+	case "notes":
+		payload := map[string]string{"text": c.PostForm("text")}
+		body, _ = json.Marshal(payload)
+		contentType = "application/json"
+	case "external-input":
+		payload := map[string]string{"source": c.PostForm("source"), "text": c.PostForm("text")}
+		body, _ = json.Marshal(payload)
+		contentType = "application/json"
+	}
+	if err := client.post(fmt.Sprintf("/api/operator/cases/%s/%s", caseID, action), body, contentType, &updated); err != nil {
+		c.Redirect(http.StatusSeeOther, redirectTarget+"?error="+url.QueryEscape(err.Error()))
+		return
+	}
+	c.Redirect(http.StatusSeeOther, redirectTarget)
 }
 
 func renderDemoApprovals(c *gin.Context, client *demoOperatorClient) {
@@ -152,7 +187,7 @@ func renderDemoApprovals(c *gin.Context, client *demoOperatorClient) {
 
 func postDemoApprovalAction(c *gin.Context, client *demoOperatorClient, approvalID string, action string) {
 	var item controlplane.ApprovalInboxItem
-	if err := client.post(fmt.Sprintf("/api/operator/approvals/%s/%s", approvalID, action), &item); err != nil {
+	if err := client.post(fmt.Sprintf("/api/operator/approvals/%s/%s", approvalID, action), nil, "", &item); err != nil {
 		renderDemoError(c, err)
 		return
 	}
@@ -427,11 +462,13 @@ const demoCasesTemplate = `{{define "body"}}
 
 const demoCaseDetailTemplate = `{{define "body"}}
 {{if .Page.DomainContext.Title}}<div class="domain"><strong>{{.Page.DomainContext.Title}}</strong><p>{{.Page.DomainContext.IncidentSummary}}</p><p class="muted">{{.Page.DomainContext.TimelineDescription}}</p></div>{{end}}
+{{if .Page.ErrorMessage}}<p class="muted">Last action error: {{.Page.ErrorMessage}}</p>{{end}}
 <h2>Incident summary</h2>
 <table><tbody>
 <tr><th>Case ID</th><td>{{.Page.Case.CaseID}}</td></tr>
 <tr><th>Operational type</th><td>{{if .Page.DomainContext.CaseTypeLabel}}{{.Page.DomainContext.CaseTypeLabel}}{{else}}{{.Page.Case.Kind}}{{end}}</td></tr>
 <tr><th>Status</th><td>{{.Page.Case.Status}}</td></tr>
+<tr><th>Acknowledged</th><td>{{if .Page.Case.Acknowledged}}{{fmtTimePtr .Page.Case.AcknowledgedAt}}{{else}}not yet{{end}}</td></tr>
 <tr><th>Correlation ID</th><td>{{.Page.Case.CorrelationID}}</td></tr>
 <tr><th>Subject</th><td>{{.Page.Case.SubjectRef}}</td></tr>
 <tr><th>Route</th><td>{{if .Page.DomainContext.RouteID}}{{.Page.DomainContext.RouteID}}{{else}}-{{end}}</td></tr>
@@ -455,6 +492,12 @@ const demoCaseDetailTemplate = `{{define "body"}}
 <div class="actions"><form method="post" action="/demo/approvals/{{.Page.WorkItem.PolicyApproval.ApprovalRequestID}}/approve"><input type="hidden" name="redirect" value="/demo/cases/{{.Page.Case.CaseID}}"><button type="submit">Approve</button></form><form method="post" action="/demo/approvals/{{.Page.WorkItem.PolicyApproval.ApprovalRequestID}}/reject"><input type="hidden" name="redirect" value="/demo/cases/{{.Page.Case.CaseID}}"><button type="submit">Reject</button></form></div>
 {{end}}
 {{end}}
+<h2 class="section-title">Operator workbench</h2>
+<div class="actions"><form method="post" action="/demo/cases/{{.Page.Case.CaseID}}/acknowledge"><button type="submit">Acknowledge</button></form><form method="post" action="/demo/cases/{{.Page.Case.CaseID}}/recoordinate"><button type="submit">Request re-coordination</button></form></div>
+<form method="post" action="/demo/cases/{{.Page.Case.CaseID}}/notes"><p><label>Operator note<br><textarea name="text" rows="3" cols="80"></textarea></label></p><button type="submit">Add note</button></form>
+<form method="post" action="/demo/cases/{{.Page.Case.CaseID}}/external-input"><p><label>External source<br><input name="source"></label></p><p><label>External input<br><textarea name="text" rows="3" cols="80"></textarea></label></p><button type="submit">Record external input</button></form>
+{{if .Page.Case.OperatorNotes}}<h3>Operator notes</h3><table><thead><tr><th>Recorded at</th><th>Note</th></tr></thead><tbody>{{range .Page.Case.OperatorNotes}}<tr><td>{{fmtTime .RecordedAt}}</td><td>{{.Text}}</td></tr>{{end}}</tbody></table>{{end}}
+{{if .Page.Case.ExternalInputs}}<h3>External inputs</h3><table><thead><tr><th>Recorded at</th><th>Source</th><th>Text</th></tr></thead><tbody>{{range .Page.Case.ExternalInputs}}<tr><td>{{fmtTime .RecordedAt}}</td><td>{{.Source}}</td><td>{{.Text}}</td></tr>{{end}}</tbody></table>{{end}}
 <h2 class="section-title">Timeline</h2>
 <table><thead><tr><th>Occurred at</th><th>Domain event</th><th>Control plane step</th><th>Status</th><th>Payload</th></tr></thead><tbody>
 {{range .Page.Timeline}}<tr><td>{{fmtTime .OccurredAt}}</td><td>{{.DomainTitle}}{{if .DomainDetail}}<div class="muted">{{.DomainDetail}}</div>{{end}}</td><td>{{.Step}}</td><td>{{if .Status}}{{.Status}}{{else}}-{{end}}</td><td><pre>{{payload .Payload}}</pre></td></tr>{{else}}<tr><td colspan="5">No timeline entries found.</td></tr>{{end}}
