@@ -13,6 +13,7 @@ import (
 	"kalita/internal/catalog"
 	"kalita/internal/command"
 	"kalita/internal/config"
+	"kalita/internal/controlplane"
 	"kalita/internal/employee"
 	"kalita/internal/eventcore"
 	"kalita/internal/executioncontrol"
@@ -68,6 +69,7 @@ type BootstrapResult struct {
 	ActionExecutor     executionruntime.ActionExecutor
 	ExecutionRunner    executionruntime.Runner
 	ExecutionRuntime   executionruntime.Service
+	ControlPlane       controlplane.Service
 	Config             config.Config
 }
 
@@ -216,6 +218,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	workService := workplan.NewService(queueRepo, assignmentRouter, planner, coordinator, eventLog, clock, ids)
 	employeeSelector := employee.NewSelectorWithMatcher(employeeDirectory, profile.NewMatcher(profileRepo, profileRepo, capabilityRepo, capabilityRepo, trustService))
 	employeeService := employee.NewService(assignmentRepo, employeeSelector, executionRuntime, eventLog, clock, ids, trustService)
+	controlPlaneService := controlplane.NewService(caseRepo, queueRepo, coordinationRepo, policyRepo, proposalRepo, employeeDirectory, trustRepo, profileRepo, capabilityRepo, executionRepo, executionWAL)
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}
@@ -261,6 +264,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		ActionExecutor:     actionExecutor,
 		ExecutionRunner:    executionRunner,
 		ExecutionRuntime:   executionRuntime,
+		ControlPlane:       controlPlaneService,
 		Config:             cfg,
 	}, nil
 }

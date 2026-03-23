@@ -5,6 +5,7 @@ import (
 
 	"kalita/internal/caseruntime"
 	"kalita/internal/command"
+	"kalita/internal/controlplane"
 	"kalita/internal/employee"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
@@ -13,14 +14,14 @@ import (
 )
 
 func RunServer(addr string, storage *runtime.Storage) {
-	RunServerWithServices(addr, storage, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	RunServerWithServices(addr, storage, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func RunServerWithCommandBus(addr string, storage *runtime.Storage, commandBus command.CommandBus) {
-	RunServerWithServices(addr, storage, commandBus, nil, nil, nil, nil, nil, nil, nil, nil)
+	RunServerWithServices(addr, storage, commandBus, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
-func RunServerWithServices(addr string, storage *runtime.Storage, commandBus command.CommandBus, caseService *caseruntime.Service, workService workItemIntakeService, coordinator coordinator, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, employeeServices ...employeeService) {
+func RunServerWithServices(addr string, storage *runtime.Storage, commandBus command.CommandBus, caseService *caseruntime.Service, workService workItemIntakeService, coordinator coordinator, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, operatorService controlplane.Service, employeeServices ...employeeService) {
 	// fail-fast, если есть критичные проблемы схемы
 	if issues := schema.Lint(storage.Schemas); len(issues) > 0 {
 		for _, it := range issues {
@@ -32,6 +33,7 @@ func RunServerWithServices(addr string, storage *runtime.Storage, commandBus com
 
 	apiGroup := r.Group("/api")
 	{
+		registerOperatorRoutes(apiGroup, operatorService)
 
 		//r.GET("/api/meta", MetaListHandler(storage))
 		//r.GET("/api/meta/:module/:entity", MetaEntityHandler(storage))
