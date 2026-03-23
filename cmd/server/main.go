@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"kalita/internal/app"
+	"kalita/internal/controlplane"
 	"kalita/internal/http"
 )
 

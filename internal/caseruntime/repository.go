@@ -8,6 +8,7 @@ import (
 type InMemoryCaseRepository struct {
 	mu              sync.RWMutex
 	byID            map[string]Case
+	order           []string
 	idByCorrelation map[string]string
 	idBySubjectRef  map[string]string
 }
@@ -33,6 +34,9 @@ func (r *InMemoryCaseRepository) Save(_ context.Context, c Case) error {
 		}
 	}
 
+	if _, ok := r.byID[c.ID]; !ok {
+		r.order = append(r.order, c.ID)
+	}
 	r.byID[c.ID] = cloneCase(c)
 	if c.CorrelationID != "" {
 		r.idByCorrelation[c.CorrelationID] = c.ID
