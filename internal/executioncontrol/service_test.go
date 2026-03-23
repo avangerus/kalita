@@ -7,6 +7,7 @@ import (
 
 	"kalita/internal/eventcore"
 	"kalita/internal/policy"
+	"kalita/internal/trust"
 	"kalita/internal/workplan"
 )
 
@@ -74,5 +75,26 @@ func TestServiceDeniedPolicyDoesNotCreateConstraints(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("items = %#v", items)
+	}
+}
+
+func TestAdjustForTrustAppliesDeterministicExecutionModes(t *testing.T) {
+	t.Parallel()
+
+	base := ExecutionConstraints{ID: "constraints-1", ExecutionMode: ExecutionModeDeterministicAPI, MaxSteps: 10, MaxDurationSec: 300, Reason: "baseline"}
+
+	low, _ := AdjustForTrust(base, trust.TrustProfile{ActorID: "emp-low", TrustLevel: trust.TrustLow})
+	if low.ExecutionMode != ExecutionModeApprovalEachStep || low.MaxSteps != 1 || low.MaxDurationSec != 60 {
+		t.Fatalf("low = %#v", low)
+	}
+
+	medium, _ := AdjustForTrust(base, trust.TrustProfile{ActorID: "emp-medium", TrustLevel: trust.TrustMedium})
+	if medium.ExecutionMode != ExecutionModeSupervised || medium.MaxSteps != 5 || medium.MaxDurationSec != 180 {
+		t.Fatalf("medium = %#v", medium)
+	}
+
+	high, _ := AdjustForTrust(base, trust.TrustProfile{ActorID: "emp-high", TrustLevel: trust.TrustHigh})
+	if high.ExecutionMode != ExecutionModeStandard || high.MaxSteps != 10 || high.MaxDurationSec != 300 {
+		t.Fatalf("high = %#v", high)
 	}
 }

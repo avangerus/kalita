@@ -8,6 +8,7 @@ import (
 
 	"kalita/internal/actionplan"
 	"kalita/internal/blob"
+	"kalita/internal/capability"
 	"kalita/internal/caseruntime"
 	"kalita/internal/catalog"
 	"kalita/internal/command"
@@ -18,6 +19,7 @@ import (
 	"kalita/internal/executionruntime"
 	"kalita/internal/policy"
 	"kalita/internal/postgres"
+	"kalita/internal/profile"
 	"kalita/internal/proposal"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
@@ -179,11 +181,11 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	executionRuntime := executionruntime.NewService(executionRunner)
 	employeeDirectory := employee.NewInMemoryDirectory()
 	assignmentRepo := employee.NewInMemoryAssignmentRepository()
-	employeeSelector := employee.NewSelector(employeeDirectory)
-	employeeService := employee.NewService(assignmentRepo, employeeSelector, executionRuntime, eventLog, clock, ids)
 	trustRepo := trust.NewInMemoryRepository()
 	trustScorer := trust.NewDeterministicScorer(clock.Now)
 	trustService := trust.NewService(trustRepo, trustScorer)
+	capabilityRepo := capability.NewInMemoryRepository()
+	profileRepo := profile.NewInMemoryRepository()
 	defaultEmployee := employee.DigitalEmployee{
 		ID:                  "employee-legacy-operator",
 		Code:                "legacy_operator_default",
@@ -200,6 +202,20 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	if err := employeeDirectory.SaveEmployee(context.Background(), defaultEmployee); err != nil {
 		return nil, fmt.Errorf("seed default employee: %w", err)
 	}
+	if err := capabilityRepo.SaveCapability(context.Background(), capability.Capability{ID: "cap-legacy-workflow", Code: "workflow.execute", Type: capability.CapabilitySkill, Level: 1}); err != nil {
+		return nil, fmt.Errorf("seed workflow capability: %w", err)
+	}
+	if err := capabilityRepo.AssignCapability(context.Background(), capability.ActorCapability{ActorID: defaultEmployee.ID, CapabilityID: "cap-legacy-workflow", Level: 1}); err != nil {
+		return nil, fmt.Errorf("assign workflow capability: %w", err)
+	}
+	if err := profileRepo.SaveRequirement(context.Background(), profile.CapabilityRequirement{ActionType: "legacy_workflow_action", CapabilityCodes: []string{"workflow.execute"}, MinimumLevel: 1}); err != nil {
+		return nil, fmt.Errorf("seed capability requirement: %w", err)
+	}
+	if err := profileRepo.SaveProfile(context.Background(), profile.CompetencyProfile{ID: "profile-legacy-operator", ActorID: defaultEmployee.ID, Name: "Legacy Operator", MaxComplexity: 10, PreferredWorkKinds: []string{"workflow.action"}}); err != nil {
+		return nil, fmt.Errorf("seed competency profile: %w", err)
+	}
+	employeeSelector := employee.NewSelectorWithMatcher(employeeDirectory, profile.NewMatcher(profileRepo, profileRepo, capabilityRepo, capabilityRepo, trustService))
+	employeeService := employee.NewService(assignmentRepo, employeeSelector, executionRuntime, eventLog, clock, ids, trustService)
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}

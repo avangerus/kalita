@@ -3,6 +3,7 @@ package trust
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 type trustService struct {
