@@ -20,7 +20,7 @@ func main() {
 
 	operatorService := result.ControlPlane
 	if result.Config.DemoMode {
-		demoResult, err := demo.RunDemoScenario(context.Background())
+		demoResult, err := demo.RunAISOtkhodyDemoScenario(context.Background())
 		if err != nil {
 			panic(err)
 		}

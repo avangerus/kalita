@@ -627,6 +627,8 @@ func latestBy[T any](items []T, id func(T) string, ts func(T) int64) T {
 
 func normalizeTimelineStep(e eventcore.ExecutionEvent) (string, bool) {
 	switch e.Step {
+	case "incident_detected":
+		return "incident_detected", true
 	case "case_resolution":
 		if e.Status == "opened_new" {
 			return "case_created", true
