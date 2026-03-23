@@ -69,6 +69,7 @@ type caseListRow struct {
 	Type                 string
 	TypeLabel            string
 	Status               string
+	StateBadge           string
 	BlockingOrDeferred   string
 	PendingApprovalCount int
 	RouteRef             string
@@ -211,16 +212,10 @@ func loadCaseDetailData(client *demoOperatorClient, caseID string) (controlplane
 }
 
 func buildDashboardMetrics(summary controlplane.Summary, workItems []controlplane.WorkItemOverview, actors []controlplane.ActorOverview) dashboardMetrics {
-	metrics := dashboardMetrics{ActiveCases: summary.OpenCaseCount, PendingApprovals: summary.ApprovalPendingCount}
+	metrics := dashboardMetrics{ActiveCases: summary.OpenCaseCount, PendingApprovals: summary.ApprovalPendingCount, DeferredWorkItems: summary.DeferredCount, ExecutingSessions: summary.ExecutingSessionCount, BlockedCases: summary.BlockedCount}
 	trustCounts := map[string]int{}
 	blockedCaseIDs := map[string]struct{}{}
 	for _, wi := range workItems {
-		if wi.Coordination.DecisionType == "defer" {
-			metrics.DeferredWorkItems++
-		}
-		if wi.Coordination.DecisionType == "block" {
-			blockedCaseIDs[wi.CaseID] = struct{}{}
-		}
 		if wi.Type == "missed_container_pickup_review" {
 			metrics.UnresolvedRouteIncidents++
 			if wi.Coordination.DecisionType == "defer" {
@@ -244,6 +239,9 @@ func buildDashboardMetrics(summary controlplane.Summary, workItems []controlplan
 			level = "unclassified"
 		}
 		trustCounts[level]++
+	}
+	if len(summary.TrustLevelCounts) > 0 {
+		trustCounts = summary.TrustLevelCounts
 	}
 	for level, count := range trustCounts {
 		metrics.ActorTrustDistribution = append(metrics.ActorTrustDistribution, trustBucket{Level: level, Count: count})
@@ -283,6 +281,7 @@ func buildCaseRows(cases []controlplane.CaseOverview, workItems []controlplane.W
 			row.ReferenceLine = strings.Trim(strings.Join([]string{ctx.ContainerSiteID, ctx.ReferenceLine}, " · "), " ·")
 		}
 		row.BlockingOrDeferred = strings.Join(uniqueStrings(reasons), " | ")
+		row.StateBadge = deriveStateBadge(workByCase[item.CaseID], row.PendingApprovalCount)
 		rows = append(rows, row)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].CaseID < rows[j].CaseID })
@@ -301,6 +300,26 @@ func latestWorkItem(items []controlplane.WorkItemOverview) *controlplane.WorkIte
 	}
 	copy := best
 	return &copy
+}
+
+func deriveStateBadge(items []controlplane.WorkItemOverview, pendingApprovals int) string {
+	for _, wi := range items {
+		if wi.Execution.Status == "running" {
+			return "Executing"
+		}
+	}
+	if pendingApprovals > 0 {
+		return "Waiting Approval"
+	}
+	for _, wi := range items {
+		switch wi.Coordination.DecisionType {
+		case "block", "escalate":
+			return "Blocked"
+		case "defer":
+			return "Deferred"
+		}
+	}
+	return "Open"
 }
 
 func buildCaseDetailTimeline(caseKind string, timeline []controlplane.TimelineEntry) []caseDetailTimelineRow {
@@ -375,7 +394,7 @@ body{font-family:Arial,sans-serif;margin:24px;color:#222}nav a{margin-right:12px
 </body></html>{{end}}`
 
 const demoDashboardTemplate = `{{define "body"}}
-<p class="lede">AIS Otkhody demo slice: a missed container pickup incident enters Kalita, generates governed work, waits for supervisor approval, and only then continues through the same universal control-plane pipeline.</p>
+<p class="lede">AIS Otkhody demo workload: multiple missed pickup incidents enter Kalita together, and the same deterministic control-plane pipeline fans them into executing, deferred, blocked, approval-gated, and escalated paths.</p>
 <div class="cards">
   <div class="card"><strong>Unresolved route incidents</strong><div>{{.Metrics.UnresolvedRouteIncidents}}</div></div>
   <div class="card"><strong>Pending supervisor reviews</strong><div>{{.Metrics.PendingSupervisorReviews}}</div></div>
@@ -397,8 +416,8 @@ const demoDashboardTemplate = `{{define "body"}}
 {{end}}`
 
 const demoCasesTemplate = `{{define "body"}}
-<table><thead><tr><th>Case ID</th><th>Operational type</th><th>Status</th><th>Route / site reference</th><th>Domain reason</th><th>Blocking / deferred reason</th><th>Pending approval</th></tr></thead><tbody>
-{{range .Cases}}<tr><td><a href="/demo/cases/{{.CaseID}}">{{.CaseID}}</a></td><td>{{.TypeLabel}}</td><td>{{.Status}}</td><td>{{if .RouteRef}}Route {{.RouteRef}}{{if .ReferenceLine}} · {{.ReferenceLine}}{{end}}{{else if .ReferenceLine}}{{.ReferenceLine}}{{else}}-{{end}}</td><td>{{if .DomainReason}}{{.DomainReason}}{{else}}-{{end}}</td><td>{{if .BlockingOrDeferred}}{{.BlockingOrDeferred}}{{else}}-{{end}}</td><td>{{if gt .PendingApprovalCount 0}}<span class="pill">pending ({{.PendingApprovalCount}})</span>{{else}}-{{end}}</td></tr>{{else}}<tr><td colspan="7">No cases found.</td></tr>{{end}}
+<table><thead><tr><th>Case ID</th><th>Operational type</th><th>Status</th><th>System state</th><th>Route / site reference</th><th>Domain reason</th><th>Blocking / deferred reason</th><th>Pending approval</th></tr></thead><tbody>
+{{range .Cases}}<tr><td><a href="/demo/cases/{{.CaseID}}">{{.CaseID}}</a></td><td>{{.TypeLabel}}</td><td>{{.Status}}</td><td><span class="pill">{{.StateBadge}}</span></td><td>{{if .RouteRef}}Route {{.RouteRef}}{{if .ReferenceLine}} · {{.ReferenceLine}}{{end}}{{else if .ReferenceLine}}{{.ReferenceLine}}{{else}}-{{end}}</td><td>{{if .DomainReason}}{{.DomainReason}}{{else}}-{{end}}</td><td>{{if .BlockingOrDeferred}}{{.BlockingOrDeferred}}{{else}}-{{end}}</td><td>{{if gt .PendingApprovalCount 0}}<span class="pill">pending ({{.PendingApprovalCount}})</span>{{else}}-{{end}}</td></tr>{{else}}<tr><td colspan="8">No cases found.</td></tr>{{end}}
 </tbody></table>
 {{end}}`
 

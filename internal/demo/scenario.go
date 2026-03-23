@@ -3,6 +3,7 @@ package demo
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"kalita/internal/actionplan"
@@ -12,6 +13,7 @@ import (
 	"kalita/internal/controlplane"
 	"kalita/internal/employee"
 	"kalita/internal/eventcore"
+	"kalita/internal/executioncontrol"
 	"kalita/internal/executionruntime"
 	"kalita/internal/policy"
 	"kalita/internal/profile"
@@ -46,21 +48,24 @@ const (
 )
 
 type ScenarioResult struct {
-	ControlPlane      controlplane.Service
-	EventLog          eventcore.EventLog
-	CaseID            string
-	WorkItemID        string
-	CoordinationID    string
-	PolicyDecisionID  string
-	ApprovalRequestID string
-	CorrelationID     string
-	ExecutionID       string
-	BaseTime          time.Time
-	CaseRepo          caseruntime.CaseRepository
-	QueueRepo         *workplan.InMemoryQueueRepository
-	CoordinationRepo  *workplan.InMemoryCoordinationRepository
-	PolicyRepo        *policy.InMemoryRepository
-	ExecutionRepo     *executionruntime.InMemoryExecutionRepository
+	ControlPlane       controlplane.Service
+	EventLog           eventcore.EventLog
+	CaseID             string
+	WorkItemID         string
+	CoordinationID     string
+	PolicyDecisionID   string
+	ApprovalRequestID  string
+	CorrelationID      string
+	ExecutionID        string
+	BaseTime           time.Time
+	CaseRepo           caseruntime.CaseRepository
+	QueueRepo          *workplan.InMemoryQueueRepository
+	CoordinationRepo   *workplan.InMemoryCoordinationRepository
+	PolicyRepo         *policy.InMemoryRepository
+	ExecutionRepo      *executionruntime.InMemoryExecutionRepository
+	CaseIDs            []string
+	WorkItemIDs        []string
+	ApprovalRequestIDs []string
 }
 
 type scenarioRuntime struct {
@@ -85,6 +90,37 @@ type scenarioRuntime struct {
 	workService      *workplan.Service
 	policyService    *policy.PolicyService
 	controlPlane     controlplane.Service
+	runtimeService   executionruntime.Service
+}
+
+type scenarioOutcome struct {
+	caseID            string
+	workItemID        string
+	coordinationID    string
+	policyDecisionID  string
+	approvalRequestID string
+	correlationID     string
+	executionID       string
+}
+
+type actorSeed struct {
+	ID            string
+	Role          string
+	TrustLevel    trust.TrustLevel
+	AutonomyTier  trust.AutonomyTier
+	MaxComplexity int
+	CapabilityLvl int
+}
+
+type multiCaseSeed struct {
+	label             string
+	ids               scenarioDefinition
+	metadata          map[string]any
+	actors            []actorSeed
+	complexity        int
+	approveAfterDefer bool
+	promoteHighTrust  bool
+	simulateExecuting bool
 }
 
 func RunDemoScenario(ctx context.Context) (*ScenarioResult, error) {
@@ -103,6 +139,14 @@ func RunAISOtkhodyDemoScenario(ctx context.Context) (*ScenarioResult, error) {
 	return runtime.runAISScenario(ctx)
 }
 
+func RunAISOtkhodyMultiScenario(ctx context.Context) (*ScenarioResult, error) {
+	runtime, err := newScenarioRuntime(defaultMultiDemoClock(), defaultDemoIDs())
+	if err != nil {
+		return nil, err
+	}
+	return runtime.runAISMultiScenario(ctx)
+}
+
 func newScenarioRuntime(clock *scriptedClock, ids *fixedIDs) (*scenarioRuntime, error) {
 	baseTime := time.Date(2026, 3, 23, 12, 0, 0, 0, time.UTC)
 	eventLog := eventcore.NewInMemoryEventLog()
@@ -117,7 +161,7 @@ func newScenarioRuntime(clock *scriptedClock, ids *fixedIDs) (*scenarioRuntime, 
 	capRepo := capability.NewInMemoryRepository()
 	executionRepo := executionruntime.NewInMemoryExecutionRepository()
 	wal := executionruntime.NewInMemoryWAL()
-	if err := seedDemoScenario(context.Background(), baseTime, queueRepo, directory, trustRepo, profileRepo, capRepo); err != nil {
+	if err := seedDemoQueue(context.Background(), queueRepo); err != nil {
 		return nil, err
 	}
 	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, clock, ids)
@@ -126,27 +170,22 @@ func newScenarioRuntime(clock *scriptedClock, ids *fixedIDs) (*scenarioRuntime, 
 	coordinator := workplan.NewCoordinator(coordinationRepo, eventLog, clock, ids)
 	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, DemoQueueID), planner, coordinator, eventLog, clock, ids)
 	policyService := policy.NewService(policyRepo, policy.NewEvaluator(), eventLog, clock, ids)
+	runner := executionruntime.NewRunner(executionRepo, wal, executionruntime.NewLegacyWorkflowActionExecutor(), eventLog, clock, ids)
+	runtimeService := executionruntime.NewService(runner)
 	controlPlaneService := controlplane.NewService(caseRepo, queueRepo, coordinationRepo, policyRepo, proposalRepo, directory, trustRepo, profileRepo, capRepo, executionRepo, wal, eventLog, coordinator)
-	return &scenarioRuntime{baseTime: baseTime, clock: clock, ids: ids, eventLog: eventLog, caseRepo: caseRepo, queueRepo: queueRepo, coordinationRepo: coordinationRepo, policyRepo: policyRepo, proposalRepo: proposalRepo, directory: directory, trustRepo: trustRepo, profileRepo: profileRepo, capRepo: capRepo, executionRepo: executionRepo, wal: wal, commandBus: commandBus, caseService: caseService, coordinator: coordinator, workService: workService, policyService: policyService, controlPlane: controlPlaneService}, nil
+	return &scenarioRuntime{baseTime: baseTime, clock: clock, ids: ids, eventLog: eventLog, caseRepo: caseRepo, queueRepo: queueRepo, coordinationRepo: coordinationRepo, policyRepo: policyRepo, proposalRepo: proposalRepo, directory: directory, trustRepo: trustRepo, profileRepo: profileRepo, capRepo: capRepo, executionRepo: executionRepo, wal: wal, commandBus: commandBus, caseService: caseService, coordinator: coordinator, workService: workService, policyService: policyService, controlPlane: controlPlaneService, runtimeService: runtimeService}, nil
 }
 
 func defaultDemoClock() *scriptedClock {
 	baseTime := time.Date(2026, 3, 23, 12, 0, 0, 0, time.UTC)
-	return &scriptedClock{times: []time.Time{
-		baseTime,
-		baseTime.Add(1 * time.Minute),
-		baseTime.Add(2 * time.Minute),
-		baseTime.Add(3 * time.Minute),
-		baseTime.Add(4 * time.Minute),
-		baseTime.Add(5 * time.Minute),
-		baseTime.Add(6 * time.Minute),
-		baseTime.Add(7 * time.Minute),
-		baseTime.Add(8 * time.Minute),
-		baseTime.Add(9 * time.Minute),
-		baseTime.Add(10 * time.Minute),
-		baseTime.Add(11 * time.Minute),
-	}}
+	times := make([]time.Time, 0, 64)
+	for i := 0; i < 64; i++ {
+		times = append(times, baseTime.Add(time.Duration(i)*time.Minute))
+	}
+	return &scriptedClock{times: times}
 }
+
+func defaultMultiDemoClock() *scriptedClock { return defaultDemoClock() }
 
 func defaultAISDemoIDs() *fixedIDs {
 	return &fixedIDs{ids: []string{
@@ -166,22 +205,24 @@ func defaultDemoIDs() *fixedIDs {
 		DemoCaseID, "execevt-case-created",
 		DemoWorkItemID, "execevt-work-item-created", DemoPlanID, "execevt-plan-intake",
 		"demo-id-intake-default-coordination", "demo-id-intake-default-coordination-event",
-		DemoCoordinationID, "execevt-coordination",
-		DemoPolicyDecisionID, "execevt-policy",
-		DemoApprovalRequestID, "execevt-approval",
-
+		DemoCoordinationID, "execevt-policy",
+		DemoPolicyDecisionID, "execevt-approval",
+		DemoApprovalRequestID,
 		"execevt-ais-command-admission",
 		AISDemoCaseID, "execevt-ais-case-created",
 		AISDemoWorkItemID, "execevt-ais-work-item-created", AISDemoPlanID, "execevt-ais-plan-intake",
 		"demo-id-ais-default-coordination", "demo-id-ais-default-coordination-event",
-		AISDemoCoordinationID, "execevt-ais-coordination",
-		AISDemoPolicyDecisionID, "execevt-ais-policy",
-		AISDemoApprovalRequestID, "execevt-ais-approval",
+		AISDemoCoordinationID, "execevt-ais-policy",
+		AISDemoPolicyDecisionID, "execevt-ais-approval",
+		AISDemoApprovalRequestID,
 	}}
 }
 
 func (r *scenarioRuntime) runGenericScenario(ctx context.Context) (*ScenarioResult, error) {
-	return r.runScenario(ctx, scenarioDefinition{
+	if err := r.replaceActors(ctx, defaultLowTrustActors()); err != nil {
+		return nil, err
+	}
+	outcome, err := r.runScenarioFlow(ctx, scenarioDefinition{
 		eventID:        DemoEventID,
 		commandID:      DemoCommandID,
 		correlationID:  DemoCorrelationID,
@@ -192,23 +233,84 @@ func (r *scenarioRuntime) runGenericScenario(ctx context.Context) (*ScenarioResu
 		commandPayload: map[string]any{"namespace": "payments", "severity": "high"},
 		caseID:         DemoCaseID, workItemID: DemoWorkItemID, coordinationID: DemoCoordinationID,
 		policyDecisionID: DemoPolicyDecisionID, approvalRequestID: DemoApprovalRequestID,
-	})
+	}, 1)
+	if err != nil {
+		return nil, err
+	}
+	return r.resultFromOutcomes([]scenarioOutcome{outcome}), nil
 }
 
 func (r *scenarioRuntime) runAISScenario(ctx context.Context) (*ScenarioResult, error) {
-	payload := aisScenarioMetadata()
-	return r.runScenario(ctx, scenarioDefinition{
+	if err := r.replaceActors(ctx, defaultLowTrustActors()); err != nil {
+		return nil, err
+	}
+	outcome, err := r.runScenarioFlow(ctx, scenarioDefinition{
 		eventID:        AISDemoEventID,
 		commandID:      AISDemoCommandID,
 		correlationID:  AISDemoCorrelationID,
 		executionID:    AISDemoExecutionID,
 		eventType:      "missed_container_pickup_review",
-		targetRef:      fmt.Sprintf("route:%s/container:%s", payload["route_id"], payload["container_site_id"]),
-		eventPayload:   payload,
-		commandPayload: payload,
+		targetRef:      fmt.Sprintf("route:%s/container:%s", aisScenarioMetadata()["route_id"], aisScenarioMetadata()["container_site_id"]),
+		eventPayload:   aisScenarioMetadata(),
+		commandPayload: aisScenarioMetadata(),
 		caseID:         AISDemoCaseID, workItemID: AISDemoWorkItemID, coordinationID: AISDemoCoordinationID,
 		policyDecisionID: AISDemoPolicyDecisionID, approvalRequestID: AISDemoApprovalRequestID,
-	})
+	}, 1)
+	if err != nil {
+		return nil, err
+	}
+	return r.resultFromOutcomes([]scenarioOutcome{outcome}), nil
+}
+
+func (r *scenarioRuntime) runAISMultiScenario(ctx context.Context) (*ScenarioResult, error) {
+	seeds := []multiCaseSeed{
+		{label: "A", ids: scenarioDefinition{eventID: "evt-ais-multi-a", commandID: "cmd-ais-multi-a", correlationID: "corr-ais-multi-a", executionID: "exec-ais-multi-a", caseID: "case-ais-multi-a", workItemID: "work-ais-multi-a", coordinationID: "coord-ais-multi-a", policyDecisionID: "policy-ais-multi-a", approvalRequestID: "approval-ais-multi-a"}, metadata: aisScenarioMetadataFor(0), actors: defaultLowTrustActors(), complexity: 1},
+		{label: "B", ids: scenarioDefinition{eventID: "evt-ais-multi-b", commandID: "cmd-ais-multi-b", correlationID: "corr-ais-multi-b", executionID: "exec-ais-multi-b", caseID: "case-ais-multi-b", workItemID: "work-ais-multi-b", coordinationID: "coord-ais-multi-b", policyDecisionID: "policy-ais-multi-b", approvalRequestID: "approval-ais-multi-b"}, metadata: aisScenarioMetadataFor(1), actors: []actorSeed{{ID: "actor-high-1", Role: "container_triage", TrustLevel: trust.TrustHigh, AutonomyTier: trust.AutonomyStandard, MaxComplexity: 3, CapabilityLvl: 2}}, complexity: 1, simulateExecuting: true},
+		{label: "C", ids: scenarioDefinition{eventID: "evt-ais-multi-c", commandID: "cmd-ais-multi-c", correlationID: "corr-ais-multi-c", executionID: "exec-ais-multi-c", caseID: "case-ais-multi-c", workItemID: "work-ais-multi-c", coordinationID: "coord-ais-multi-c", policyDecisionID: "policy-ais-multi-c", approvalRequestID: "approval-ais-multi-c"}, metadata: aisScenarioMetadataFor(2), actors: defaultLowTrustActors(), complexity: 1, approveAfterDefer: true, promoteHighTrust: true},
+		{label: "D", ids: scenarioDefinition{eventID: "evt-ais-multi-d", commandID: "cmd-ais-multi-d", correlationID: "corr-ais-multi-d", executionID: "exec-ais-multi-d", caseID: "case-ais-multi-d", workItemID: "work-ais-multi-d", coordinationID: "coord-ais-multi-d", policyDecisionID: "policy-ais-multi-d", approvalRequestID: "approval-ais-multi-d"}, metadata: aisScenarioMetadataFor(3), actors: nil, complexity: 1},
+		{label: "E", ids: scenarioDefinition{eventID: "evt-ais-multi-e", commandID: "cmd-ais-multi-e", correlationID: "corr-ais-multi-e", executionID: "exec-ais-multi-e", caseID: "case-ais-multi-e", workItemID: "work-ais-multi-e", coordinationID: "coord-ais-multi-e", policyDecisionID: "policy-ais-multi-e", approvalRequestID: "approval-ais-multi-e"}, metadata: aisScenarioMetadataFor(4), actors: []actorSeed{{ID: "actor-low-escalate", Role: "container_triage", TrustLevel: trust.TrustLow, AutonomyTier: trust.AutonomyRestricted, MaxComplexity: 1, CapabilityLvl: 1}}, complexity: 3},
+	}
+	outcomes := make([]scenarioOutcome, 0, len(seeds))
+	for _, seed := range seeds {
+		if err := r.replaceActors(ctx, seed.actors); err != nil {
+			return nil, err
+		}
+		def := seed.ids
+		def.eventType = "missed_container_pickup_review"
+		def.targetRef = fmt.Sprintf("route:%s/container:%s", seed.metadata["route_id"], seed.metadata["container_site_id"])
+		def.eventPayload = cloneMap(seed.metadata)
+		def.commandPayload = cloneMap(seed.metadata)
+		outcome, err := r.runScenarioFlow(ctx, def, seed.complexity)
+		if err != nil {
+			return nil, fmt.Errorf("run multi-scenario case %s: %w", seed.label, err)
+		}
+		if seed.approveAfterDefer {
+			if seed.promoteHighTrust {
+				if err := r.replaceActors(ctx, []actorSeed{{ID: "actor-high-approval", Role: "supervised_release", TrustLevel: trust.TrustHigh, AutonomyTier: trust.AutonomyStandard, MaxComplexity: 3, CapabilityLvl: 2}}); err != nil {
+					return nil, err
+				}
+			}
+			if _, err := r.controlPlane.ApproveApprovalRequest(ctx, outcome.approvalRequestID); err != nil {
+				return nil, err
+			}
+			if err := r.evaluateLatestDecisionAndMaybeExecute(ctx, outcome.caseID, outcome.workItemID, outcome.executionID, false); err != nil {
+				return nil, err
+			}
+		}
+		if seed.simulateExecuting {
+			if err := r.simulateRunningExecution(ctx, outcome.workItemID, outcome.executionID); err != nil {
+				return nil, err
+			}
+		}
+		if seed.label == "E" {
+			if err := r.appendEscalationWaitEvent(ctx, outcome); err != nil {
+				return nil, err
+			}
+		}
+		outcomes = append(outcomes, outcome)
+	}
+	sort.Slice(outcomes, func(i, j int) bool { return outcomes[i].caseID < outcomes[j].caseID })
+	return r.resultFromOutcomes(outcomes), nil
 }
 
 type scenarioDefinition struct {
@@ -227,88 +329,188 @@ type scenarioDefinition struct {
 	approvalRequestID string
 }
 
-func (r *scenarioRuntime) runScenario(ctx context.Context, def scenarioDefinition) (*ScenarioResult, error) {
+func (r *scenarioRuntime) runScenarioFlow(ctx context.Context, def scenarioDefinition, complexity int) (scenarioOutcome, error) {
 	if err := r.eventLog.AppendEvent(ctx, eventcore.Event{ID: def.eventID, Type: def.eventType, OccurredAt: r.baseTime, Source: "demo.scenario", CorrelationID: def.correlationID, CausationID: def.eventID, ExecutionID: def.executionID, Payload: cloneMap(def.eventPayload)}); err != nil {
-		return nil, fmt.Errorf("append demo event: %w", err)
+		return scenarioOutcome{}, fmt.Errorf("append demo event: %w", err)
 	}
-	if err := r.eventLog.AppendExecutionEvent(ctx, eventcore.ExecutionEvent{
-		ID:            fmt.Sprintf("%s-detected", def.eventID),
-		ExecutionID:   def.executionID,
-		Step:          "incident_detected",
-		Status:        "recorded",
-		OccurredAt:    r.baseTime,
-		CorrelationID: def.correlationID,
-		CausationID:   def.eventID,
-		Payload:       cloneMap(def.eventPayload),
-	}); err != nil {
-		return nil, fmt.Errorf("append demo detection event: %w", err)
+	if err := r.eventLog.AppendExecutionEvent(ctx, eventcore.ExecutionEvent{ID: fmt.Sprintf("%s-detected", def.eventID), ExecutionID: def.executionID, Step: "incident_detected", Status: "recorded", OccurredAt: r.baseTime, CorrelationID: def.correlationID, CausationID: def.eventID, Payload: cloneMap(def.eventPayload)}); err != nil {
+		return scenarioOutcome{}, fmt.Errorf("append demo detection event: %w", err)
 	}
 	cmd, err := r.commandBus.Submit(ctx, eventcore.Command{Type: def.eventType, ID: def.commandID, CorrelationID: def.correlationID, CausationID: def.eventID, ExecutionID: def.executionID, RequestedAt: r.baseTime.Add(30 * time.Second), TargetRef: def.targetRef, Payload: cloneMap(def.commandPayload)})
 	if err != nil {
-		return nil, fmt.Errorf("submit demo command: %w", err)
+		return scenarioOutcome{}, fmt.Errorf("submit demo command: %w", err)
 	}
 	resolved, err := r.caseService.ResolveCommand(ctx, cmd)
 	if err != nil {
-		return nil, fmt.Errorf("resolve demo command: %w", err)
+		return scenarioOutcome{}, fmt.Errorf("resolve demo command: %w", err)
 	}
 	intake, err := r.workService.IntakeCommand(ctx, resolved)
 	if err != nil {
-		return nil, fmt.Errorf("intake demo command: %w", err)
+		return scenarioOutcome{}, fmt.Errorf("intake demo command: %w", err)
+	}
+	intake.WorkItem, err = r.workService.AttachActionPlan(ctx, intake.WorkItem.ID, actionplan.ActionPlan{ID: "action-plan-" + intake.WorkItem.ID, Actions: []actionplan.Action{{ID: "action-" + intake.WorkItem.ID, Type: actionplan.ActionType("legacy_workflow_action"), Params: map[string]any{"route_id": def.commandPayload["route_id"], "case_id": resolved.Case.ID}}}})
+	if err != nil {
+		return scenarioOutcome{}, fmt.Errorf("attach demo action plan: %w", err)
 	}
 	actors, profiles, err := demoCoordinationInputs(ctx, r.directory, r.trustRepo, r.profileRepo)
 	if err != nil {
-		return nil, err
+		return scenarioOutcome{}, err
 	}
 	coordinationCtx := workplan.ContextWithPlanningExecution(ctx, workplan.PlanningExecutionContext{ExecutionID: cmd.ExecutionID, CorrelationID: cmd.CorrelationID, CausationID: cmd.ID})
-	decision, err := r.coordinator.Decide(coordinationCtx, intake.WorkItem, workplan.CoordinationContext{ActionTypes: []string{"legacy_workflow_action"}, Complexity: 1, Actors: actors, Profiles: profiles})
+	decision, err := r.coordinator.Decide(coordinationCtx, intake.WorkItem, workplan.CoordinationContext{ActionTypes: []string{"legacy_workflow_action"}, Complexity: complexity, Actors: actors, Profiles: profiles})
 	if err != nil {
-		return nil, fmt.Errorf("coordinate demo work item: %w", err)
+		return scenarioOutcome{}, fmt.Errorf("coordinate demo work item: %w", err)
 	}
 	policyCtx := policy.ContextWithExecution(ctx, policy.ExecutionContext{ExecutionID: cmd.ExecutionID, CorrelationID: cmd.CorrelationID, CausationID: cmd.ID})
 	policyDecision, approvalRequest, err := r.policyService.EvaluateAndRecord(policyCtx, decision)
 	if err != nil {
-		return nil, fmt.Errorf("evaluate demo policy: %w", err)
+		return scenarioOutcome{}, fmt.Errorf("evaluate demo policy: %w", err)
 	}
-	if approvalRequest == nil {
-		return nil, fmt.Errorf("demo scenario expected approval request")
+	if approvalRequest == nil && decision.DecisionType == workplan.CoordinationDefer {
+		return scenarioOutcome{}, fmt.Errorf("demo scenario expected approval request")
 	}
-	return &ScenarioResult{ControlPlane: r.controlPlane, EventLog: r.eventLog, CaseID: resolved.Case.ID, WorkItemID: intake.WorkItem.ID, CoordinationID: decision.ID, PolicyDecisionID: policyDecision.ID, ApprovalRequestID: approvalRequest.ID, CorrelationID: cmd.CorrelationID, ExecutionID: cmd.ExecutionID, BaseTime: r.baseTime, CaseRepo: r.caseRepo, QueueRepo: r.queueRepo, CoordinationRepo: r.coordinationRepo, PolicyRepo: r.policyRepo, ExecutionRepo: r.executionRepo}, nil
+	if approvalRequest == nil && decision.DecisionType == workplan.CoordinationExecuteNow {
+		if err := r.startExecutionForWorkItem(ctx, intake.WorkItem, decision, policyDecision, cmd.ExecutionID); err != nil {
+			return scenarioOutcome{}, err
+		}
+	}
+	approvalID := ""
+	if approvalRequest != nil {
+		approvalID = approvalRequest.ID
+	}
+	return scenarioOutcome{caseID: resolved.Case.ID, workItemID: intake.WorkItem.ID, coordinationID: decision.ID, policyDecisionID: policyDecision.ID, approvalRequestID: approvalID, correlationID: cmd.CorrelationID, executionID: cmd.ExecutionID}, nil
 }
 
-func seedDemoScenario(ctx context.Context, now time.Time, queueRepo *workplan.InMemoryQueueRepository, directory *employee.InMemoryDirectory, trustRepo *trust.InMemoryRepository, profileRepo *profile.InMemoryRepository, capRepo *capability.InMemoryCapabilityRepository) error {
+func seedDemoQueue(ctx context.Context, queueRepo *workplan.InMemoryQueueRepository) error {
 	if err := queueRepo.SaveQueue(ctx, workplan.WorkQueue{ID: DemoQueueID, Name: "Demo Container Incident Intake", Department: "operations", Purpose: "Deterministic demo queue for container incidents", AllowedCaseKinds: []string{"container_incident_detected", "missed_container_pickup_review"}}); err != nil {
 		return fmt.Errorf("seed demo queue: %w", err)
 	}
-	actors := []employee.DigitalEmployee{
-		{ID: "actor-low-1", Code: "container_triage_low_1", Role: "container_triage", Enabled: true, QueueMemberships: []string{DemoQueueID}, AllowedActionTypes: []actionplan.ActionType{"legacy_workflow_action"}, AllowedCommandTypes: []string{"container_incident_detected", "missed_container_pickup_review"}, CreatedAt: now, UpdatedAt: now},
-		{ID: "actor-low-2", Code: "container_triage_low_2", Role: "container_triage", Enabled: true, QueueMemberships: []string{DemoQueueID}, AllowedActionTypes: []actionplan.ActionType{"legacy_workflow_action"}, AllowedCommandTypes: []string{"container_incident_detected", "missed_container_pickup_review"}, CreatedAt: now, UpdatedAt: now},
+	return nil
+}
+
+func defaultLowTrustActors() []actorSeed {
+	return []actorSeed{{ID: "actor-low-1", Role: "container_triage", TrustLevel: trust.TrustLow, AutonomyTier: trust.AutonomyRestricted, MaxComplexity: 2, CapabilityLvl: 1}, {ID: "actor-low-2", Role: "container_triage", TrustLevel: trust.TrustLow, AutonomyTier: trust.AutonomyRestricted, MaxComplexity: 2, CapabilityLvl: 1}}
+}
+
+func (r *scenarioRuntime) replaceActors(ctx context.Context, actors []actorSeed) error {
+	existing, err := r.directory.ListEmployees(ctx)
+	if err != nil {
+		return err
+	}
+	for _, emp := range existing {
+		emp.Enabled = false
+		emp.UpdatedAt = r.clock.Now()
+		if err := r.directory.SaveEmployee(ctx, emp); err != nil {
+			return err
+		}
+	}
+	if _, ok, err := r.capRepo.GetCapability(ctx, "cap-demo-container-ops"); err != nil {
+		return err
+	} else if !ok {
+		if err := r.capRepo.SaveCapability(ctx, capability.Capability{ID: "cap-demo-container-ops", Code: "workflow.execute", Type: capability.CapabilitySkill, Level: 2}); err != nil {
+			return fmt.Errorf("seed capability: %w", err)
+		}
 	}
 	for _, actor := range actors {
-		if err := directory.SaveEmployee(ctx, actor); err != nil {
-			return fmt.Errorf("seed actor %s: %w", actor.ID, err)
+		now := r.clock.Now()
+		emp := employee.DigitalEmployee{ID: actor.ID, Code: actor.ID, Role: actor.Role, Enabled: true, QueueMemberships: []string{DemoQueueID}, AllowedActionTypes: []actionplan.ActionType{"legacy_workflow_action"}, AllowedCommandTypes: []string{"container_incident_detected", "missed_container_pickup_review"}, CreatedAt: now, UpdatedAt: now}
+		if err := r.directory.SaveEmployee(ctx, emp); err != nil {
+			return err
 		}
-	}
-	if err := capRepo.SaveCapability(ctx, capability.Capability{ID: "cap-demo-container-ops", Code: "workflow.execute", Type: capability.CapabilitySkill, Level: 1}); err != nil {
-		return fmt.Errorf("seed capability: %w", err)
-	}
-	for _, actorID := range []string{"actor-low-1", "actor-low-2"} {
-		if err := capRepo.AssignCapability(ctx, capability.ActorCapability{ActorID: actorID, CapabilityID: "cap-demo-container-ops", Level: 1}); err != nil {
-			return fmt.Errorf("assign capability %s: %w", actorID, err)
+		if err := r.capRepo.AssignCapability(ctx, capability.ActorCapability{ActorID: actor.ID, CapabilityID: "cap-demo-container-ops", Level: actor.CapabilityLvl}); err != nil {
+			return err
 		}
-		if err := trustRepo.Save(ctx, trust.TrustProfile{ActorID: actorID, TrustLevel: trust.TrustLow, AutonomyTier: trust.AutonomyRestricted, UpdatedAt: now}); err != nil {
-			return fmt.Errorf("seed trust %s: %w", actorID, err)
+		if err := r.trustRepo.Save(ctx, trust.TrustProfile{ActorID: actor.ID, TrustLevel: actor.TrustLevel, AutonomyTier: actor.AutonomyTier, UpdatedAt: now}); err != nil {
+			return err
 		}
-	}
-	profiles := []profile.CompetencyProfile{
-		{ID: "profile-low-1", ActorID: "actor-low-1", Name: "Low Trust Container Triage 1", MaxComplexity: 2, PreferredWorkKinds: []string{"container_incident_detected", "missed_container_pickup_review"}},
-		{ID: "profile-low-2", ActorID: "actor-low-2", Name: "Low Trust Container Triage 2", MaxComplexity: 2, PreferredWorkKinds: []string{"container_incident_detected", "missed_container_pickup_review"}},
-	}
-	for _, prof := range profiles {
-		if err := profileRepo.SaveProfile(ctx, prof); err != nil {
-			return fmt.Errorf("seed profile %s: %w", prof.ID, err)
+		if err := r.profileRepo.SaveProfile(ctx, profile.CompetencyProfile{ID: "profile-" + actor.ID, ActorID: actor.ID, Name: actor.Role + " " + actor.ID, MaxComplexity: actor.MaxComplexity, PreferredWorkKinds: []string{"container_incident_detected", "missed_container_pickup_review"}}); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func (r *scenarioRuntime) evaluateLatestDecisionAndMaybeExecute(ctx context.Context, caseID, workItemID, executionID string, simulateRunning bool) error {
+	decisions, err := r.coordinationRepo.ListByWorkItem(ctx, workItemID)
+	if err != nil || len(decisions) == 0 {
+		return err
+	}
+	decision := decisions[len(decisions)-1]
+	policyDecision, approvalRequest, err := r.policyService.EvaluateAndRecord(policy.ContextWithExecution(ctx, policy.ExecutionContext{ExecutionID: executionID, CorrelationID: r.caseCorrelationID(ctx, caseID), CausationID: decision.ID}), decision)
+	if err != nil {
+		return err
+	}
+	if approvalRequest != nil {
+		return nil
+	}
+	wi, ok, err := r.queueRepo.GetWorkItem(ctx, workItemID)
+	if err != nil || !ok {
+		return err
+	}
+	if err := r.startExecutionForWorkItem(ctx, wi, decision, policyDecision, executionID); err != nil {
+		return err
+	}
+	if simulateRunning {
+		return r.simulateRunningExecution(ctx, workItemID, executionID)
+	}
+	return nil
+}
+
+func (r *scenarioRuntime) startExecutionForWorkItem(ctx context.Context, wi workplan.WorkItem, decision workplan.CoordinationDecision, policyDecision policy.PolicyDecision, executionID string) error {
+	if wi.ActionPlan == nil {
+		return fmt.Errorf("work item %s missing action plan", wi.ID)
+	}
+	session, err := r.runtimeService.StartExecution(executionruntime.ContextWithExecution(ctx, executionruntime.ExecutionContext{ExecutionID: executionID, CorrelationID: r.caseCorrelationID(ctx, wi.CaseID), CausationID: policyDecision.ID}), *wi.ActionPlan, executioncontrol.ExecutionConstraints{ID: "constraints-" + wi.ID, ExecutionMode: executioncontrol.ExecutionModeDeterministicAPI, MaxSteps: 8, MaxDurationSec: 300}, executionruntime.RunMetadata{CaseID: wi.CaseID, WorkItemID: wi.ID, CoordinationDecisionID: decision.ID, PolicyDecisionID: policyDecision.ID})
+	if err != nil {
+		return fmt.Errorf("start execution for %s: %w", wi.ID, err)
+	}
+	_ = session
+	return nil
+}
+
+func (r *scenarioRuntime) simulateRunningExecution(ctx context.Context, workItemID, executionID string) error {
+	sessions, err := r.executionRepo.ListSessionsByWorkItem(ctx, workItemID)
+	if err != nil || len(sessions) == 0 {
+		return err
+	}
+	session := sessions[len(sessions)-1]
+	session.Status = executionruntime.ExecutionSessionRunning
+	session.UpdatedAt = session.CreatedAt.Add(2 * time.Minute)
+	if err := r.executionRepo.SaveSession(ctx, session); err != nil {
+		return err
+	}
+	steps, err := r.executionRepo.ListStepsBySession(ctx, session.ID)
+	if err == nil && len(steps) > 0 {
+		step := steps[0]
+		step.Status = executionruntime.StepRunning
+		started := session.CreatedAt.Add(time.Minute)
+		step.StartedAt = &started
+		step.FinishedAt = nil
+		if err := r.executionRepo.SaveStep(ctx, step); err != nil {
+			return err
+		}
+	}
+	return r.eventLog.AppendExecutionEvent(ctx, eventcore.ExecutionEvent{ID: fmt.Sprintf("%s-running", session.ID), ExecutionID: executionID, CaseID: session.CaseID, Step: "execution_session_heartbeat", Status: "running", OccurredAt: session.UpdatedAt, CorrelationID: r.caseCorrelationID(ctx, session.CaseID), CausationID: session.ID, Payload: map[string]any{"work_item_id": workItemID, "execution_session_id": session.ID}})
+}
+
+func (r *scenarioRuntime) appendEscalationWaitEvent(ctx context.Context, outcome scenarioOutcome) error {
+	return r.eventLog.AppendExecutionEvent(ctx, eventcore.ExecutionEvent{ID: outcome.caseID + "-escalated", ExecutionID: outcome.executionID, CaseID: outcome.caseID, Step: "escalation_waiting", Status: "awaiting_supervisor_capacity", OccurredAt: r.clock.Now(), CorrelationID: outcome.correlationID, CausationID: outcome.coordinationID, Payload: map[string]any{"case_id": outcome.caseID, "work_item_id": outcome.workItemID, "reason": "long_waiting_escalated"}})
+}
+
+func (r *scenarioRuntime) resultFromOutcomes(outcomes []scenarioOutcome) *ScenarioResult {
+	res := &ScenarioResult{ControlPlane: r.controlPlane, EventLog: r.eventLog, BaseTime: r.baseTime, CaseRepo: r.caseRepo, QueueRepo: r.queueRepo, CoordinationRepo: r.coordinationRepo, PolicyRepo: r.policyRepo, ExecutionRepo: r.executionRepo}
+	if len(outcomes) > 0 {
+		first := outcomes[0]
+		res.CaseID, res.WorkItemID, res.CoordinationID, res.PolicyDecisionID, res.ApprovalRequestID, res.CorrelationID, res.ExecutionID = first.caseID, first.workItemID, first.coordinationID, first.policyDecisionID, first.approvalRequestID, first.correlationID, first.executionID
+	}
+	for _, outcome := range outcomes {
+		res.CaseIDs = append(res.CaseIDs, outcome.caseID)
+		res.WorkItemIDs = append(res.WorkItemIDs, outcome.workItemID)
+		if outcome.approvalRequestID != "" {
+			res.ApprovalRequestIDs = append(res.ApprovalRequestIDs, outcome.approvalRequestID)
+		}
+	}
+	return res
 }
 
 func demoCoordinationInputs(ctx context.Context, directory *employee.InMemoryDirectory, trustRepo *trust.InMemoryRepository, profileRepo *profile.InMemoryRepository) ([]workplan.CoordinationActor, map[string]workplan.CoordinationActorProfile, error) {
@@ -341,20 +543,26 @@ func demoCoordinationInputs(ctx context.Context, directory *employee.InMemoryDir
 	return actors, profiles, nil
 }
 
-func aisScenarioMetadata() map[string]any {
+func aisScenarioMetadata() map[string]any { return aisScenarioMetadataFor(2048 - 2048) }
+
+func aisScenarioMetadataFor(idx int) map[string]any {
+	districts := []string{"Nevsky", "Tsentralny", "Vyborgsky", "Kalininsky", "Moskovsky"}
+	zones := []string{"North-East", "Center", "North-West", "Industrial Belt", "South"}
+	sources := []string{"photo/GPS", "dispatcher_call", "weight_sensor", "citizen_portal", "yard_scan"}
+	reasons := []string{"Photo/GPS mismatch", "Dispatcher reported missed stop", "Weight sensor shows unemptied load", "Resident complaint requires verification", "Yard scan shows missing return"}
 	return map[string]any{
-		"route_id":                "R-2048",
-		"carrier_id":              "CR-17",
-		"container_site_id":       "SITE-881",
-		"container_id":            "CNT-881-04",
-		"district":                "Nevsky",
-		"zone":                    "North-East",
-		"incident_source":         "photo/GPS",
-		"incident_reason":         "Photo/GPS mismatch",
+		"route_id":                fmt.Sprintf("R-%04d", 1001+idx),
+		"carrier_id":              fmt.Sprintf("CR-%02d", 17+idx),
+		"container_site_id":       fmt.Sprintf("SITE-%03d", 881+idx),
+		"container_id":            fmt.Sprintf("CNT-%03d-%02d", 881+idx, 4+idx),
+		"district":                districts[idx%len(districts)],
+		"zone":                    zones[idx%len(zones)],
+		"incident_source":         sources[idx%len(sources)],
+		"incident_reason":         reasons[idx%len(reasons)],
 		"expected_service_window": "2026-03-23T09:00:00Z",
-		"route_completed_at":      "2026-03-23T10:46:00Z",
-		"operator_report_id":      "OP-771",
-		"yard_id":                 "YARD-04",
+		"route_completed_at":      fmt.Sprintf("2026-03-23T10:%02d:00Z", 30+idx),
+		"operator_report_id":      fmt.Sprintf("OP-%03d", 771+idx),
+		"yard_id":                 fmt.Sprintf("YARD-%02d", 4+idx),
 	}
 }
 
@@ -376,7 +584,9 @@ type fixedIDs struct {
 
 func (f *fixedIDs) NewID() string {
 	if f.idx >= len(f.ids) {
-		return fmt.Sprintf("demo-id-%02d", f.idx)
+		id := fmt.Sprintf("demo-id-%02d", f.idx)
+		f.idx++
+		return id
 	}
 	id := f.ids[f.idx]
 	f.idx++
@@ -398,4 +608,12 @@ func (c *scriptedClock) Now() time.Time {
 	t := c.times[c.idx]
 	c.idx++
 	return t
+}
+
+func (r *scenarioRuntime) caseCorrelationID(ctx context.Context, caseID string) string {
+	c, ok, err := r.caseRepo.GetByID(ctx, caseID)
+	if err == nil && ok {
+		return c.CorrelationID
+	}
+	return ""
 }

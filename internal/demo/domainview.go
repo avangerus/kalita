@@ -40,7 +40,7 @@ func BuildDomainCaseContext(overview controlplane.CaseOverview, workItem *contro
 		return ctx
 	}
 
-	meta := aisScenarioMetadata()
+	meta := metadataFromTimeline(timeline)
 	ctx.ScenarioKey = "ais-otkhody"
 	ctx.Title = "Missed Container Pickup Review"
 	ctx.CaseTypeLabel = "Missed Pickup"
@@ -63,26 +63,14 @@ func BuildDomainCaseContext(overview controlplane.CaseOverview, workItem *contro
 		strings.ToLower(fallback(ctx.ReasonLabel, "a fact mismatch")),
 	)
 	ctx.ReferenceLine = strings.Trim(
-		strings.Join([]string{
-			prefixed("Carrier", ctx.CarrierID),
-			prefixed("District", ctx.District),
-			prefixed("Zone", ctx.Zone),
-			prefixed("Yard", ctx.YardID),
-		}, " · "),
+		strings.Join([]string{prefixed("Carrier", ctx.CarrierID), prefixed("District", ctx.District), prefixed("Zone", ctx.Zone), prefixed("Yard", ctx.YardID)}, " · "),
 		" ·",
 	)
-	ctx.TimelineDescription = "Universal control-plane events rendered with AIS Otkhody incident labels."
+	ctx.TimelineDescription = "Universal control-plane events rendered with AIS Otkhody incident labels across a deterministic multi-case workload."
 
 	if workItem != nil {
-		ctx.ControlPlaneState = fmt.Sprintf(
-			"case %s · coordination %s · policy %s",
-			overview.Status,
-			workItem.Coordination.DecisionType,
-			workItem.PolicyApproval.Outcome,
-		)
+		ctx.ControlPlaneState = fmt.Sprintf("case %s · coordination %s · policy %s", overview.Status, workItem.Coordination.DecisionType, workItem.PolicyApproval.Outcome)
 	}
-
-	_ = timeline
 	return ctx
 }
 
@@ -96,25 +84,33 @@ func BuildDomainTimelineEntry(caseKind string, entry controlplane.TimelineEntry)
 		"case_created":         "Review case opened",
 		"work_item_created":    "Reconciliation task created",
 		"coordination_decided": "Follow-up coordination performed",
-		"policy_decided":       "Supervisor approval requested",
+		"policy_decided":       "Policy gate evaluated",
 		"approval_requested":   "Supervisor approval requested",
 		"approval_granted":     "Approval granted",
 		"approval_rejected":    "Approval rejected",
+		"execution_started":    "Execution started",
+		"escalation_waiting":   "Escalated for supervisor capacity",
 	}[entry.Step]
-
 	if title == "" {
 		title = entry.Step
 	}
-
-	description := entry.Status
+	description := strings.TrimSpace(entry.Status)
 	if entry.Step == "incident_detected" {
-		description = stringValue(aisScenarioMetadata()["incident_source"])
+		description = stringValue(entry.Payload["incident_source"])
 	}
+	if entry.Step == "escalation_waiting" {
+		description = "Long-waiting work remained queued after escalation."
+	}
+	return DomainTimelineEntry{Title: title, Description: description}
+}
 
-	return DomainTimelineEntry{
-		Title:       title,
-		Description: strings.Trim(description, " ·"),
+func metadataFromTimeline(timeline []controlplane.TimelineEntry) map[string]any {
+	for _, entry := range timeline {
+		if entry.Step == "incident_detected" && len(entry.Payload) > 0 {
+			return entry.Payload
+		}
 	}
+	return aisScenarioMetadata()
 }
 
 func prefixed(label string, value string) string {
