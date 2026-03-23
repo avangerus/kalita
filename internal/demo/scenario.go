@@ -97,7 +97,7 @@ func RunDemoScenario(ctx context.Context) (*ScenarioResult, error) {
 	coordinator := workplan.NewCoordinator(coordinationRepo, eventLog, clock, ids)
 	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, DemoQueueID), planner, coordinator, eventLog, clock, ids)
 	policyService := policy.NewService(policyRepo, policy.NewEvaluator(), eventLog, clock, ids)
-	controlPlaneService := controlplane.NewService(caseRepo, queueRepo, coordinationRepo, policyRepo, proposalRepo, directory, trustRepo, profileRepo, capRepo, executionRepo, wal, eventLog)
+	controlPlaneService := controlplane.NewService(caseRepo, queueRepo, coordinationRepo, policyRepo, proposalRepo, directory, trustRepo, profileRepo, capRepo, executionRepo, wal, eventLog, coordinator)
 
 	if err := eventLog.AppendEvent(ctx, eventcore.Event{ID: DemoEventID, Type: "container_incident_detected", OccurredAt: baseTime, Source: "demo.scenario", CorrelationID: DemoCorrelationID, CausationID: DemoEventID, ExecutionID: DemoExecutionID, Payload: map[string]any{"container_id": "container-demo-001", "severity": "high", "namespace": "payments"}}); err != nil {
 		return nil, fmt.Errorf("append demo event: %w", err)

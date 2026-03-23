@@ -87,6 +87,32 @@ func TestOperatorEndpointReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestOperatorApprovalEndpointsResolveRequestsIdempotently(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	api := r.Group("/api")
+	registerOperatorRoutes(api, controlplaneSeededService(t))
+
+	for _, path := range []string{
+		"/api/operator/approvals/approval-1/approve",
+		"/api/operator/approvals/approval-1/approve",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("POST %s status=%d body=%s", path, w.Code, w.Body.String())
+		}
+		var payload map[string]any
+		decode(t, w, &payload)
+		if payload["status"] != "approved" {
+			t.Fatalf("payload = %#v", payload)
+		}
+	}
+}
+
 func controlplaneSeededService(t *testing.T) controlplane.Service {
 	t.Helper()
 	ctx := context.Background()
@@ -101,6 +127,7 @@ func controlplaneSeededService(t *testing.T) controlplane.Service {
 	capRepo := capability.NewInMemoryRepository()
 	execRepo := executionruntime.NewInMemoryExecutionRepository()
 	wal := executionruntime.NewInMemoryWAL()
+	eventLog := eventcore.NewInMemoryEventLog()
 	base := time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC)
 
 	mustNoErr(t, caseRepo.Save(ctx, caseruntime.Case{ID: "case-1", Kind: "workflow.action", Status: "open", CorrelationID: "corr-1", SubjectRef: "subject-1", OpenedAt: base, UpdatedAt: base}))
@@ -118,7 +145,7 @@ func controlplaneSeededService(t *testing.T) controlplane.Service {
 	mustNoErr(t, execRepo.SaveSession(ctx, executionruntime.ExecutionSession{ID: "exec-1", WorkItemID: "work-1", Status: executionruntime.ExecutionSessionFailed, CurrentStepIndex: 1, FailureReason: "waiting", CreatedAt: base.Add(6 * time.Minute), UpdatedAt: base.Add(6 * time.Minute)}))
 	mustNoErr(t, wal.Append(ctx, executionruntime.WALRecord{ID: "wal-1", ExecutionSessionID: "exec-1", ActionID: "action-1", Type: executionruntime.WALStepResult, CreatedAt: base.Add(6 * time.Minute)}))
 
-	return controlplane.NewService(caseRepo, queueRepo, coordRepo, policyRepo, proposalRepo, directory, trustRepo, profileRepo, capRepo, execRepo, wal, eventcore.NewInMemoryEventLog())
+	return controlplane.NewService(caseRepo, queueRepo, coordRepo, policyRepo, proposalRepo, directory, trustRepo, profileRepo, capRepo, execRepo, wal, eventLog, workplan.NewCoordinator(coordRepo, eventLog, nil, nil))
 }
 
 func decode(t *testing.T, rec *httptest.ResponseRecorder, target any) {
