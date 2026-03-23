@@ -13,6 +13,7 @@ import (
 	"kalita/internal/catalog"
 	"kalita/internal/command"
 	"kalita/internal/config"
+	"kalita/internal/controlplane"
 	"kalita/internal/employee"
 	"kalita/internal/eventcore"
 	"kalita/internal/executioncontrol"
@@ -68,6 +69,7 @@ type BootstrapResult struct {
 	ActionExecutor     executionruntime.ActionExecutor
 	ExecutionRunner    executionruntime.Runner
 	ExecutionRuntime   executionruntime.Service
+	ControlPlane       *controlplane.Service
 	Config             config.Config
 }
 
@@ -182,6 +184,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	trustRepo := trust.NewInMemoryRepository()
 	trustScorer := trust.NewDeterministicScorer(clock.Now)
 	trustService := trust.NewService(trustRepo, trustScorer)
+	controlPlane := controlplane.NewService(caseRepo, queueRepo, coordinationRepo, policyRepo, proposalRepo, executionRepo, employeeDirectory, trustRepo, eventLog)
 	capabilityRepo := capability.NewInMemoryRepository()
 	profileRepo := profile.NewInMemoryRepository()
 	defaultEmployee := employee.DigitalEmployee{
@@ -261,6 +264,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		ActionExecutor:     actionExecutor,
 		ExecutionRunner:    executionRunner,
 		ExecutionRuntime:   executionRuntime,
+		ControlPlane:       controlPlane,
 		Config:             cfg,
 	}, nil
 }

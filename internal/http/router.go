@@ -5,6 +5,7 @@ import (
 
 	"kalita/internal/caseruntime"
 	"kalita/internal/command"
+	"kalita/internal/controlplane"
 	"kalita/internal/employee"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
@@ -13,14 +14,14 @@ import (
 )
 
 func RunServer(addr string, storage *runtime.Storage) {
-	RunServerWithServices(addr, storage, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	RunServerWithServices(addr, storage, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func RunServerWithCommandBus(addr string, storage *runtime.Storage, commandBus command.CommandBus) {
-	RunServerWithServices(addr, storage, commandBus, nil, nil, nil, nil, nil, nil, nil, nil)
+	RunServerWithServices(addr, storage, commandBus, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
-func RunServerWithServices(addr string, storage *runtime.Storage, commandBus command.CommandBus, caseService *caseruntime.Service, workService workItemIntakeService, coordinator coordinator, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, employeeServices ...employeeService) {
+func RunServerWithServices(addr string, storage *runtime.Storage, commandBus command.CommandBus, caseService *caseruntime.Service, workService workItemIntakeService, coordinator coordinator, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, controlPlane *controlplane.Service, employeeServices ...employeeService) {
 	// fail-fast, если есть критичные проблемы схемы
 	if issues := schema.Lint(storage.Schemas); len(issues) > 0 {
 		for _, it := range issues {
@@ -38,6 +39,9 @@ func RunServerWithServices(addr string, storage *runtime.Storage, commandBus com
 		apiGroup.GET("/meta", MetaListHandler(storage))
 		apiGroup.GET("/meta/:module/:entity", MetaEntityHandler(storage))
 		apiGroup.GET("/meta/catalog/:name", MetaCatalogHandler(storage)) // если пользуешься catalog=
+		apiGroup.GET("/operator/cases/:id", OperatorCaseDetailHandler(controlPlane))
+		apiGroup.GET("/operator/cases/:id/timeline", OperatorCaseTimelineHandler(controlPlane))
+		apiGroup.GET("/operator/summary", OperatorSummaryHandler(controlPlane))
 
 		apiGroup.POST("/:module/:entity/:id/_file/:field", UploadFileHandler(storage))
 		apiGroup.POST("/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService, coordinator, policyService, constraintsService, actionPlanService, proposalService, employeeDirectory, employeeServices...))
