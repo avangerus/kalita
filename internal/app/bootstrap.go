@@ -21,6 +21,7 @@ import (
 	"kalita/internal/proposal"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
+	"kalita/internal/trust"
 	"kalita/internal/workplan"
 )
 
@@ -57,6 +58,9 @@ type BootstrapResult struct {
 	AssignmentRepo     employee.AssignmentRepository
 	EmployeeSelector   employee.Selector
 	EmployeeService    employee.Service
+	TrustRepo          trust.Repository
+	TrustScorer        trust.Scorer
+	TrustService       trust.Service
 	ExecutionRepo      executionruntime.ExecutionRepository
 	ExecutionWAL       executionruntime.WAL
 	ActionExecutor     executionruntime.ActionExecutor
@@ -177,6 +181,9 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	assignmentRepo := employee.NewInMemoryAssignmentRepository()
 	employeeSelector := employee.NewSelector(employeeDirectory)
 	employeeService := employee.NewService(assignmentRepo, employeeSelector, executionRuntime, eventLog, clock, ids)
+	trustRepo := trust.NewInMemoryRepository()
+	trustScorer := trust.NewDeterministicScorer(clock.Now)
+	trustService := trust.NewService(trustRepo, trustScorer)
 	defaultEmployee := employee.DigitalEmployee{
 		ID:                  "employee-legacy-operator",
 		Code:                "legacy_operator_default",
@@ -230,6 +237,9 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		AssignmentRepo:     assignmentRepo,
 		EmployeeSelector:   employeeSelector,
 		EmployeeService:    employeeService,
+		TrustRepo:          trustRepo,
+		TrustScorer:        trustScorer,
+		TrustService:       trustService,
 		ExecutionRepo:      executionRepo,
 		ExecutionWAL:       executionWAL,
 		ActionExecutor:     actionExecutor,
