@@ -30,8 +30,7 @@ func (s *DeterministicScorer) Score(current TrustProfile, outcome ExecutionOutco
 
 	if outcome.Succeeded {
 		updated.CompletedExecutions++
-	}
-	if !outcome.Succeeded {
+	} else {
 		updated.FailedExecutions++
 	}
 	if outcome.Compensated {
@@ -44,30 +43,27 @@ func (s *DeterministicScorer) Score(current TrustProfile, outcome ExecutionOutco
 		updated.ApprovedExecutions++
 	}
 
-	updated.TrustLevel = TrustLow
-	updated.AutonomyTier = AutonomyRestricted
-
-	if updated.CompletedExecutions >= 3 && updated.FailedExecutions == 0 {
-		updated.TrustLevel = TrustMedium
-		updated.AutonomyTier = AutonomySupervised
-	}
-	if updated.CompletedExecutions >= 10 && updated.FailedExecutions <= 1 && updated.CompensatedExecutions == 0 {
-		updated.TrustLevel = TrustHigh
-		updated.AutonomyTier = AutonomyStandard
-	}
-	if updated.FailedExecutions >= 2 {
-		updated.TrustLevel = TrustLow
-		updated.AutonomyTier = AutonomyRestricted
-	}
-	if updated.CompensatedExecutions >= 1 && updated.TrustLevel == TrustHigh {
-		updated.TrustLevel = TrustMedium
-		updated.AutonomyTier = AutonomySupervised
-		if updated.FailedExecutions > 0 || updated.CompletedExecutions < 3 {
-			updated.TrustLevel = TrustLow
-			updated.AutonomyTier = AutonomyRestricted
-		}
-	}
-
+	updated.TrustLevel, updated.AutonomyTier = deriveTrust(updated)
 	updated.UpdatedAt = s.now()
 	return updated
+}
+
+func deriveTrust(profile TrustProfile) (TrustLevel, AutonomyTier) {
+	trustLevel := TrustLow
+	autonomyTier := AutonomyRestricted
+
+	if profile.CompletedExecutions >= 3 && profile.FailedExecutions == 0 {
+		trustLevel = TrustMedium
+		autonomyTier = AutonomySupervised
+	}
+	if profile.CompletedExecutions >= 10 && profile.FailedExecutions <= 1 && profile.CompensatedExecutions == 0 {
+		trustLevel = TrustHigh
+		autonomyTier = AutonomyStandard
+	}
+	if profile.FailedExecutions >= 2 {
+		trustLevel = TrustLow
+		autonomyTier = AutonomyRestricted
+	}
+
+	return trustLevel, autonomyTier
 }

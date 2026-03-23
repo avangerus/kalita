@@ -61,3 +61,10 @@ func TestInMemoryRepositoryPreservesLastSavedProfileForActor(t *testing.T) {
 		t.Fatalf("List = %#v", profiles)
 	}
 }
+
+func TestInMemoryRepositoryRejectsEmptyActorID(t *testing.T) {
+	repo := NewInMemoryRepository()
+	if err := repo.Save(context.Background(), TrustProfile{}); err == nil {
+		t.Fatal("expected error for empty actor id")
+	}
+}

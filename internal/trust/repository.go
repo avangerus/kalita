@@ -2,6 +2,8 @@ package trust
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -16,16 +18,27 @@ func NewInMemoryRepository() *InMemoryRepository {
 }
 
 func (r *InMemoryRepository) Save(_ context.Context, p TrustProfile) error {
+	actorID := strings.TrimSpace(p.ActorID)
+	if actorID == "" {
+		return fmt.Errorf("actor id is required")
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.byActor[p.ActorID]; !ok {
-		r.inOrder = append(r.inOrder, p.ActorID)
+	if _, ok := r.byActor[actorID]; !ok {
+		r.inOrder = append(r.inOrder, actorID)
 	}
-	r.byActor[p.ActorID] = p
+	p.ActorID = actorID
+	r.byActor[actorID] = p
 	return nil
 }
 
 func (r *InMemoryRepository) GetByActor(_ context.Context, actorID string) (TrustProfile, bool, error) {
+	actorID = strings.TrimSpace(actorID)
+	if actorID == "" {
+		return TrustProfile{}, false, nil
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	p, ok := r.byActor[actorID]

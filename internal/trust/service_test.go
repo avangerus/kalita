@@ -62,3 +62,13 @@ func TestServiceGetTrustProfileReturnsSavedProfile(t *testing.T) {
 		t.Fatalf("GetTrustProfile = %#v, %v", got, ok)
 	}
 }
+
+func TestServiceRejectsEmptyActorID(t *testing.T) {
+	now := time.Unix(400, 0)
+	repo := NewInMemoryRepository()
+	svc := NewService(repo, NewDeterministicScorer(func() time.Time { return now }))
+
+	if _, err := svc.RecordOutcome(context.Background(), ExecutionOutcome{ExecutionID: "exec-1", Succeeded: true}); err == nil {
+		t.Fatal("expected error for empty actor id")
+	}
+}
