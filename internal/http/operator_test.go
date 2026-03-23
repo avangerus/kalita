@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,6 +111,105 @@ func TestOperatorApprovalEndpointsResolveRequestsIdempotently(t *testing.T) {
 		if payload["status"] != "approved" {
 			t.Fatalf("payload = %#v", payload)
 		}
+	}
+}
+
+func TestOperatorCaseInputEndpointsRecordGovernedEvents(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	api := r.Group("/api")
+	registerOperatorRoutes(api, controlplaneSeededService(t))
+
+	for _, reqSpec := range []struct {
+		name string
+		path string
+		body string
+	}{
+		{name: "acknowledge", path: "/api/operator/cases/case-1/acknowledge"},
+		{name: "note", path: "/api/operator/cases/case-1/notes", body: `{"text":"Carrier confirmed missed pickup due to blocked access"}`},
+		{name: "external input", path: "/api/operator/cases/case-1/external-input", body: `{"source":"carrier_report","text":"Access restored, retry allowed"}`},
+		{name: "recoordinate", path: "/api/operator/cases/case-1/recoordinate"},
+	} {
+		req := httptest.NewRequest(http.MethodPost, reqSpec.path, strings.NewReader(reqSpec.body))
+		if reqSpec.body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", reqSpec.name, w.Code, w.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/operator/cases/case-1", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET case overview status=%d body=%s", w.Code, w.Body.String())
+	}
+	var overview map[string]any
+	decode(t, w, &overview)
+	if overview["acknowledged"] != true {
+		t.Fatalf("overview = %#v", overview)
+	}
+	if notes := overview["operator_notes"].([]any); len(notes) != 1 {
+		t.Fatalf("operator_notes = %#v", overview["operator_notes"])
+	}
+	if inputs := overview["external_inputs"].([]any); len(inputs) != 1 {
+		t.Fatalf("external_inputs = %#v", overview["external_inputs"])
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/operator/cases/case-1/timeline", nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET timeline status=%d body=%s", w.Code, w.Body.String())
+	}
+	var timeline []map[string]any
+	decode(t, w, &timeline)
+	steps := map[string]bool{}
+	for _, entry := range timeline {
+		steps[entry["step"].(string)] = true
+	}
+	for _, want := range []string{"operator_case_acknowledged", "operator_note_added", "external_input_received", "operator_recoordination_requested", "coordination_decided"} {
+		if !steps[want] {
+			t.Fatalf("timeline missing %s in %#v", want, timeline)
+		}
+	}
+}
+
+func TestOperatorAcknowledgeIsIdempotent(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	api := r.Group("/api")
+	registerOperatorRoutes(api, controlplaneSeededService(t))
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/operator/cases/case-1/acknowledge", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("POST acknowledge #%d status=%d body=%s", i+1, w.Code, w.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/operator/cases/case-1/timeline", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var timeline []map[string]any
+	decode(t, w, &timeline)
+	count := 0
+	for _, entry := range timeline {
+		if entry["step"] == "operator_case_acknowledged" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("ack count = %d timeline=%#v", count, timeline)
 	}
 }
 

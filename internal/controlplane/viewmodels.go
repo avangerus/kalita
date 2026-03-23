@@ -20,14 +20,29 @@ type TimelineEntry struct {
 	Payload    map[string]any `json:"payload,omitempty"`
 }
 
+type OperatorNoteOverview struct {
+	Text       string    `json:"text"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
+
+type ExternalInputOverview struct {
+	Source     string    `json:"source"`
+	Text       string    `json:"text"`
+	RecordedAt time.Time `json:"recorded_at"`
+}
+
 type CaseOverview struct {
-	CaseID        string    `json:"case_id"`
-	Kind          string    `json:"kind"`
-	Status        string    `json:"status"`
-	CorrelationID string    `json:"correlation_id,omitempty"`
-	SubjectRef    string    `json:"subject_ref,omitempty"`
-	OpenedAt      time.Time `json:"opened_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	CaseID         string                  `json:"case_id"`
+	Kind           string                  `json:"kind"`
+	Status         string                  `json:"status"`
+	CorrelationID  string                  `json:"correlation_id,omitempty"`
+	SubjectRef     string                  `json:"subject_ref,omitempty"`
+	OpenedAt       time.Time               `json:"opened_at"`
+	UpdatedAt      time.Time               `json:"updated_at"`
+	Acknowledged   bool                    `json:"acknowledged"`
+	AcknowledgedAt *time.Time              `json:"acknowledged_at,omitempty"`
+	OperatorNotes  []OperatorNoteOverview  `json:"operator_notes,omitempty"`
+	ExternalInputs []ExternalInputOverview `json:"external_inputs,omitempty"`
 }
 
 type CoordinationOverview struct {

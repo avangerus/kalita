@@ -128,3 +128,42 @@ func TestDemoApprovalActionUsesExistingApprovalFlow(t *testing.T) {
 		}
 	}
 }
+
+func TestDemoCaseDetailOperatorWorkbenchUsesOperatorFlow(t *testing.T) {
+	t.Parallel()
+	r := demoRouter(t)
+
+	caseID := findDemoCaseIDByRoute(t, r, "R-1003")
+	for _, reqSpec := range []struct {
+		path string
+		body string
+	}{
+		{path: "/demo/cases/" + caseID + "/acknowledge"},
+		{path: "/demo/cases/" + caseID + "/notes", body: "text=Carrier+confirmed+blocked+gate"},
+		{path: "/demo/cases/" + caseID + "/external-input", body: "source=carrier_report&text=Access+restored"},
+		{path: "/demo/cases/" + caseID + "/recoordinate"},
+	} {
+		req := httptest.NewRequest(http.MethodPost, reqSpec.path, strings.NewReader(reqSpec.body))
+		if reqSpec.body != "" {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusSeeOther {
+			t.Fatalf("POST %s status=%d body=%s", reqSpec.path, w.Code, w.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/demo/cases/"+caseID, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET detail status=%d body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, want := range []string{"Operator workbench", "Carrier confirmed blocked gate", "carrier_report", "Access restored", "operator_case_acknowledged", "operator_note_added", "operator_recoordination_requested", "external_input_received"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q: %s", want, body)
+		}
+	}
+}
