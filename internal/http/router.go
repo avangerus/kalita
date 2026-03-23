@@ -40,9 +40,6 @@ func RunServerWithServices(addr string, storage *runtime.Storage, commandBus com
 		apiGroup.GET("/meta", MetaListHandler(storage))
 		apiGroup.GET("/meta/:module/:entity", MetaEntityHandler(storage))
 		apiGroup.GET("/meta/catalog/:name", MetaCatalogHandler(storage)) // если пользуешься catalog=
-		apiGroup.GET("/operator/cases/:id", OperatorCaseDetailHandler(controlPlane))
-		apiGroup.GET("/operator/cases/:id/timeline", OperatorCaseTimelineHandler(controlPlane))
-		apiGroup.GET("/operator/summary", OperatorSummaryHandler(controlPlane))
 
 		apiGroup.POST("/:module/:entity/:id/_file/:field", UploadFileHandler(storage))
 		apiGroup.POST("/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService, coordinator, policyService, constraintsService, actionPlanService, proposalService, employeeDirectory, employeeServices...))

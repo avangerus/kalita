@@ -9,6 +9,7 @@ import (
 	"kalita/internal/capability"
 	"kalita/internal/caseruntime"
 	"kalita/internal/employee"
+	"kalita/internal/eventcore"
 	"kalita/internal/executionruntime"
 	"kalita/internal/policy"
 	"kalita/internal/profile"
@@ -44,6 +45,7 @@ type service struct {
 	capabilities capability.InMemoryCapabilityRepository
 	executions   executionruntime.ExecutionRepository
 	wal          executionruntime.WAL
+	eventLog     eventcore.EventLog
 }
 
 func NewService(
@@ -58,6 +60,7 @@ func NewService(
 	capRepo *capability.InMemoryCapabilityRepository,
 	executions executionruntime.ExecutionRepository,
 	wal executionruntime.WAL,
+	eventLog eventcore.EventLog,
 ) Service {
 	var caseLister CaseLister
 	if l, ok := cases.(CaseLister); ok {
@@ -71,7 +74,63 @@ func NewService(
 	if l, ok := policies.(ApprovalRequestLister); ok {
 		approvals = l
 	}
-	return &service{cases: cases, caseLister: caseLister, workItems: workItems, workLister: workLister, coordination: coordination, policies: policies, approvals: approvals, proposals: proposals, actors: actors, trust: trustRepo, profiles: profiles, capabilities: *capRepo, executions: executions, wal: wal}
+	return &service{cases: cases, caseLister: caseLister, workItems: workItems, workLister: workLister, coordination: coordination, policies: policies, approvals: approvals, proposals: proposals, actors: actors, trust: trustRepo, profiles: profiles, capabilities: *capRepo, executions: executions, wal: wal, eventLog: eventLog}
+}
+
+func (s *service) GetSummary(ctx context.Context) (Summary, error) {
+	cases, err := s.ListCases(ctx)
+	if err != nil {
+		return Summary{}, err
+	}
+	items, err := s.ListWorkItems(ctx)
+	if err != nil {
+		return Summary{}, err
+	}
+	approvals, err := s.GetApprovalInbox(ctx)
+	if err != nil {
+		return Summary{}, err
+	}
+	blocked, err := s.GetBlockedOrDeferredWork(ctx)
+	if err != nil {
+		return Summary{}, err
+	}
+	summary := Summary{WorkItemCount: len(items), ApprovalPendingCount: len(approvals), BlockedOrDeferredCount: len(blocked)}
+	for _, c := range cases {
+		if c.Status == string(caseruntime.CaseOpen) || c.Status == "open" {
+			summary.OpenCaseCount++
+		}
+	}
+	return summary, nil
+}
+
+func (s *service) GetCaseTimeline(ctx context.Context, caseID string) ([]TimelineEntry, error) {
+	c, ok, err := s.cases.GetByID(ctx, caseID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("case %s not found", caseID)
+	}
+	if s.eventLog == nil {
+		return []TimelineEntry{}, nil
+	}
+	_, executionEvents, err := s.eventLog.ListByCorrelation(ctx, c.CorrelationID)
+	if err != nil {
+		return nil, err
+	}
+	timeline := make([]TimelineEntry, 0, len(executionEvents))
+	for _, e := range executionEvents {
+		if e.CaseID != "" && e.CaseID != caseID {
+			continue
+		}
+		step, include := normalizeTimelineStep(e)
+		if !include {
+			continue
+		}
+		timeline = append(timeline, TimelineEntry{Step: step, Status: e.Status, OccurredAt: e.OccurredAt, Payload: clonePayload(e.Payload)})
+	}
+	sort.SliceStable(timeline, func(i, j int) bool { return timeline[i].OccurredAt.Before(timeline[j].OccurredAt) })
+	return timeline, nil
 }
 
 func (s *service) GetCaseOverview(ctx context.Context, caseID string) (CaseOverview, error) {
@@ -356,4 +415,37 @@ func latestBy[T any](items []T, id func(T) string, ts func(T) int64) T {
 		}
 	}
 	return latest
+}
+
+func normalizeTimelineStep(e eventcore.ExecutionEvent) (string, bool) {
+	switch e.Step {
+	case "case_resolution":
+		if e.Status == "opened_new" {
+			return "case_created", true
+		}
+		return "case_resolved", true
+	case "work_item_intake":
+		return "work_item_created", true
+	case "coordination_decision_made":
+		return "coordination_decided", true
+	case "policy_evaluation":
+		return "policy_decided", true
+	case "approval_request_created":
+		return "approval_requested", true
+	case "execution_session_created":
+		return "execution_started", true
+	default:
+		return "", false
+	}
+}
+
+func clonePayload(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

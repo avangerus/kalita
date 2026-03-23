@@ -111,6 +111,16 @@ func (r *InMemoryQueueRepository) ListWorkItemsByQueue(_ context.Context, queueI
 	return out, nil
 }
 
+func (r *InMemoryQueueRepository) ListWorkItems(_ context.Context) ([]WorkItem, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]WorkItem, 0, len(r.workItemOrder))
+	for _, id := range r.workItemOrder {
+		out = append(out, cloneWorkItem(r.workItemsByID[id]))
+	}
+	return out, nil
+}
+
 func cloneQueue(q WorkQueue) WorkQueue {
 	out := q
 	out.AllowedCaseKinds = append([]string(nil), q.AllowedCaseKinds...)
