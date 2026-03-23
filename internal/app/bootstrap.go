@@ -177,7 +177,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	executionRepo := executionruntime.NewInMemoryExecutionRepository()
 	executionWAL := executionruntime.NewInMemoryWAL()
 	actionExecutor := executionruntime.NewStubExecutor()
-	executionRunner := executionruntime.NewRunner(executionRepo, executionWAL, actionExecutor, eventLog, clock, ids)
+	executionRunner := executionruntime.NewRunner(executionRepo, executionWAL, actionExecutor, eventLog, clock, ids, trustService)
 	executionRuntime := executionruntime.NewService(executionRunner)
 	employeeDirectory := employee.NewInMemoryDirectory()
 	assignmentRepo := employee.NewInMemoryAssignmentRepository()

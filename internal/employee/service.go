@@ -78,7 +78,7 @@ func (s *employeeService) AssignAndStartExecution(ctx context.Context, wi workpl
 			return Assignment{}, executionruntime.ExecutionSession{}, err
 		}
 	}
-	session, err := s.runtime.StartExecution(ctx, plan, constraints, executionruntime.RunMetadata{CaseID: metadata.CaseID, WorkItemID: wi.ID, CoordinationDecisionID: metadata.CoordinationDecisionID, PolicyDecisionID: metadata.PolicyDecisionID})
+	session, err := s.runtime.StartExecution(ctx, plan, constraints, executionruntime.RunMetadata{CaseID: metadata.CaseID, WorkItemID: wi.ID, CoordinationDecisionID: metadata.CoordinationDecisionID, PolicyDecisionID: metadata.PolicyDecisionID, ActorID: employee.ID})
 	if err != nil {
 		return Assignment{}, executionruntime.ExecutionSession{}, err
 	}

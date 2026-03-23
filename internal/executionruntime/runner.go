@@ -8,6 +8,7 @@ import (
 	"kalita/internal/actionplan"
 	"kalita/internal/eventcore"
 	"kalita/internal/executioncontrol"
+	"kalita/internal/trust"
 )
 
 type executionContextKey struct{}
@@ -27,22 +28,27 @@ func ExecutionMetadataFromContext(ctx context.Context) ExecutionContext {
 }
 
 type DefaultRunner struct {
-	repo     ExecutionRepository
-	wal      WAL
-	executor ActionExecutor
-	log      eventcore.EventLog
-	clock    eventcore.Clock
-	ids      eventcore.IDGenerator
+	repo         ExecutionRepository
+	wal          WAL
+	executor     ActionExecutor
+	log          eventcore.EventLog
+	clock        eventcore.Clock
+	ids          eventcore.IDGenerator
+	trustService trust.Service
 }
 
-func NewRunner(repo ExecutionRepository, wal WAL, executor ActionExecutor, log eventcore.EventLog, clock eventcore.Clock, ids eventcore.IDGenerator) *DefaultRunner {
+func NewRunner(repo ExecutionRepository, wal WAL, executor ActionExecutor, log eventcore.EventLog, clock eventcore.Clock, ids eventcore.IDGenerator, trustServices ...trust.Service) *DefaultRunner {
 	if clock == nil {
 		clock = eventcore.RealClock{}
 	}
 	if ids == nil {
 		ids = eventcore.NewULIDGenerator()
 	}
-	return &DefaultRunner{repo: repo, wal: wal, executor: executor, log: log, clock: clock, ids: ids}
+	var trustService trust.Service
+	if len(trustServices) > 0 {
+		trustService = trustServices[0]
+	}
+	return &DefaultRunner{repo: repo, wal: wal, executor: executor, log: log, clock: clock, ids: ids, trustService: trustService}
 }
 
 func (r *DefaultRunner) RunPlan(ctx context.Context, plan actionplan.ActionPlan, constraints executioncontrol.ExecutionConstraints, metadata RunMetadata) (ExecutionSession, error) {
@@ -60,7 +66,7 @@ func (r *DefaultRunner) RunPlan(ctx context.Context, plan actionplan.ActionPlan,
 	if err := r.repo.SaveSession(ctx, session); err != nil {
 		return ExecutionSession{}, err
 	}
-	if err := r.appendEvent(ctx, session.CaseID, "execution_session_created", string(session.Status), map[string]any{"execution_session_id": session.ID, "action_plan_id": session.ActionPlanID, "work_item_id": session.WorkItemID, "coordination_decision_id": session.CoordinationDecisionID, "policy_decision_id": session.PolicyDecisionID, "execution_constraints_id": session.ExecutionConstraintsID, "action_count": len(plan.Actions)}); err != nil {
+	if err := r.appendEvent(ctx, session.CaseID, "execution_session_created", string(session.Status), map[string]any{"execution_session_id": session.ID, "action_plan_id": session.ActionPlanID, "work_item_id": session.WorkItemID, "coordination_decision_id": session.CoordinationDecisionID, "policy_decision_id": session.PolicyDecisionID, "execution_constraints_id": session.ExecutionConstraintsID, "action_count": len(plan.Actions), "actor_id": metadata.ActorID}); err != nil {
 		return ExecutionSession{}, err
 	}
 	steps := make([]StepExecution, 0, len(plan.Actions))
@@ -112,14 +118,18 @@ func (r *DefaultRunner) RunPlan(ctx context.Context, plan actionplan.ActionPlan,
 			if appendErr := r.appendEvent(ctx, session.CaseID, "execution_step_failed", string(step.Status), map[string]any{"execution_session_id": session.ID, "step_execution_id": step.ID, "action_id": action.ID, "step_index": idx, "failure_reason": step.FailureReason}); appendErr != nil {
 				return ExecutionSession{}, appendErr
 			}
-			if compErr := r.compensate(ctx, &session, plan.Actions, steps[:idx], constraints); compErr != nil {
+			compensated, compErr := r.compensate(ctx, &session, plan.Actions, steps[:idx], constraints)
+			if compErr != nil {
 				session.Status, session.FailureReason, session.UpdatedAt = ExecutionSessionFailed, strings.TrimSpace(session.FailureReason+"; compensation failed: "+compErr.Error()), r.clock.Now()
 				if saveErr := r.repo.SaveSession(ctx, session); saveErr != nil {
 					return ExecutionSession{}, saveErr
 				}
 			}
-			if appendErr := r.appendEvent(ctx, session.CaseID, "execution_session_failed", string(session.Status), map[string]any{"execution_session_id": session.ID, "failure_reason": session.FailureReason}); appendErr != nil {
+			if appendErr := r.appendEvent(ctx, session.CaseID, "execution_session_failed", string(session.Status), map[string]any{"execution_session_id": session.ID, "failure_reason": session.FailureReason, "actor_id": metadata.ActorID}); appendErr != nil {
 				return ExecutionSession{}, appendErr
+			}
+			if err := r.appendExecutionOutcome(ctx, session, metadata.ActorID, false, compensated); err != nil {
+				return ExecutionSession{}, err
 			}
 			return session, nil
 		}
@@ -139,13 +149,16 @@ func (r *DefaultRunner) RunPlan(ctx context.Context, plan actionplan.ActionPlan,
 	if err := r.repo.SaveSession(ctx, session); err != nil {
 		return ExecutionSession{}, err
 	}
-	if err := r.appendEvent(ctx, session.CaseID, "execution_session_succeeded", string(session.Status), map[string]any{"execution_session_id": session.ID}); err != nil {
+	if err := r.appendEvent(ctx, session.CaseID, "execution_session_succeeded", string(session.Status), map[string]any{"execution_session_id": session.ID, "actor_id": metadata.ActorID}); err != nil {
+		return ExecutionSession{}, err
+	}
+	if err := r.appendExecutionOutcome(ctx, session, metadata.ActorID, true, false); err != nil {
 		return ExecutionSession{}, err
 	}
 	return session, nil
 }
 
-func (r *DefaultRunner) compensate(ctx context.Context, session *ExecutionSession, actions []actionplan.Action, completed []StepExecution, constraints executioncontrol.ExecutionConstraints) error {
+func (r *DefaultRunner) compensate(ctx context.Context, session *ExecutionSession, actions []actionplan.Action, completed []StepExecution, constraints executioncontrol.ExecutionConstraints) (bool, error) {
 	var targets []int
 	for i := len(completed) - 1; i >= 0; i-- {
 		if completed[i].Status == StepSucceeded && isCompensatable(actions[completed[i].StepIndex]) {
@@ -153,54 +166,77 @@ func (r *DefaultRunner) compensate(ctx context.Context, session *ExecutionSessio
 		}
 	}
 	if len(targets) == 0 {
-		return nil
+		return false, nil
 	}
 	session.Status, session.UpdatedAt = ExecutionSessionCompensating, r.clock.Now()
 	if err := r.repo.SaveSession(ctx, *session); err != nil {
-		return err
+		return false, err
 	}
 	if err := r.appendEvent(ctx, session.CaseID, "execution_compensation_started", string(session.Status), map[string]any{"execution_session_id": session.ID, "compensation_count": len(targets)}); err != nil {
-		return err
+		return false, err
 	}
 	for _, idx := range targets {
 		step, action := completed[idx], actions[completed[idx].StepIndex]
 		step.Status = StepCompensating
 		if err := r.repo.SaveStep(ctx, step); err != nil {
-			return err
+			return false, err
 		}
 		if err := r.appendWAL(ctx, *session, step, action, WALCompensationIntent, map[string]any{"step_index": step.StepIndex}); err != nil {
-			return err
+			return false, err
 		}
 		if err := r.executor.CompensateAction(ctx, action, constraints); err != nil {
 			step.Status, step.FailureReason = StepFailed, fmt.Sprintf("compensation failed: %v", err)
 			finishedAt := r.clock.Now()
 			step.FinishedAt = &finishedAt
 			if saveErr := r.repo.SaveStep(ctx, step); saveErr != nil {
-				return saveErr
+				return false, saveErr
 			}
 			if appendErr := r.appendWAL(ctx, *session, step, action, WALCompensationResult, map[string]any{"step_index": step.StepIndex, "status": string(step.Status), "failure_reason": step.FailureReason}); appendErr != nil {
-				return appendErr
+				return false, appendErr
 			}
-			return fmt.Errorf("action %s: %w", action.ID, err)
+			return false, fmt.Errorf("action %s: %w", action.ID, err)
 		}
 		step.Status = StepCompensated
 		finishedAt := r.clock.Now()
 		step.FinishedAt = &finishedAt
 		if err := r.repo.SaveStep(ctx, step); err != nil {
-			return err
+			return false, err
 		}
 		if err := r.appendWAL(ctx, *session, step, action, WALCompensationResult, map[string]any{"step_index": step.StepIndex, "status": string(step.Status)}); err != nil {
-			return err
+			return false, err
 		}
 		if err := r.appendEvent(ctx, session.CaseID, "execution_compensation_succeeded", string(step.Status), map[string]any{"execution_session_id": session.ID, "step_execution_id": step.ID, "action_id": action.ID, "step_index": step.StepIndex}); err != nil {
-			return err
+			return false, err
 		}
 	}
 	session.Status, session.UpdatedAt = ExecutionSessionCompensated, r.clock.Now()
 	if err := r.repo.SaveSession(ctx, *session); err != nil {
+		return false, err
+	}
+	if err := r.appendEvent(ctx, session.CaseID, "execution_session_compensated", string(session.Status), map[string]any{"execution_session_id": session.ID}); err != nil {
+		return false, err
+	}
+	return true, r.appendEvent(ctx, session.CaseID, "compensation_completed", string(session.Status), map[string]any{"execution_session_id": session.ID})
+}
+
+func (r *DefaultRunner) appendExecutionOutcome(ctx context.Context, session ExecutionSession, actorID string, succeeded bool, compensated bool) error {
+	payload := map[string]any{"execution_session_id": session.ID, "actor_id": actorID}
+	step := "execution_failed"
+	status := string(session.Status)
+	if succeeded {
+		step = "execution_succeeded"
+	}
+	if err := r.appendEvent(ctx, session.CaseID, step, status, payload); err != nil {
 		return err
 	}
-	return r.appendEvent(ctx, session.CaseID, "execution_session_compensated", string(session.Status), map[string]any{"execution_session_id": session.ID})
+	if strings.TrimSpace(actorID) == "" || r.trustService == nil {
+		return nil
+	}
+	profile, err := r.trustService.RecordOutcome(ctx, trust.ExecutionOutcome{ActorID: actorID, ExecutionID: executionFromContext(ctx).ExecutionID, Succeeded: succeeded, Compensated: compensated})
+	if err != nil {
+		return err
+	}
+	return r.appendEvent(ctx, session.CaseID, "trust_updated", string(profile.TrustLevel), map[string]any{"execution_session_id": session.ID, "actor_id": actorID, "trust_level": profile.TrustLevel, "autonomy_tier": profile.AutonomyTier, "success_count": profile.Metrics.SuccessCount, "failure_count": profile.Metrics.FailureCount, "compensation_count": profile.Metrics.CompensationCount})
 }
 
 func isCompensatable(action actionplan.Action) bool {

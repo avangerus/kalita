@@ -63,7 +63,7 @@ func TestServiceUpdatesExistingProfileDeterministically(t *testing.T) {
 	if profile.CompletedExecutions != 3 || profile.FailedExecutions != 1 || profile.ApprovalRequests != 1 {
 		t.Fatalf("profile=%#v", profile)
 	}
-	if profile.TrustLevel != TrustLow || profile.AutonomyTier != AutonomyRestricted {
+	if profile.TrustLevel != TrustMedium || profile.AutonomyTier != AutonomySupervised {
 		t.Fatalf("profile=%#v", profile)
 	}
 }

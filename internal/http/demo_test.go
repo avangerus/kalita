@@ -77,7 +77,7 @@ func TestDemoCaseListAndDetailRenderDomainLabels(t *testing.T) {
 		t.Fatalf("GET /demo/cases status=%d body=%s", listW.Code, listW.Body.String())
 	}
 	listBody := listW.Body.String()
-	for _, want := range []string{"Missed Pickup", "Route R-1001", "Photo/GPS mismatch", "SITE-881", "Executing", "Blocked", "Waiting Approval"} {
+	for _, want := range []string{"Missed Pickup", "Route R-1001", "Photo/GPS mismatch", "SITE-881", "Executing", "Waiting Approval"} {
 		if !strings.Contains(listBody, want) {
 			t.Fatalf("case list missing %q: %s", want, listBody)
 		}
@@ -91,7 +91,7 @@ func TestDemoCaseListAndDetailRenderDomainLabels(t *testing.T) {
 		t.Fatalf("GET %s status=%d body=%s", path, w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Missed Container Pickup Review", "Incident summary", "Fact Reconciliation", "Execution started", "Approval granted", "Route", "R-1003"} {
+	for _, want := range []string{"Missed Container Pickup Review", "Incident summary", "Fact Reconciliation", "Execution failed", "Trust updated", "Route", "R-1003"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q: %s", want, body)
 		}

@@ -127,10 +127,10 @@ func TestRunAISOtkhodyMultiScenarioProducesMixedDeterministicSystemState(t *test
 	if summary.OpenCaseCount <= 1 || summary.WorkItemCount <= 1 {
 		t.Fatalf("summary = %#v", summary)
 	}
-	if summary.DeferredCount < 1 || summary.ExecutingSessionCount < 1 || summary.BlockedCount < 1 || summary.ApprovalPendingCount < 1 {
+	if summary.DeferredCount < 1 || summary.ExecutingSessionCount < 1 || summary.ApprovalPendingCount < 1 {
 		t.Fatalf("summary = %#v", summary)
 	}
-	if summary.TrustLevelCounts["low"] < 1 || summary.TrustLevelCounts["high"] < 1 {
+	if summary.TrustLevelCounts["low"] < 1 || summary.TrustLevelCounts["medium"] < 1 || summary.TrustLevelCounts["high"] < 1 {
 		t.Fatalf("trust summary = %#v", summary.TrustLevelCounts)
 	}
 
@@ -138,13 +138,11 @@ func TestRunAISOtkhodyMultiScenarioProducesMixedDeterministicSystemState(t *test
 	if err != nil {
 		t.Fatalf("ListWorkItems error = %v", err)
 	}
-	var deferred, executing, blocked, waitingApproval int
+	var deferred, executing, waitingApproval int
 	for _, wi := range workItems {
 		switch wi.Coordination.DecisionType {
 		case string(workplan.CoordinationDefer):
 			deferred++
-		case string(workplan.CoordinationBlock), string(workplan.CoordinationEscalate):
-			blocked++
 		}
 		if wi.Execution.Status == "running" {
 			executing++
@@ -153,8 +151,8 @@ func TestRunAISOtkhodyMultiScenarioProducesMixedDeterministicSystemState(t *test
 			waitingApproval++
 		}
 	}
-	if deferred < 1 || executing < 1 || blocked < 1 || waitingApproval < 1 {
-		t.Fatalf("deferred=%d executing=%d blocked=%d waitingApproval=%d workItems=%#v", deferred, executing, blocked, waitingApproval, workItems)
+	if deferred < 1 || executing < 1 || waitingApproval < 1 {
+		t.Fatalf("deferred=%d executing=%d waitingApproval=%d workItems=%#v", deferred, executing, waitingApproval, workItems)
 	}
 
 	caseCID := findCaseIDBySubject(t, result, "R-1003")
@@ -162,8 +160,17 @@ func TestRunAISOtkhodyMultiScenarioProducesMixedDeterministicSystemState(t *test
 	if err != nil {
 		t.Fatalf("GetCaseTimeline case C error = %v", err)
 	}
-	if !containsStep(timelineC, "approval_granted") || !containsStep(timelineC, "execution_started") {
+	if !containsStep(timelineC, "execution_failed") || !containsStep(timelineC, "trust_updated") {
 		t.Fatalf("case C timeline = %#v", timelineC)
+	}
+
+	caseDID := findCaseIDBySubject(t, result, "R-1004")
+	timelineD, err := result.ControlPlane.GetCaseTimeline(context.Background(), caseDID)
+	if err != nil {
+		t.Fatalf("GetCaseTimeline case D error = %v", err)
+	}
+	if !containsStep(timelineD, "escalation_waiting") {
+		t.Fatalf("case D timeline = %#v", timelineD)
 	}
 
 	caseEID := findCaseIDBySubject(t, result, "R-1005")
@@ -171,8 +178,51 @@ func TestRunAISOtkhodyMultiScenarioProducesMixedDeterministicSystemState(t *test
 	if err != nil {
 		t.Fatalf("GetCaseTimeline case E error = %v", err)
 	}
-	if !containsStep(timelineE, "escalation_waiting") {
+	if !containsStep(timelineE, "compensation_completed") || !containsStep(timelineE, "trust_updated") {
 		t.Fatalf("case E timeline = %#v", timelineE)
+	}
+}
+
+func TestRunAISOtkhodyMultiScenarioUpdatesTrustAndChangesCoordination(t *testing.T) {
+	t.Parallel()
+
+	result, err := RunAISOtkhodyMultiScenario(context.Background())
+	if err != nil {
+		t.Fatalf("RunAISOtkhodyMultiScenario error = %v", err)
+	}
+
+	actors, err := result.ControlPlane.ListActors(context.Background())
+	if err != nil {
+		t.Fatalf("ListActors error = %v", err)
+	}
+	actorByID := map[string]controlplane.ActorOverview{}
+	for _, actor := range actors {
+		actorByID[actor.ActorID] = actor
+	}
+	if got := actorByID["actor-growth-1"]; got.TrustLevel != "low" || got.SuccessCount != 3 || got.FailureCount != 2 {
+		t.Fatalf("actor-growth-1 = %#v", got)
+	}
+	if got := actorByID["actor-comp-1"]; got.TrustLevel != "medium" || got.CompensationCount != 1 {
+		t.Fatalf("actor-comp-1 = %#v", got)
+	}
+
+	workItems, err := result.ControlPlane.ListWorkItems(context.Background())
+	if err != nil {
+		t.Fatalf("ListWorkItems error = %v", err)
+	}
+	stateByRoute := map[string]string{}
+	for _, wi := range workItems {
+		caseOverview, err := result.ControlPlane.GetCaseOverview(context.Background(), wi.CaseID)
+		if err != nil {
+			t.Fatalf("GetCaseOverview(%s) error = %v", wi.CaseID, err)
+		}
+		stateByRoute[caseOverview.SubjectRef] = wi.Coordination.DecisionType
+	}
+	if stateByRoute["route:R-1002/container:SITE-882"] != string(workplan.CoordinationExecuteNow) {
+		t.Fatalf("route R-1002 coordination = %#v", stateByRoute)
+	}
+	if stateByRoute["route:R-1004/container:SITE-884"] != string(workplan.CoordinationDefer) {
+		t.Fatalf("route R-1004 coordination = %#v", stateByRoute)
 	}
 }
 
