@@ -92,6 +92,59 @@ func TestRunDemoScenarioProducesDeferredApprovalPathVisibleInControlPlane(t *tes
 	}
 }
 
+func TestRunDemoScenarioApprovalContinuesPipeline(t *testing.T) {
+	t.Parallel()
+
+	result, err := RunDemoScenario(context.Background())
+	if err != nil {
+		t.Fatalf("RunDemoScenario error = %v", err)
+	}
+
+	approved, err := result.ControlPlane.ApproveApprovalRequest(context.Background(), DemoApprovalRequestID)
+	if err != nil {
+		t.Fatalf("ApproveApprovalRequest error = %v", err)
+	}
+	if approved.Status != string(policy.ApprovalApproved) || approved.ResolvedAt == nil {
+		t.Fatalf("approved = %#v", approved)
+	}
+
+	approvedAgain, err := result.ControlPlane.ApproveApprovalRequest(context.Background(), DemoApprovalRequestID)
+	if err != nil {
+		t.Fatalf("second ApproveApprovalRequest error = %v", err)
+	}
+	if approvedAgain.Status != string(policy.ApprovalApproved) {
+		t.Fatalf("approvedAgain = %#v", approvedAgain)
+	}
+
+	workItem, err := result.ControlPlane.GetWorkItemOverview(context.Background(), DemoWorkItemID)
+	if err != nil {
+		t.Fatalf("GetWorkItemOverview error = %v", err)
+	}
+	if workItem.PolicyApproval.ApprovalRequestStatus != string(policy.ApprovalApproved) {
+		t.Fatalf("workItem = %#v", workItem)
+	}
+	if got := workItem.Coordination.DecisionType; got != string(workplan.CoordinationDefer) && got != string(workplan.CoordinationEscalate) && got != string(workplan.CoordinationExecuteNow) {
+		t.Fatalf("coordination decision = %#v", workItem.Coordination)
+	}
+
+	timeline, err := result.ControlPlane.GetCaseTimeline(context.Background(), DemoCaseID)
+	if err != nil {
+		t.Fatalf("GetCaseTimeline error = %v", err)
+	}
+	steps := make([]string, 0, len(timeline))
+	for _, entry := range timeline {
+		steps = append(steps, entry.Step)
+	}
+	for _, step := range []string{"approval_requested", "approval_granted", "coordination_decided"} {
+		if !contains(steps, step) {
+			t.Fatalf("timeline steps = %#v, missing %q", steps, step)
+		}
+	}
+	if countOccurrences(steps, "coordination_decided") < 2 {
+		t.Fatalf("timeline steps = %#v", steps)
+	}
+}
+
 func contains(items []string, target string) bool {
 	for _, item := range items {
 		if item == target {
@@ -99,4 +152,14 @@ func contains(items []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func countOccurrences(items []string, target string) int {
+	count := 0
+	for _, item := range items {
+		if item == target {
+			count++
+		}
+	}
+	return count
 }

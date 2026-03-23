@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"kalita/internal/capability"
 	"kalita/internal/caseruntime"
@@ -46,6 +47,7 @@ type service struct {
 	executions   executionruntime.ExecutionRepository
 	wal          executionruntime.WAL
 	eventLog     eventcore.EventLog
+	coordinator  workplan.Coordinator
 }
 
 func NewService(
@@ -61,6 +63,7 @@ func NewService(
 	executions executionruntime.ExecutionRepository,
 	wal executionruntime.WAL,
 	eventLog eventcore.EventLog,
+	coordinators ...workplan.Coordinator,
 ) Service {
 	var caseLister CaseLister
 	if l, ok := cases.(CaseLister); ok {
@@ -74,7 +77,163 @@ func NewService(
 	if l, ok := policies.(ApprovalRequestLister); ok {
 		approvals = l
 	}
-	return &service{cases: cases, caseLister: caseLister, workItems: workItems, workLister: workLister, coordination: coordination, policies: policies, approvals: approvals, proposals: proposals, actors: actors, trust: trustRepo, profiles: profiles, capabilities: *capRepo, executions: executions, wal: wal, eventLog: eventLog}
+	var coordinator workplan.Coordinator
+	if len(coordinators) > 0 {
+		coordinator = coordinators[0]
+	}
+	return &service{cases: cases, caseLister: caseLister, workItems: workItems, workLister: workLister, coordination: coordination, policies: policies, approvals: approvals, proposals: proposals, actors: actors, trust: trustRepo, profiles: profiles, capabilities: *capRepo, executions: executions, wal: wal, eventLog: eventLog, coordinator: coordinator}
+}
+
+func (s *service) ApproveApprovalRequest(ctx context.Context, approvalRequestID string) (ApprovalInboxItem, error) {
+	return s.resolveApprovalRequest(ctx, approvalRequestID, policy.ApprovalApproved, "approval_granted")
+}
+
+func (s *service) RejectApprovalRequest(ctx context.Context, approvalRequestID string) (ApprovalInboxItem, error) {
+	return s.resolveApprovalRequest(ctx, approvalRequestID, policy.ApprovalRejected, "approval_rejected")
+}
+
+func (s *service) resolveApprovalRequest(ctx context.Context, approvalRequestID string, target policy.ApprovalStatus, step string) (ApprovalInboxItem, error) {
+	req, ok, err := s.policies.GetApprovalRequest(ctx, approvalRequestID)
+	if err != nil {
+		return ApprovalInboxItem{}, err
+	}
+	if !ok {
+		return ApprovalInboxItem{}, fmt.Errorf("approval request %s not found", approvalRequestID)
+	}
+	if req.Status == target || req.Status != policy.ApprovalPending {
+		return s.buildApprovalInboxItem(ctx, req), nil
+	}
+	now := s.approvalResolutionTime(ctx, req)
+	req.Status = target
+	req.ResolvedAt = &now
+	req.ResolutionNote = string(target)
+	if err := s.policies.SaveApprovalRequest(ctx, req); err != nil {
+		return ApprovalInboxItem{}, err
+	}
+	if err := s.appendApprovalEvent(ctx, req, step, string(target), now); err != nil {
+		return ApprovalInboxItem{}, err
+	}
+	if target == policy.ApprovalApproved && s.coordinator != nil {
+		if err := s.recoordinateApprovedWorkItem(ctx, req); err != nil {
+			return ApprovalInboxItem{}, err
+		}
+	}
+	return s.buildApprovalInboxItem(ctx, req), nil
+}
+
+func (s *service) buildApprovalInboxItem(ctx context.Context, req policy.ApprovalRequest) ApprovalInboxItem {
+	coord, _ := s.latestCoordination(ctx, req.WorkItemID)
+	policyOverview, _ := s.latestPolicyApproval(ctx, coord)
+	return ApprovalInboxItem{ApprovalRequestID: req.ID, Status: string(req.Status), RequestedFromRole: req.RequestedFromRole, CaseID: req.CaseID, WorkItemID: req.WorkItemID, QueueID: req.QueueID, CreatedAt: req.CreatedAt, ResolvedAt: req.ResolvedAt, ResolutionNote: req.ResolutionNote, Coordination: coord, PolicyApproval: policyOverview}
+}
+
+func (s *service) approvalResolutionTime(ctx context.Context, req policy.ApprovalRequest) time.Time {
+	if req.ResolvedAt != nil {
+		return *req.ResolvedAt
+	}
+	coord, ok, err := s.coordination.GetDecision(ctx, req.CoordinationDecisionID)
+	if err == nil && ok {
+		return coord.CreatedAt.Add(time.Nanosecond)
+	}
+	return req.CreatedAt.Add(time.Nanosecond)
+}
+
+func (s *service) appendApprovalEvent(ctx context.Context, req policy.ApprovalRequest, step string, status string, now time.Time) error {
+	if s.eventLog == nil {
+		return nil
+	}
+	c, ok, err := s.cases.GetByID(ctx, req.CaseID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	return s.eventLog.AppendExecutionEvent(ctx, eventcore.ExecutionEvent{
+		ID:            fmt.Sprintf("%s-%s", req.ID, step),
+		ExecutionID:   fmt.Sprintf("approval:%s", req.ID),
+		CaseID:        req.CaseID,
+		Step:          step,
+		Status:        status,
+		OccurredAt:    now,
+		CorrelationID: c.CorrelationID,
+		CausationID:   req.ID,
+		Payload: map[string]any{
+			"approval_request_id":      req.ID,
+			"coordination_decision_id": req.CoordinationDecisionID,
+			"policy_decision_id":       req.PolicyDecisionID,
+			"case_id":                  req.CaseID,
+			"work_item_id":             req.WorkItemID,
+			"queue_id":                 req.QueueID,
+			"approval_request_status":  req.Status,
+			"approval_resolution_note": req.ResolutionNote,
+		},
+	})
+}
+
+func (s *service) recoordinateApprovedWorkItem(ctx context.Context, req policy.ApprovalRequest) error {
+	wi, ok, err := s.workItems.GetWorkItem(ctx, req.WorkItemID)
+	if err != nil || !ok {
+		return err
+	}
+	coordinationCtx, err := s.buildCoordinationContext(ctx, wi)
+	if err != nil {
+		return err
+	}
+	planningCtx := workplan.ContextWithPlanningExecution(ctx, workplan.PlanningExecutionContext{
+		ExecutionID:   fmt.Sprintf("approval:%s", req.ID),
+		CorrelationID: s.caseCorrelationID(ctx, req.CaseID),
+		CausationID:   req.ID,
+	})
+	_, err = s.coordinator.Decide(planningCtx, wi, coordinationCtx)
+	return err
+}
+
+func (s *service) caseCorrelationID(ctx context.Context, caseID string) string {
+	c, ok, err := s.cases.GetByID(ctx, caseID)
+	if err == nil && ok {
+		return c.CorrelationID
+	}
+	return ""
+}
+
+func (s *service) buildCoordinationContext(ctx context.Context, wi workplan.WorkItem) (workplan.CoordinationContext, error) {
+	employees, err := s.actors.ListEmployees(ctx)
+	if err != nil {
+		return workplan.CoordinationContext{}, err
+	}
+	actors := make([]workplan.CoordinationActor, 0, len(employees))
+	profiles := make(map[string]workplan.CoordinationActorProfile, len(employees))
+	for _, emp := range employees {
+		actionTypes := make([]string, 0, len(emp.AllowedActionTypes))
+		for _, actionType := range emp.AllowedActionTypes {
+			actionTypes = append(actionTypes, string(actionType))
+		}
+		actors = append(actors, workplan.CoordinationActor{ID: emp.ID, Enabled: emp.Enabled, QueueMemberships: append([]string(nil), emp.QueueMemberships...), AllowedActionTypes: actionTypes})
+		profileView := workplan.CoordinationActorProfile{ActorID: emp.ID}
+		if prof, ok, err := s.profiles.GetProfileByActor(ctx, emp.ID); err != nil {
+			return workplan.CoordinationContext{}, err
+		} else if ok {
+			profileView.MaxComplexity = prof.MaxComplexity
+		}
+		if trustProfile, ok, err := s.trust.GetByActor(ctx, emp.ID); err != nil {
+			return workplan.CoordinationContext{}, err
+		} else if ok {
+			profileView.TrustLevel = string(trustProfile.TrustLevel)
+			profileView.TrustAvailable = true
+		}
+		profiles[emp.ID] = profileView
+	}
+	actionTypes := []string{"legacy_workflow_action"}
+	complexity := 1
+	if wi.ActionPlan != nil && len(wi.ActionPlan.Actions) > 0 {
+		actionTypes = make([]string, 0, len(wi.ActionPlan.Actions))
+		for _, action := range wi.ActionPlan.Actions {
+			actionTypes = append(actionTypes, string(action.Type))
+		}
+		complexity = len(actionTypes)
+	}
+	return workplan.CoordinationContext{ActionTypes: actionTypes, Complexity: complexity, Actors: actors, Profiles: profiles}, nil
 }
 
 func (s *service) GetSummary(ctx context.Context) (Summary, error) {
@@ -229,9 +388,10 @@ func (s *service) GetApprovalInbox(ctx context.Context) ([]ApprovalInboxItem, er
 	}
 	out := make([]ApprovalInboxItem, 0, len(requests))
 	for _, req := range requests {
-		coord, _ := s.latestCoordination(ctx, req.WorkItemID)
-		policyOverview, _ := s.latestPolicyApproval(ctx, coord)
-		out = append(out, ApprovalInboxItem{ApprovalRequestID: req.ID, Status: string(req.Status), RequestedFromRole: req.RequestedFromRole, CaseID: req.CaseID, WorkItemID: req.WorkItemID, QueueID: req.QueueID, CreatedAt: req.CreatedAt, ResolvedAt: req.ResolvedAt, ResolutionNote: req.ResolutionNote, Coordination: coord, PolicyApproval: policyOverview})
+		if req.Status != policy.ApprovalPending {
+			continue
+		}
+		out = append(out, s.buildApprovalInboxItem(ctx, req))
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
 	return out, nil
@@ -254,6 +414,9 @@ func (s *service) GetBlockedOrDeferredWork(ctx context.Context) ([]WorkItemOverv
 func (s *service) buildWorkItemOverview(ctx context.Context, wi workplan.WorkItem) (WorkItemOverview, error) {
 	coord, coordDecision := s.latestCoordination(ctx, wi.ID)
 	policyOverview, _ := s.latestPolicyApproval(ctx, coord)
+	if policyOverview.PolicyDecisionID == "" && policyOverview.ApprovalRequestID == "" {
+		policyOverview = s.latestPolicyApprovalForWorkItem(ctx, wi.ID)
+	}
 	proposalOverview, _ := s.latestProposal(ctx, wi.ID)
 	execOverview, _ := s.latestExecution(ctx, wi.ID)
 	assigned := wi.AssignedEmployeeID
@@ -267,6 +430,51 @@ func (s *service) buildWorkItemOverview(ctx context.Context, wi workplan.WorkIte
 	}
 	_ = coordDecision
 	return WorkItemOverview{WorkItemID: wi.ID, CaseID: wi.CaseID, QueueID: wi.QueueID, Type: wi.Type, Status: wi.Status, Priority: wi.Priority, AssignedEmployeeID: assigned, PlanID: wi.PlanID, CreatedAt: wi.CreatedAt, UpdatedAt: wi.UpdatedAt, Coordination: coord, PolicyApproval: policyOverview, Proposal: proposalOverview, Execution: execOverview}, nil
+}
+
+func (s *service) latestPolicyApprovalForWorkItem(ctx context.Context, workItemID string) PolicyApprovalOverview {
+	decisions, err := s.coordination.ListByWorkItem(ctx, workItemID)
+	if err != nil || len(decisions) == 0 {
+		return PolicyApprovalOverview{}
+	}
+	var (
+		latestDecision *policy.PolicyDecision
+		latestApproval *policy.ApprovalRequest
+	)
+	for _, decision := range decisions {
+		policyDecisions, err := s.policies.ListByCoordinationDecision(ctx, decision.ID)
+		if err == nil && len(policyDecisions) > 0 {
+			current := latestBy(policyDecisions, func(d policy.PolicyDecision) string { return d.ID }, func(d policy.PolicyDecision) int64 { return d.CreatedAt.UnixNano() })
+			if latestDecision == nil || current.CreatedAt.After(latestDecision.CreatedAt) || (current.CreatedAt.Equal(latestDecision.CreatedAt) && current.ID > latestDecision.ID) {
+				copy := current
+				latestDecision = &copy
+			}
+		}
+		approvals, err := s.policies.ListApprovalRequestsByCoordinationDecision(ctx, decision.ID)
+		if err == nil && len(approvals) > 0 {
+			current := latestBy(approvals, func(a policy.ApprovalRequest) string { return a.ID }, func(a policy.ApprovalRequest) int64 { return a.CreatedAt.UnixNano() })
+			if latestApproval == nil || current.CreatedAt.After(latestApproval.CreatedAt) || (current.CreatedAt.Equal(latestApproval.CreatedAt) && current.ID > latestApproval.ID) {
+				copy := current
+				latestApproval = &copy
+			}
+		}
+	}
+	overview := PolicyApprovalOverview{}
+	if latestDecision != nil {
+		overview.PolicyDecisionID = latestDecision.ID
+		overview.Outcome = string(latestDecision.Outcome)
+		overview.Reason = latestDecision.Reason
+		overview.CreatedAt = latestDecision.CreatedAt
+	}
+	if latestApproval != nil {
+		overview.ApprovalRequestID = latestApproval.ID
+		overview.ApprovalRequestStatus = string(latestApproval.Status)
+		overview.RequestedFromRole = latestApproval.RequestedFromRole
+		overview.ApprovalRequestedAt = latestApproval.CreatedAt
+		overview.ApprovalResolvedAt = latestApproval.ResolvedAt
+		overview.ResolutionNote = latestApproval.ResolutionNote
+	}
+	return overview
 }
 
 func (s *service) buildActorOverview(ctx context.Context, actor employee.DigitalEmployee) (ActorOverview, error) {
@@ -432,6 +640,10 @@ func normalizeTimelineStep(e eventcore.ExecutionEvent) (string, bool) {
 		return "policy_decided", true
 	case "approval_request_created":
 		return "approval_requested", true
+	case "approval_granted":
+		return "approval_granted", true
+	case "approval_rejected":
+		return "approval_rejected", true
 	case "execution_session_created":
 		return "execution_started", true
 	default:

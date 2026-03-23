@@ -51,6 +51,14 @@ func registerOperatorRoutes(group *gin.RouterGroup, svc controlplane.Service) {
 		payload, err := svc.GetApprovalInbox(c.Request.Context())
 		respondOperator(c, payload, err)
 	})
+	operator.POST("/approvals/:id/approve", func(c *gin.Context) {
+		payload, err := svc.ApproveApprovalRequest(c.Request.Context(), c.Param("id"))
+		respondOperator(c, payload, err)
+	})
+	operator.POST("/approvals/:id/reject", func(c *gin.Context) {
+		payload, err := svc.RejectApprovalRequest(c.Request.Context(), c.Param("id"))
+		respondOperator(c, payload, err)
+	})
 	operator.GET("/blocked-work", func(c *gin.Context) {
 		payload, err := svc.GetBlockedOrDeferredWork(c.Request.Context())
 		respondOperator(c, payload, err)

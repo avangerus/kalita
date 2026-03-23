@@ -17,4 +17,7 @@ type Service interface {
 
 	GetApprovalInbox(ctx context.Context) ([]ApprovalInboxItem, error)
 	GetBlockedOrDeferredWork(ctx context.Context) ([]WorkItemOverview, error)
+
+	ApproveApprovalRequest(ctx context.Context, approvalRequestID string) (ApprovalInboxItem, error)
+	RejectApprovalRequest(ctx context.Context, approvalRequestID string) (ApprovalInboxItem, error)
 }
