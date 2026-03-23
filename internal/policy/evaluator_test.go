@@ -9,7 +9,7 @@ import (
 
 func TestDeterministicEvaluatorSelectedAllows(t *testing.T) {
 	e := NewEvaluator()
-	outcome, reason, err := e.EvaluateCoordinationDecision(context.Background(), workplan.CoordinationDecision{ID: "coord-1", WorkItemID: "wi-1", Outcome: workplan.CoordinationSelected, Strategy: workplan.DefaultCoordinationStrategy})
+	outcome, reason, err := e.EvaluateCoordinationDecision(context.Background(), workplan.CoordinationDecision{ID: "coord-1", WorkItemID: "wi-1", DecisionType: workplan.CoordinationExecuteNow, Priority: workplan.CoordinationPriorityExecuteNow})
 	if err != nil {
 		t.Fatalf("EvaluateCoordinationDecision error = %v", err)
 	}
@@ -23,7 +23,7 @@ func TestDeterministicEvaluatorSelectedAllows(t *testing.T) {
 
 func TestDeterministicEvaluatorRequiresApprovalStrategy(t *testing.T) {
 	e := NewEvaluator()
-	outcome, reason, err := e.EvaluateCoordinationDecision(context.Background(), workplan.CoordinationDecision{ID: "coord-1", WorkItemID: "wi-1", Outcome: workplan.CoordinationSelected, Strategy: "requires_manager_approval"})
+	outcome, reason, err := e.EvaluateCoordinationDecision(context.Background(), workplan.CoordinationDecision{ID: "coord-1", WorkItemID: "wi-1", DecisionType: workplan.CoordinationDefer, Priority: workplan.CoordinationPriorityDefer})
 	if err != nil {
 		t.Fatalf("EvaluateCoordinationDecision error = %v", err)
 	}
@@ -37,7 +37,7 @@ func TestDeterministicEvaluatorRequiresApprovalStrategy(t *testing.T) {
 
 func TestDeterministicEvaluatorBlockedStrategyDenies(t *testing.T) {
 	e := NewEvaluator()
-	outcome, reason, err := e.EvaluateCoordinationDecision(context.Background(), workplan.CoordinationDecision{ID: "coord-1", WorkItemID: "wi-1", Outcome: workplan.CoordinationSelected, Strategy: "blocked_strategy"})
+	outcome, reason, err := e.EvaluateCoordinationDecision(context.Background(), workplan.CoordinationDecision{ID: "coord-1", WorkItemID: "wi-1", DecisionType: workplan.CoordinationBlock, Priority: workplan.CoordinationPriorityBlock})
 	if err != nil {
 		t.Fatalf("EvaluateCoordinationDecision error = %v", err)
 	}

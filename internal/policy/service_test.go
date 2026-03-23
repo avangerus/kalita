@@ -27,7 +27,7 @@ func TestPolicyServiceAllowCreatesDecisionAndEvent(t *testing.T) {
 	ids := &fakeIDGenerator{ids: []string{"policy-1", "event-1"}}
 	service := NewService(repo, NewEvaluator(), log, clock, ids)
 	ctx := ContextWithExecution(context.Background(), ExecutionContext{ExecutionID: "exec-1", CorrelationID: "corr-1", CausationID: "cmd-1"})
-	decision, approval, err := service.EvaluateAndRecord(ctx, workplan.CoordinationDecision{ID: "coord-1", CaseID: "case-1", WorkItemID: "wi-1", QueueID: "queue-1", Outcome: workplan.CoordinationSelected, Strategy: workplan.DefaultCoordinationStrategy})
+	decision, approval, err := service.EvaluateAndRecord(ctx, workplan.CoordinationDecision{ID: "coord-1", CaseID: "case-1", WorkItemID: "wi-1", QueueID: "queue-1", DecisionType: workplan.CoordinationExecuteNow, Priority: workplan.CoordinationPriorityExecuteNow})
 	if err != nil {
 		t.Fatalf("EvaluateAndRecord error = %v", err)
 	}
@@ -54,7 +54,7 @@ func TestPolicyServiceRequireApprovalCreatesDecisionApprovalAndEvents(t *testing
 	ids := &fakeIDGenerator{ids: []string{"policy-1", "event-1", "approval-1", "event-2"}}
 	service := NewService(repo, NewEvaluator(), log, clock, ids)
 	ctx := ContextWithExecution(context.Background(), ExecutionContext{ExecutionID: "exec-1", CorrelationID: "corr-1", CausationID: "cmd-1"})
-	decision, approval, err := service.EvaluateAndRecord(ctx, workplan.CoordinationDecision{ID: "coord-1", CaseID: "case-1", WorkItemID: "wi-1", QueueID: "queue-1", Outcome: workplan.CoordinationSelected, Strategy: "requires_manager_approval"})
+	decision, approval, err := service.EvaluateAndRecord(ctx, workplan.CoordinationDecision{ID: "coord-1", CaseID: "case-1", WorkItemID: "wi-1", QueueID: "queue-1", DecisionType: workplan.CoordinationDefer, Priority: workplan.CoordinationPriorityDefer})
 	if err != nil {
 		t.Fatalf("EvaluateAndRecord error = %v", err)
 	}
@@ -81,7 +81,7 @@ func TestPolicyServiceDenyCreatesDecisionAndEventWithoutApproval(t *testing.T) {
 	ids := &fakeIDGenerator{ids: []string{"policy-1", "event-1"}}
 	service := NewService(repo, NewEvaluator(), log, clock, ids)
 	ctx := ContextWithExecution(context.Background(), ExecutionContext{ExecutionID: "exec-1", CorrelationID: "corr-1", CausationID: "cmd-1"})
-	decision, approval, err := service.EvaluateAndRecord(ctx, workplan.CoordinationDecision{ID: "coord-1", CaseID: "case-1", WorkItemID: "wi-1", QueueID: "queue-1", Outcome: workplan.CoordinationSelected, Strategy: "blocked_strategy"})
+	decision, approval, err := service.EvaluateAndRecord(ctx, workplan.CoordinationDecision{ID: "coord-1", CaseID: "case-1", WorkItemID: "wi-1", QueueID: "queue-1", DecisionType: workplan.CoordinationBlock, Priority: workplan.CoordinationPriorityBlock})
 	if err != nil {
 		t.Fatalf("EvaluateAndRecord error = %v", err)
 	}

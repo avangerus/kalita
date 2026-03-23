@@ -30,11 +30,11 @@ type actionRequest struct {
 }
 
 func ActionHandler(storage *runtime.Storage) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	return ActionHandlerWithServices(storage, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func ActionHandlerWithCommandBus(storage *runtime.Storage, commandBus command.CommandBus) gin.HandlerFunc {
-	return ActionHandlerWithServices(storage, commandBus, nil, nil, nil, nil, nil, nil, nil, nil)
+	return ActionHandlerWithServices(storage, commandBus, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 type commandCaseResolver interface {
@@ -44,6 +44,10 @@ type commandCaseResolver interface {
 type workItemIntakeService interface {
 	IntakeCommand(ctx context.Context, resolved caseruntime.ResolutionResult) (workplan.IntakeResult, error)
 	AttachActionPlan(ctx context.Context, workItemID string, plan actionplan.ActionPlan) (workplan.WorkItem, error)
+}
+
+type coordinator interface {
+	Decide(ctx context.Context, wi workplan.WorkItem, coordinationContext workplan.CoordinationContext) (workplan.CoordinationDecision, error)
 }
 
 type policyService interface {
@@ -68,7 +72,7 @@ type proposalService interface {
 	CompileProposal(ctx context.Context, proposalID string) (proposal.Proposal, actionplan.ActionPlan, error)
 }
 
-func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, employeeServices ...employeeService) gin.HandlerFunc {
+func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, coordinator coordinator, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, employeeServices ...employeeService) gin.HandlerFunc {
 	var employeeService employeeService
 	if len(employeeServices) > 0 {
 		employeeService = employeeServices[0]
@@ -171,13 +175,29 @@ func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.Comm
 								}}})
 								return
 							}
-							if _, err := workService.AttachActionPlan(c.Request.Context(), intakeResult.WorkItem.ID, plan); err != nil {
+							updatedWorkItem, err := workService.AttachActionPlan(c.Request.Context(), intakeResult.WorkItem.ID, plan)
+							if err != nil {
 								c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{
 									Code:    validation.ErrTypeMismatch,
 									Field:   "action",
 									Message: err.Error(),
 								}}})
 								return
+							}
+							intakeResult.WorkItem = updatedWorkItem
+							if coordinator != nil {
+								coordinationCtx := workplan.ContextWithPlanningExecution(c.Request.Context(), workplan.PlanningExecutionContext{ExecutionID: intakeResult.Command.ExecutionID, CorrelationID: intakeResult.Command.CorrelationID, CausationID: intakeResult.Command.ID})
+								decision, err := coordinator.Decide(coordinationCtx, updatedWorkItem, workplan.CoordinationContext{})
+								if err != nil {
+									c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{Code: validation.ErrTypeMismatch, Field: "action", Message: err.Error()}}})
+									return
+								}
+								intakeResult.CoordinationDecision = decision
+								switch decision.DecisionType {
+								case workplan.CoordinationDefer, workplan.CoordinationEscalate, workplan.CoordinationBlock:
+									c.JSON(http.StatusAccepted, gin.H{"coordination_decision": decision})
+									return
+								}
 							}
 							if employeeService != nil {
 								runtimeCtx := executionruntime.ContextWithExecution(c.Request.Context(), executionruntime.ExecutionContext{ExecutionID: intakeResult.Command.ExecutionID, CorrelationID: intakeResult.Command.CorrelationID, CausationID: intakeResult.Command.ID})

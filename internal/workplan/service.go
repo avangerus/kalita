@@ -112,7 +112,7 @@ func (s *Service) IntakeCommand(ctx context.Context, resolved caseruntime.Resolu
 		CorrelationID: resolved.Command.CorrelationID,
 		CausationID:   resolved.Command.ID,
 	})
-	decision, err := s.coordinator.CoordinateWorkItem(coordinationCtx, workItem)
+	decision, err := s.coordinator.Decide(coordinationCtx, workItem, CoordinationContext{})
 	if err != nil {
 		return IntakeResult{}, err
 	}
