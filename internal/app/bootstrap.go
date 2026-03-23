@@ -19,6 +19,7 @@ import (
 	"kalita/internal/eventcore"
 	"kalita/internal/executioncontrol"
 	"kalita/internal/executionruntime"
+	"kalita/internal/integration"
 	"kalita/internal/persistence"
 	"kalita/internal/policy"
 	"kalita/internal/postgres"
@@ -72,6 +73,7 @@ type BootstrapResult struct {
 	ExecutionRunner    executionruntime.Runner
 	ExecutionRuntime   executionruntime.Service
 	ControlPlane       controlplane.Service
+	IntegrationService integration.IncidentService
 	Config             config.Config
 }
 
@@ -202,6 +204,19 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 			return nil
 		},
 	})
+
+	actionRegistry.Register(actionplan.ActionDefinition{
+		Type:          "external_incident_followup",
+		Reversibility: actionplan.ReversibilityIrreversible,
+		Idempotency:   actionplan.IdempotencySafe,
+		Validate: func(params map[string]any) error {
+			if strings.TrimSpace(stringValue(params["external_id"])) == "" {
+				return fmt.Errorf("external_id is required")
+			}
+			return nil
+		},
+	})
+
 	actionCompiler := actionplan.NewCompiler(actionRegistry, clock, ids)
 	actionValidator := actionplan.NewValidator(actionRegistry)
 	actionPlanService := actionplan.NewService(actionCompiler, actionValidator, eventLog, clock, ids)
@@ -212,7 +227,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	executionRunner := executionruntime.NewRunner(executionRepo, executionWAL, actionExecutor, eventLog, clock, ids, trustService)
 	executionRuntime := executionruntime.NewService(executionRunner)
 
-	defaultQueue := workplan.WorkQueue{ID: "default-intake", Name: "Default Intake", Department: "operations", Purpose: "Default operational intake for resolved cases", AllowedCaseKinds: []string{"workflow.action"}}
+	defaultQueue := workplan.WorkQueue{ID: "default-intake", Name: "Default Intake", Department: "operations", Purpose: "Default operational intake for resolved cases", AllowedCaseKinds: []string{"workflow.action", "container_incident_detected"}}
 	if _, ok, err := baseQueueRepo.GetQueue(context.Background(), defaultQueue.ID); err != nil {
 		return nil, fmt.Errorf("load default queue: %w", err)
 	} else if !ok {
@@ -225,7 +240,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	coordinator := workplan.NewCoordinator(coordinationRepo, eventLog, clock, ids)
 	workService := workplan.NewService(queueRepo, assignmentRouter, planner, coordinator, eventLog, clock, ids)
 
-	defaultEmployee := employee.DigitalEmployee{ID: "employee-legacy-operator", Code: "legacy_operator_default", Role: "legacy_operator", Enabled: true, QueueMemberships: []string{defaultQueue.ID}, AllowedActionTypes: []actionplan.ActionType{"legacy_workflow_action"}, AllowedCommandTypes: []string{"workflow.action"}, PolicyProfile: "default", ExecutionProfile: "default", CreatedAt: clock.Now(), UpdatedAt: clock.Now()}
+	defaultEmployee := employee.DigitalEmployee{ID: "employee-legacy-operator", Code: "legacy_operator_default", Role: "legacy_operator", Enabled: true, QueueMemberships: []string{defaultQueue.ID}, AllowedActionTypes: []actionplan.ActionType{"legacy_workflow_action", "external_incident_followup"}, AllowedCommandTypes: []string{"workflow.action", "container_incident_detected"}, PolicyProfile: "default", ExecutionProfile: "default", CreatedAt: clock.Now(), UpdatedAt: clock.Now()}
 	if _, ok, err := baseEmployeeDirectory.GetEmployee(context.Background(), defaultEmployee.ID); err != nil {
 		return nil, fmt.Errorf("load default employee: %w", err)
 	} else if !ok {
@@ -252,7 +267,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	if _, ok, err := baseProfileRepo.GetProfileByActor(context.Background(), defaultEmployee.ID); err != nil {
 		return nil, fmt.Errorf("load competency profile: %w", err)
 	} else if !ok {
-		if err := profileRepo.SaveProfile(context.Background(), profile.CompetencyProfile{ID: "profile-legacy-operator", ActorID: defaultEmployee.ID, Name: "Legacy Operator", MaxComplexity: 10, PreferredWorkKinds: []string{"workflow.action"}}); err != nil {
+		if err := profileRepo.SaveProfile(context.Background(), profile.CompetencyProfile{ID: "profile-legacy-operator", ActorID: defaultEmployee.ID, Name: "Legacy Operator", MaxComplexity: 10, PreferredWorkKinds: []string{"workflow.action", "container_incident_detected"}}); err != nil {
 			return nil, fmt.Errorf("seed competency profile: %w", err)
 		}
 	}
@@ -264,11 +279,15 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		if err := profileRepo.SaveRequirement(context.Background(), profile.CapabilityRequirement{ActionType: "legacy_workflow_action", CapabilityCodes: []string{"workflow.execute"}, MinimumLevel: 1}); err != nil {
 			return nil, fmt.Errorf("seed capability requirement: %w", err)
 		}
+		if err := profileRepo.SaveRequirement(context.Background(), profile.CapabilityRequirement{ActionType: "external_incident_followup", CapabilityCodes: []string{"workflow.execute"}, MinimumLevel: 1}); err != nil {
+			return nil, fmt.Errorf("seed integration capability requirement: %w", err)
+		}
 	}
 
 	employeeSelector := employee.NewSelectorWithMatcher(employeeDirectory, profile.NewMatcher(profileRepo, profileRepo, capabilityRepo, capabilityRepo, trustService))
 	employeeService := employee.NewService(assignmentRepo, employeeSelector, executionRuntime, eventLog, clock, ids, trustService)
 	controlPlaneService := controlplane.NewService(caseRepo, queueRepo, coordinationRepo, policyRepo, proposalRepo, employeeDirectory, trustRepo, profileRepo, baseCapabilityRepo, executionRepo, executionWAL, eventLog, coordinator)
+	integrationService := integration.NewService(eventLog, commandBus, caseService, workService, coordinator, policyService, constraintsService, actionPlanService, employeeDirectory, employeeService, trustRepo, profileRepo, integration.NewInMemoryProcessedIncidentStore(), clock, ids)
 	if persistMgr != nil && persistMgr.Enabled() {
 		if err := persistMgr.SaveSnapshot(context.Background()); err != nil {
 			return nil, fmt.Errorf("save runtime snapshot: %w", err)
@@ -280,7 +299,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	}
 	st.Blob = &blob.LocalBlobStore{Root: cfg.FilesRoot}
 
-	return &BootstrapResult{Storage: st, EventLog: eventLog, CommandBus: commandBus, CaseRepo: caseRepo, CaseResolver: caseResolver, CaseService: caseService, QueueRepo: queueRepo, PlanRepo: planRepo, CoordinationRepo: coordinationRepo, AssignmentRouter: assignmentRouter, Planner: planner, Coordinator: coordinator, WorkService: workService, PolicyRepo: policyRepo, PolicyEvaluator: policyEvaluator, PolicyService: policyService, ConstraintsRepo: constraintsRepo, ConstraintsPlanner: constraintsPlanner, ConstraintsService: constraintsService, ActionRegistry: actionRegistry, ActionCompiler: actionCompiler, ActionValidator: actionValidator, ActionPlanService: actionPlanService, ProposalRepo: proposalRepo, ProposalValidator: proposalValidator, ProposalCompiler: proposalCompiler, ProposalService: proposalService, EmployeeDirectory: employeeDirectory, AssignmentRepo: assignmentRepo, EmployeeSelector: employeeSelector, EmployeeService: employeeService, TrustRepo: trustRepo, TrustScorer: trustScorer, TrustService: trustService, ExecutionRepo: executionRepo, ExecutionWAL: executionWAL, ActionExecutor: actionExecutor, ExecutionRunner: executionRunner, ExecutionRuntime: executionRuntime, ControlPlane: controlPlaneService, Config: cfg}, nil
+	return &BootstrapResult{Storage: st, EventLog: eventLog, CommandBus: commandBus, CaseRepo: caseRepo, CaseResolver: caseResolver, CaseService: caseService, QueueRepo: queueRepo, PlanRepo: planRepo, CoordinationRepo: coordinationRepo, AssignmentRouter: assignmentRouter, Planner: planner, Coordinator: coordinator, WorkService: workService, PolicyRepo: policyRepo, PolicyEvaluator: policyEvaluator, PolicyService: policyService, ConstraintsRepo: constraintsRepo, ConstraintsPlanner: constraintsPlanner, ConstraintsService: constraintsService, ActionRegistry: actionRegistry, ActionCompiler: actionCompiler, ActionValidator: actionValidator, ActionPlanService: actionPlanService, ProposalRepo: proposalRepo, ProposalValidator: proposalValidator, ProposalCompiler: proposalCompiler, ProposalService: proposalService, EmployeeDirectory: employeeDirectory, AssignmentRepo: assignmentRepo, EmployeeSelector: employeeSelector, EmployeeService: employeeService, TrustRepo: trustRepo, TrustScorer: trustScorer, TrustService: trustService, ExecutionRepo: executionRepo, ExecutionWAL: executionWAL, ActionExecutor: actionExecutor, ExecutionRunner: executionRunner, ExecutionRuntime: executionRuntime, ControlPlane: controlPlaneService, IntegrationService: integrationService, Config: cfg}, nil
 }
 
 func tern(condition bool, yes string, no string) string {
