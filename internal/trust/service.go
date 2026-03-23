@@ -3,7 +3,6 @@ package trust
 import (
 	"context"
 	"fmt"
-	"strings"
 )
 
 type trustService struct {
@@ -22,7 +21,8 @@ func (s *trustService) RecordOutcome(ctx context.Context, outcome ExecutionOutco
 	if s.scorer == nil {
 		return TrustProfile{}, fmt.Errorf("trust scorer is nil")
 	}
-	if strings.TrimSpace(outcome.ActorID) == "" {
+	outcome.ActorID = normalizeActorID(outcome.ActorID)
+	if outcome.ActorID == "" {
 		return TrustProfile{}, fmt.Errorf("actor id is required")
 	}
 
@@ -44,7 +44,8 @@ func (s *trustService) GetTrustProfile(ctx context.Context, actorID string) (Tru
 	if s.repo == nil {
 		return TrustProfile{}, false, fmt.Errorf("trust repository is nil")
 	}
-	if strings.TrimSpace(actorID) == "" {
+	actorID = normalizeActorID(actorID)
+	if actorID == "" {
 		return TrustProfile{}, false, nil
 	}
 	return s.repo.GetByActor(ctx, actorID)

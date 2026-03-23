@@ -17,8 +17,12 @@ func NewInMemoryRepository() *InMemoryRepository {
 	return &InMemoryRepository{byActor: map[string]TrustProfile{}}
 }
 
+func normalizeActorID(actorID string) string {
+	return strings.TrimSpace(actorID)
+}
+
 func (r *InMemoryRepository) Save(_ context.Context, p TrustProfile) error {
-	actorID := strings.TrimSpace(p.ActorID)
+	actorID := normalizeActorID(p.ActorID)
 	if actorID == "" {
 		return fmt.Errorf("actor id is required")
 	}
@@ -34,7 +38,7 @@ func (r *InMemoryRepository) Save(_ context.Context, p TrustProfile) error {
 }
 
 func (r *InMemoryRepository) GetByActor(_ context.Context, actorID string) (TrustProfile, bool, error) {
-	actorID = strings.TrimSpace(actorID)
+	actorID = normalizeActorID(actorID)
 	if actorID == "" {
 		return TrustProfile{}, false, nil
 	}

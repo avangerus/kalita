@@ -68,3 +68,17 @@ func TestInMemoryRepositoryRejectsEmptyActorID(t *testing.T) {
 		t.Fatal("expected error for empty actor id")
 	}
 }
+
+func TestInMemoryRepositoryNormalizesActorID(t *testing.T) {
+	repo := NewInMemoryRepository()
+	if err := repo.Save(context.Background(), TrustProfile{ActorID: " actor-1 ", TrustLevel: TrustLow}); err != nil {
+		t.Fatalf("Save error = %v", err)
+	}
+	got, ok, err := repo.GetByActor(context.Background(), "actor-1")
+	if err != nil {
+		t.Fatalf("GetByActor error = %v", err)
+	}
+	if !ok || got.ActorID != "actor-1" {
+		t.Fatalf("GetByActor = %#v, %v", got, ok)
+	}
+}
