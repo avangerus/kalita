@@ -22,18 +22,15 @@ const (
 )
 
 type TrustProfile struct {
-	ActorID string
-
+	ActorID               string
 	CompletedExecutions   int
 	FailedExecutions      int
 	CompensatedExecutions int
 	ApprovalRequests      int
 	ApprovedExecutions    int
-
-	TrustLevel   TrustLevel
-	AutonomyTier AutonomyTier
-
-	UpdatedAt time.Time
+	TrustLevel            TrustLevel
+	AutonomyTier          AutonomyTier
+	UpdatedAt             time.Time
 }
 
 type ExecutionOutcome struct {

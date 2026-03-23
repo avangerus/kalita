@@ -6,9 +6,20 @@ type DeterministicScorer struct {
 	now func() time.Time
 }
 
+func NewScorer() Scorer {
+	return NewScorerWithClock(func() time.Time { return time.Now().UTC() })
+}
+
+func NewScorerWithClock(now func() time.Time) Scorer {
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	return &DeterministicScorer{now: now}
+}
+
 func NewDeterministicScorer(now func() time.Time) *DeterministicScorer {
 	if now == nil {
-		now = time.Now
+		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &DeterministicScorer{now: now}
 }
@@ -56,13 +67,24 @@ func deriveTrust(profile TrustProfile) (TrustLevel, AutonomyTier) {
 		trustLevel = TrustMedium
 		autonomyTier = AutonomySupervised
 	}
+
 	if profile.CompletedExecutions >= 10 && profile.FailedExecutions <= 1 && profile.CompensatedExecutions == 0 {
 		trustLevel = TrustHigh
 		autonomyTier = AutonomyStandard
 	}
+
 	if profile.FailedExecutions >= 2 {
 		trustLevel = TrustLow
 		autonomyTier = AutonomyRestricted
+	}
+
+	if profile.CompensatedExecutions >= 1 && trustLevel == TrustHigh {
+		trustLevel = TrustMedium
+		autonomyTier = AutonomySupervised
+		if profile.FailedExecutions >= 2 {
+			trustLevel = TrustLow
+			autonomyTier = AutonomyRestricted
+		}
 	}
 
 	return trustLevel, autonomyTier
