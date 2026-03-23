@@ -8,9 +8,20 @@ import (
 	"kalita/internal/workplan"
 )
 
-type deterministicSelector struct{ directory Directory }
+type ActorMatcher interface {
+	MatchActor(ctx context.Context, wi workplan.WorkItem, plan actionplan.ActionPlan, actors []DigitalEmployee) (DigitalEmployee, string, error)
+}
+
+type deterministicSelector struct {
+	directory Directory
+	matcher   ActorMatcher
+}
 
 func NewSelector(directory Directory) Selector { return &deterministicSelector{directory: directory} }
+
+func NewSelectorWithMatcher(directory Directory, matcher ActorMatcher) Selector {
+	return &deterministicSelector{directory: directory, matcher: matcher}
+}
 
 func (s *deterministicSelector) SelectForWorkItem(ctx context.Context, wi workplan.WorkItem, plan actionplan.ActionPlan) (DigitalEmployee, string, error) {
 	if s.directory == nil {
@@ -19,6 +30,9 @@ func (s *deterministicSelector) SelectForWorkItem(ctx context.Context, wi workpl
 	employees, err := s.directory.ListEmployeesByQueue(ctx, wi.QueueID)
 	if err != nil {
 		return DigitalEmployee{}, "", err
+	}
+	if s.matcher != nil {
+		return s.matcher.MatchActor(ctx, wi, plan, employees)
 	}
 	for _, employee := range employees {
 		if !employee.Enabled {
