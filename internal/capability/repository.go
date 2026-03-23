@@ -86,3 +86,15 @@ func cloneCapability(c Capability) Capability {
 	}
 	return out
 }
+
+func (r *InMemoryCapabilityRepository) ListActorCapabilities(_ context.Context) ([]ActorCapability, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]ActorCapability, 0)
+	for _, assignments := range r.actorByID {
+		for _, assignment := range assignments {
+			out = append(out, assignment)
+		}
+	}
+	return out, nil
+}

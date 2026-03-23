@@ -105,3 +105,27 @@ func cloneStep(s StepExecution) StepExecution {
 	}
 	return out
 }
+
+func (r *InMemoryExecutionRepository) ListSessions(_ context.Context) ([]ExecutionSession, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]ExecutionSession, 0, len(r.sessions))
+	for _, sessionIDs := range r.sessionsByWorkItem {
+		for _, id := range sessionIDs {
+			out = append(out, r.sessions[id])
+		}
+	}
+	return out, nil
+}
+
+func (r *InMemoryExecutionRepository) ListSteps(_ context.Context) ([]StepExecution, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]StepExecution, 0, len(r.steps))
+	for _, stepIDs := range r.stepsBySession {
+		for _, id := range stepIDs {
+			out = append(out, cloneStep(r.steps[id]))
+		}
+	}
+	return out, nil
+}

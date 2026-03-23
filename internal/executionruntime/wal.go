@@ -39,3 +39,13 @@ func cloneWALRecord(r WALRecord) WALRecord {
 	}
 	return out
 }
+
+func (w *InMemoryWAL) ListAll(_ context.Context) ([]WALRecord, error) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	out := make([]WALRecord, 0, len(w.records))
+	for _, record := range w.records {
+		out = append(out, cloneWALRecord(record))
+	}
+	return out, nil
+}

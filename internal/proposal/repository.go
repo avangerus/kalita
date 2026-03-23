@@ -126,3 +126,13 @@ func removeString(items []string, target string) []string {
 	}
 	return out
 }
+
+func (r *InMemoryRepository) ListAll(_ context.Context) ([]Proposal, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]Proposal, 0, len(r.proposalOrder))
+	for _, id := range r.proposalOrder {
+		out = append(out, cloneProposal(r.proposalsByID[id]))
+	}
+	return out, nil
+}

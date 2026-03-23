@@ -161,3 +161,13 @@ func removeString(items []string, target string) []string {
 	}
 	return out
 }
+
+func (r *InMemoryAssignmentRepository) ListAssignments(_ context.Context) ([]Assignment, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]Assignment, 0, len(r.assignmentOrder))
+	for _, id := range r.assignmentOrder {
+		out = append(out, r.assignmentsByID[id])
+	}
+	return out, nil
+}
