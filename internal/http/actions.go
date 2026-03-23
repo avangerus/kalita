@@ -11,6 +11,7 @@ import (
 	"kalita/internal/actionplan"
 	"kalita/internal/caseruntime"
 	"kalita/internal/command"
+	"kalita/internal/employee"
 	"kalita/internal/eventcore"
 	"kalita/internal/executioncontrol"
 	"kalita/internal/executionruntime"
@@ -56,14 +57,14 @@ type actionPlanService interface {
 	CreatePlan(ctx context.Context, workItemID string, caseID string, input map[string]any) (actionplan.ActionPlan, error)
 }
 
-type executionRuntimeService interface {
-	StartExecution(ctx context.Context, plan actionplan.ActionPlan, constraints executioncontrol.ExecutionConstraints, metadata executionruntime.RunMetadata) (executionruntime.ExecutionSession, error)
+type employeeService interface {
+	AssignAndStartExecution(ctx context.Context, wi workplan.WorkItem, plan actionplan.ActionPlan, constraints executioncontrol.ExecutionConstraints, metadata employee.RunMetadata) (employee.Assignment, executionruntime.ExecutionSession, error)
 }
 
-func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, executionRuntimeServices ...executionRuntimeService) gin.HandlerFunc {
-	var executionRuntimeService executionRuntimeService
-	if len(executionRuntimeServices) > 0 {
-		executionRuntimeService = executionRuntimeServices[0]
+func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService commandCaseResolver, workService workItemIntakeService, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, employeeServices ...employeeService) gin.HandlerFunc {
+	var employeeService employeeService
+	if len(employeeServices) > 0 {
+		employeeService = employeeServices[0]
 	}
 	return func(c *gin.Context) {
 		fqn, action, req, ok := parseActionRequest(c, storage)
@@ -170,9 +171,9 @@ func ActionHandlerWithServices(storage *runtime.Storage, commandBus command.Comm
 								}}})
 								return
 							}
-							if executionRuntimeService != nil {
+							if employeeService != nil {
 								runtimeCtx := executionruntime.ContextWithExecution(c.Request.Context(), executionruntime.ExecutionContext{ExecutionID: intakeResult.Command.ExecutionID, CorrelationID: intakeResult.Command.CorrelationID, CausationID: intakeResult.Command.ID})
-								if _, err := executionRuntimeService.StartExecution(runtimeCtx, plan, constraints, executionruntime.RunMetadata{CaseID: intakeResult.Case.ID, WorkItemID: intakeResult.WorkItem.ID, CoordinationDecisionID: intakeResult.CoordinationDecision.ID, PolicyDecisionID: policyDecision.ID}); err != nil {
+								if _, _, err := employeeService.AssignAndStartExecution(runtimeCtx, intakeResult.WorkItem, plan, constraints, employee.RunMetadata{CaseID: intakeResult.Case.ID, QueueID: intakeResult.WorkItem.QueueID, CoordinationDecisionID: intakeResult.CoordinationDecision.ID, PolicyDecisionID: policyDecision.ID}); err != nil {
 									c.JSON(http.StatusBadRequest, gin.H{"errors": []validation.FieldError{{Code: validation.ErrTypeMismatch, Field: "action", Message: err.Error()}}})
 									return
 								}

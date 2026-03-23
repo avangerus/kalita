@@ -13,6 +13,7 @@ import (
 	"kalita/internal/actionplan"
 	"kalita/internal/caseruntime"
 	"kalita/internal/command"
+	"kalita/internal/employee"
 	"kalita/internal/eventcore"
 	"kalita/internal/executioncontrol"
 	"kalita/internal/executionruntime"
@@ -300,21 +301,24 @@ func (s *staticActionPlanService) CreatePlan(context.Context, string, string, ma
 	return s.plan, s.err
 }
 
-type staticExecutionRuntimeService struct {
+type staticEmployeeService struct {
+	assignment  employee.Assignment
 	session     executionruntime.ExecutionSession
 	err         error
 	calls       int
 	plans       []actionplan.ActionPlan
 	constraints []executioncontrol.ExecutionConstraints
-	metadata    []executionruntime.RunMetadata
+	metadata    []employee.RunMetadata
+	workItems   []workplan.WorkItem
 }
 
-func (s *staticExecutionRuntimeService) StartExecution(_ context.Context, plan actionplan.ActionPlan, constraints executioncontrol.ExecutionConstraints, metadata executionruntime.RunMetadata) (executionruntime.ExecutionSession, error) {
+func (s *staticEmployeeService) AssignAndStartExecution(_ context.Context, wi workplan.WorkItem, plan actionplan.ActionPlan, constraints executioncontrol.ExecutionConstraints, metadata employee.RunMetadata) (employee.Assignment, executionruntime.ExecutionSession, error) {
 	s.calls++
+	s.workItems = append(s.workItems, wi)
 	s.plans = append(s.plans, plan)
 	s.constraints = append(s.constraints, constraints)
 	s.metadata = append(s.metadata, metadata)
-	return s.session, s.err
+	return s.assignment, s.session, s.err
 }
 
 func TestActionHandlerResolvesCaseBeforeLegacyFlow(t *testing.T) {
@@ -679,7 +683,7 @@ func TestActionHandlerReturnsValidationErrorWhenCommandAdmissionFails(t *testing
 	}
 }
 
-func TestActionHandlerPolicyAllowStartsExecutionSession(t *testing.T) {
+func TestActionHandlerPolicyAllowAssignsEmployeeAndStartsExecutionSession(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -697,9 +701,9 @@ func TestActionHandlerPolicyAllowStartsExecutionSession(t *testing.T) {
 	planner := workplan.NewPlanner(workplan.NewInMemoryPlanRepository(), eventLog, clock, ids)
 	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, "default-intake"), planner, workplan.NewCoordinator(workplan.NewInMemoryCoordinationRepository(), eventLog, clock, ids), eventLog, clock, ids)
 	actionPlanSvc := &staticActionPlanService{plan: actionplan.ActionPlan{ID: "action-plan-1", Reason: "legacy workflow action approved for execution", Actions: []actionplan.Action{{ID: "action-1", Type: "legacy_workflow_action", Params: map[string]any{"entity": "test.WorkflowTask", "record_id": rec.ID, "action": "submit"}, Reversibility: actionplan.ReversibilityIrreversible, Idempotency: actionplan.IdempotencyConditional, CreatedAt: clock.now}}, CreatedAt: clock.now}}
-	executionSvc := &staticExecutionRuntimeService{session: executionruntime.ExecutionSession{ID: "session-1", Status: executionruntime.ExecutionSessionSucceeded}}
+	employeeSvc := &staticEmployeeService{assignment: employee.Assignment{ID: "assignment-1", EmployeeID: "employee-1"}, session: executionruntime.ExecutionSession{ID: "session-1", Status: executionruntime.ExecutionSessionSucceeded}}
 	router := gin.New()
-	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService, staticPolicyService{decision: policy.PolicyDecision{ID: "pol-1", Outcome: policy.PolicyAllow, Reason: "allowed"}}, &staticConstraintsService{constraints: executioncontrol.ExecutionConstraints{ID: "constraints-1"}}, actionPlanSvc, executionSvc))
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService, staticPolicyService{decision: policy.PolicyDecision{ID: "pol-1", Outcome: policy.PolicyAllow, Reason: "allowed"}}, &staticConstraintsService{constraints: executioncontrol.ExecutionConstraints{ID: "constraints-1"}}, actionPlanSvc, employeeSvc))
 
 	body := map[string]any{"record_version": 3}
 	raw, _ := json.Marshal(body)
@@ -711,18 +715,18 @@ func TestActionHandlerPolicyAllowStartsExecutionSession(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
 	}
-	if executionSvc.calls != 1 {
-		t.Fatalf("execution calls = %d", executionSvc.calls)
+	if employeeSvc.calls != 1 {
+		t.Fatalf("employee service calls = %d", employeeSvc.calls)
 	}
-	if len(executionSvc.constraints) != 1 || executionSvc.constraints[0].ID != "constraints-1" {
-		t.Fatalf("constraints = %#v", executionSvc.constraints)
+	if len(employeeSvc.constraints) != 1 || employeeSvc.constraints[0].ID != "constraints-1" {
+		t.Fatalf("constraints = %#v", employeeSvc.constraints)
 	}
-	if len(executionSvc.metadata) != 1 || executionSvc.metadata[0].WorkItemID != "work-1" || executionSvc.metadata[0].CaseID != "case-1" {
-		t.Fatalf("metadata = %#v", executionSvc.metadata)
+	if len(employeeSvc.metadata) != 1 || employeeSvc.workItems[0].ID != "work-1" || employeeSvc.metadata[0].CaseID != "case-1" || employeeSvc.metadata[0].QueueID != "default-intake" {
+		t.Fatalf("workItems=%#v metadata=%#v", employeeSvc.workItems, employeeSvc.metadata)
 	}
 }
 
-func TestActionHandlerExecutionStartupFailureReturnsValidationError(t *testing.T) {
+func TestActionHandlerNoEligibleEmployeeReturnsValidationError(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
@@ -739,9 +743,9 @@ func TestActionHandlerExecutionStartupFailureReturnsValidationError(t *testing.T
 	}
 	planner := workplan.NewPlanner(workplan.NewInMemoryPlanRepository(), eventLog, clock, ids)
 	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, "default-intake"), planner, workplan.NewCoordinator(workplan.NewInMemoryCoordinationRepository(), eventLog, clock, ids), eventLog, clock, ids)
-	executionSvc := &staticExecutionRuntimeService{err: errors.New("execution startup failed")}
+	employeeSvc := &staticEmployeeService{err: errors.New("no eligible digital employee")}
 	router := gin.New()
-	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService, staticPolicyService{decision: policy.PolicyDecision{ID: "pol-1", Outcome: policy.PolicyAllow, Reason: "allowed"}}, &staticConstraintsService{constraints: executioncontrol.ExecutionConstraints{ID: "constraints-1"}}, &staticActionPlanService{plan: actionplan.ActionPlan{ID: "action-plan-1", Reason: "ready", Actions: []actionplan.Action{{ID: "action-1", Type: "legacy_workflow_action", Params: map[string]any{"entity": "test.WorkflowTask", "record_id": rec.ID, "action": "submit"}, Reversibility: actionplan.ReversibilityIrreversible, Idempotency: actionplan.IdempotencyConditional, CreatedAt: clock.now}}, CreatedAt: clock.now}}, executionSvc))
+	router.POST("/api/:module/:entity/:id/_actions/:action", ActionHandlerWithServices(storage, commandBus, caseService, workService, staticPolicyService{decision: policy.PolicyDecision{ID: "pol-1", Outcome: policy.PolicyAllow, Reason: "allowed"}}, &staticConstraintsService{constraints: executioncontrol.ExecutionConstraints{ID: "constraints-1"}}, &staticActionPlanService{plan: actionplan.ActionPlan{ID: "action-plan-1", Reason: "ready", Actions: []actionplan.Action{{ID: "action-1", Type: "legacy_workflow_action", Params: map[string]any{"entity": "test.WorkflowTask", "record_id": rec.ID, "action": "submit"}, Reversibility: actionplan.ReversibilityIrreversible, Idempotency: actionplan.IdempotencyConditional, CreatedAt: clock.now}}, CreatedAt: clock.now}}, employeeSvc))
 
 	body := map[string]any{"record_version": 3}
 	raw, _ := json.Marshal(body)

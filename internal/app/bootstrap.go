@@ -12,6 +12,7 @@ import (
 	"kalita/internal/catalog"
 	"kalita/internal/command"
 	"kalita/internal/config"
+	"kalita/internal/employee"
 	"kalita/internal/eventcore"
 	"kalita/internal/executioncontrol"
 	"kalita/internal/executionruntime"
@@ -47,6 +48,10 @@ type BootstrapResult struct {
 	ActionCompiler     actionplan.Compiler
 	ActionValidator    actionplan.Validator
 	ActionPlanService  actionplan.Service
+	EmployeeDirectory  employee.Directory
+	AssignmentRepo     employee.AssignmentRepository
+	EmployeeSelector   employee.Selector
+	EmployeeService    employee.Service
 	ExecutionRepo      executionruntime.ExecutionRepository
 	ExecutionWAL       executionruntime.WAL
 	ActionExecutor     executionruntime.ActionExecutor
@@ -159,6 +164,26 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	actionExecutor := executionruntime.NewStubExecutor()
 	executionRunner := executionruntime.NewRunner(executionRepo, executionWAL, actionExecutor, eventLog, clock, ids)
 	executionRuntime := executionruntime.NewService(executionRunner)
+	employeeDirectory := employee.NewInMemoryDirectory()
+	assignmentRepo := employee.NewInMemoryAssignmentRepository()
+	employeeSelector := employee.NewSelector(employeeDirectory)
+	employeeService := employee.NewService(assignmentRepo, employeeSelector, executionRuntime, eventLog, clock, ids)
+	defaultEmployee := employee.DigitalEmployee{
+		ID:                  "employee-legacy-operator",
+		Code:                "legacy_operator_default",
+		Role:                "legacy_operator",
+		Enabled:             true,
+		QueueMemberships:    []string{defaultQueue.ID},
+		AllowedActionTypes:  []actionplan.ActionType{"legacy_workflow_action"},
+		AllowedCommandTypes: []string{"workflow.action"},
+		PolicyProfile:       "default",
+		ExecutionProfile:    "default",
+		CreatedAt:           clock.Now(),
+		UpdatedAt:           clock.Now(),
+	}
+	if err := employeeDirectory.SaveEmployee(context.Background(), defaultEmployee); err != nil {
+		return nil, fmt.Errorf("seed default employee: %w", err)
+	}
 	if strings.EqualFold(cfg.BlobDriver, "s3") {
 		log.Printf("[warn] blob=s3 ещё не подключён — используем локальное хранилище (root=%q)\n", cfg.FilesRoot)
 	}
@@ -188,6 +213,10 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		ActionCompiler:     actionCompiler,
 		ActionValidator:    actionValidator,
 		ActionPlanService:  actionPlanService,
+		EmployeeDirectory:  employeeDirectory,
+		AssignmentRepo:     assignmentRepo,
+		EmployeeSelector:   employeeSelector,
+		EmployeeService:    employeeService,
 		ExecutionRepo:      executionRepo,
 		ExecutionWAL:       executionWAL,
 		ActionExecutor:     actionExecutor,
