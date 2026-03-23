@@ -31,6 +31,7 @@ type Case struct {
 type CaseRepository interface {
 	Save(ctx context.Context, c Case) error
 	GetByID(ctx context.Context, id string) (Case, bool, error)
+	List(ctx context.Context) ([]Case, error)
 	FindByCorrelation(ctx context.Context, correlationID string) (Case, bool, error)
 	FindBySubjectRef(ctx context.Context, subjectRef string) (Case, bool, error)
 }

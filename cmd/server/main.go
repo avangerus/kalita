@@ -18,5 +18,5 @@ func main() {
 
 	// HTTP
 	fmt.Printf("Стартуем сервер Kalita на :%s...\n", result.Config.Port)
-	http.RunServerWithServices(":"+result.Config.Port, result.Storage, result.CommandBus, result.CaseService, result.WorkService, result.Coordinator, result.PolicyService, result.ConstraintsService, result.ActionPlanService, result.ProposalService, result.EmployeeDirectory, result.EmployeeService)
+	http.RunServerWithServices(":"+result.Config.Port, result.Storage, result.CommandBus, result.CaseService, result.WorkService, result.Coordinator, result.PolicyService, result.ConstraintsService, result.ActionPlanService, result.ProposalService, result.EmployeeDirectory, result.ControlPlane, result.EmployeeService)
 }

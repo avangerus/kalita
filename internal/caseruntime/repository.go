@@ -54,6 +54,16 @@ func (r *InMemoryCaseRepository) GetByID(_ context.Context, id string) (Case, bo
 	return cloneCase(c), true, nil
 }
 
+func (r *InMemoryCaseRepository) List(_ context.Context) ([]Case, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]Case, 0, len(r.byID))
+	for _, c := range r.byID {
+		out = append(out, cloneCase(c))
+	}
+	return out, nil
+}
+
 func (r *InMemoryCaseRepository) FindByCorrelation(ctx context.Context, correlationID string) (Case, bool, error) {
 	if correlationID == "" {
 		return Case{}, false, nil

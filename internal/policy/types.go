@@ -55,6 +55,7 @@ type PolicyRepository interface {
 
 	SaveApprovalRequest(ctx context.Context, r ApprovalRequest) error
 	GetApprovalRequest(ctx context.Context, id string) (ApprovalRequest, bool, error)
+	ListApprovalRequests(ctx context.Context) ([]ApprovalRequest, error)
 	ListApprovalRequestsByCoordinationDecision(ctx context.Context, coordinationDecisionID string) ([]ApprovalRequest, error)
 }
 
