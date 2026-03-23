@@ -132,3 +132,13 @@ func removeID(ids []string, id string) []string {
 	}
 	return out
 }
+
+func (r *InMemoryRepository) ListDecisions(_ context.Context) ([]PolicyDecision, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]PolicyDecision, 0, len(r.decisionOrder))
+	for _, id := range r.decisionOrder {
+		out = append(out, r.decisionsByID[id])
+	}
+	return out, nil
+}

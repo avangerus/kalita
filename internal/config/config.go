@@ -9,12 +9,15 @@ import (
 )
 
 type Config struct {
-	Port        string `json:"port"`
-	DemoMode    bool   `json:"demoMode"`
-	DSLDir      string `json:"dslDir"`
-	EnumsDir    string `json:"enumsDir"`
-	DBURL       string `json:"dbUrl"`
-	AutoMigrate bool   `json:"autoMigrate"`
+	Port               string `json:"port"`
+	DemoMode           bool   `json:"demoMode"`
+	DSLDir             string `json:"dslDir"`
+	EnumsDir           string `json:"enumsDir"`
+	DBURL              string `json:"dbUrl"`
+	AutoMigrate        bool   `json:"autoMigrate"`
+	PersistenceEnabled bool   `json:"persistenceEnabled"`
+	PersistenceDir     string `json:"persistenceDir"`
+	SnapshotEvery      int    `json:"snapshotEvery"`
 
 	// Файлы (локально) и задел под S3
 	BlobDriver string `json:"blobDriver"` // "local" (default) | "s3"
@@ -29,12 +32,15 @@ type Config struct {
 
 func def() Config {
 	return Config{
-		Port:        "8080",
-		DemoMode:    false,
-		DSLDir:      "dsl",
-		EnumsDir:    "reference/enums",
-		DBURL:       "",
-		AutoMigrate: false,
+		Port:               "8080",
+		DemoMode:           false,
+		DSLDir:             "dsl",
+		EnumsDir:           "reference/enums",
+		DBURL:              "",
+		AutoMigrate:        false,
+		PersistenceEnabled: false,
+		PersistenceDir:     "",
+		SnapshotEvery:      50,
 
 		BlobDriver: "local",
 		FilesRoot:  "uploads",
@@ -95,6 +101,13 @@ func LoadWithPath(jsonPath string) Config {
 	cfg.EnumsDir = getenv("KALITA_ENUMS_DIR", cfg.EnumsDir)
 	cfg.DBURL = getenv("KALITA_DB_URL", cfg.DBURL)
 	cfg.AutoMigrate = getenvBool("KALITA_AUTO_MIGRATE", cfg.AutoMigrate)
+	cfg.PersistenceEnabled = getenvBool("KALITA_PERSISTENCE_ENABLED", cfg.PersistenceEnabled)
+	cfg.PersistenceDir = getenv("KALITA_PERSISTENCE_DIR", cfg.PersistenceDir)
+	if v := getenv("KALITA_SNAPSHOT_EVERY", ""); strings.TrimSpace(v) != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.SnapshotEvery = n
+		}
+	}
 
 	cfg.BlobDriver = getenv("KALITA_BLOB_DRIVER", cfg.BlobDriver)
 	cfg.FilesRoot = getenv("KALITA_FILES_ROOT", cfg.FilesRoot)
@@ -113,6 +126,9 @@ func LoadWithPath(jsonPath string) Config {
 	enums := fs.String("enums", cfg.EnumsDir, "Path to enums directory")
 	db := fs.String("db", cfg.DBURL, "Postgres URL (empty = in-memory)")
 	auto := fs.String("auto-migrate", strconv.FormatBool(cfg.AutoMigrate), "Auto-migrate add-only (true/false)")
+	persistenceEnabled := fs.String("persistence-enabled", strconv.FormatBool(cfg.PersistenceEnabled), "Enable file-based persistence (true/false)")
+	persistenceDir := fs.String("persistence-dir", cfg.PersistenceDir, "Persistence working directory")
+	snapshotEvery := fs.String("snapshot-every", strconv.Itoa(cfg.SnapshotEvery), "Snapshot cadence in persisted events")
 
 	blob := fs.String("blob-driver", cfg.BlobDriver, "Blob driver (local/s3)")
 	files := fs.String("files-root", cfg.FilesRoot, "Local files root (if blob=local)")
@@ -121,7 +137,7 @@ func LoadWithPath(jsonPath string) Config {
 	s3p := fs.String("s3-prefix", cfg.S3Prefix, "S3 key prefix")
 	s3e := fs.String("s3-endpoint", cfg.S3Endpoint, "S3 custom endpoint")
 
-	_ = fs.Parse(os.Args[1:])
+	_ = fs.Parse(filterKnownArgs(os.Args[1:]))
 
 	// Если через флаг передали другой конфиг — перечитаем
 	if *configPath != jsonPath {
@@ -138,6 +154,13 @@ func LoadWithPath(jsonPath string) Config {
 	cfg.AutoMigrate = strings.EqualFold(strings.TrimSpace(*auto), "true") ||
 		strings.EqualFold(strings.TrimSpace(*auto), "1") ||
 		strings.EqualFold(strings.TrimSpace(*auto), "yes")
+	cfg.PersistenceEnabled = strings.EqualFold(strings.TrimSpace(*persistenceEnabled), "true") ||
+		strings.EqualFold(strings.TrimSpace(*persistenceEnabled), "1") ||
+		strings.EqualFold(strings.TrimSpace(*persistenceEnabled), "yes")
+	cfg.PersistenceDir = strings.TrimSpace(*persistenceDir)
+	if n, err := strconv.Atoi(strings.TrimSpace(*snapshotEvery)); err == nil {
+		cfg.SnapshotEvery = n
+	}
 
 	cfg.BlobDriver = strings.TrimSpace(*blob)
 	cfg.FilesRoot = strings.TrimSpace(*files)
@@ -147,4 +170,15 @@ func LoadWithPath(jsonPath string) Config {
 	cfg.S3Endpoint = strings.TrimSpace(*s3e)
 
 	return cfg
+}
+
+func filterKnownArgs(args []string) []string {
+	filtered := make([]string, 0, len(args))
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-test.") {
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	return filtered
 }

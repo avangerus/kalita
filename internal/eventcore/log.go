@@ -55,3 +55,13 @@ func (l *InMemoryEventLog) ListByCorrelation(_ context.Context, correlationID st
 
 	return events, executionEvents, nil
 }
+
+func (l *InMemoryEventLog) ListAll(_ context.Context) ([]Event, []ExecutionEvent, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	events := make([]Event, len(l.events))
+	copy(events, l.events)
+	executionEvents := make([]ExecutionEvent, len(l.executionEvents))
+	copy(executionEvents, l.executionEvents)
+	return events, executionEvents, nil
+}

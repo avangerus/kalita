@@ -87,3 +87,13 @@ func (r *InMemoryCoordinationRepository) listByIDs(ids []string) []CoordinationD
 	}
 	return out
 }
+
+func (r *InMemoryCoordinationRepository) ListAll(_ context.Context) ([]CoordinationDecision, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]CoordinationDecision, 0, len(r.decisionOrder))
+	for _, id := range r.decisionOrder {
+		out = append(out, r.decisionsByID[id])
+	}
+	return out, nil
+}
