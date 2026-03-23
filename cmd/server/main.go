@@ -19,16 +19,18 @@ func main() {
 	}
 
 	operatorService := result.ControlPlane
+	integrationService := result.IntegrationService
 	if result.Config.DemoMode {
 		demoResult, err := demo.RunAISOtkhodyDemoScenario(context.Background())
 		if err != nil {
 			panic(err)
 		}
 		operatorService = demoResult.ControlPlane
+		integrationService = demoResult.IntegrationService
 		fmt.Printf("Kalita demo mode enabled at /demo with seeded case %s and approval %s\n", demoResult.CaseID, demoResult.ApprovalRequestID)
 	}
 
 	// HTTP
 	fmt.Printf("Стартуем сервер Kalita на :%s...\n", result.Config.Port)
-	http.RunServerWithServices(":"+result.Config.Port, result.Storage, result.CommandBus, result.CaseService, result.WorkService, result.Coordinator, result.PolicyService, result.ConstraintsService, result.ActionPlanService, result.ProposalService, result.EmployeeDirectory, operatorService, result.EmployeeService)
+	http.RunServerWithServices(":"+result.Config.Port, result.Storage, result.CommandBus, result.CaseService, result.WorkService, result.Coordinator, result.PolicyService, result.ConstraintsService, result.ActionPlanService, result.ProposalService, result.EmployeeDirectory, operatorService, integrationService, result.EmployeeService)
 }

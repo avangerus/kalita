@@ -15,6 +15,7 @@ import (
 	"kalita/internal/eventcore"
 	"kalita/internal/executioncontrol"
 	"kalita/internal/executionruntime"
+	"kalita/internal/integration"
 	"kalita/internal/policy"
 	"kalita/internal/profile"
 	"kalita/internal/proposal"
@@ -59,6 +60,7 @@ type ScenarioResult struct {
 	ExecutionID        string
 	BaseTime           time.Time
 	CaseRepo           caseruntime.CaseRepository
+	IntegrationService integration.IncidentService
 	QueueRepo          *workplan.InMemoryQueueRepository
 	CoordinationRepo   *workplan.InMemoryCoordinationRepository
 	PolicyRepo         *policy.InMemoryRepository
@@ -92,6 +94,7 @@ type scenarioRuntime struct {
 	policyService    *policy.PolicyService
 	controlPlane     controlplane.Service
 	runtimeService   executionruntime.Service
+	integrationSvc   integration.IncidentService
 }
 
 type scenarioOutcome struct {
@@ -178,10 +181,14 @@ func newScenarioRuntime(clock *scriptedClock, ids *fixedIDs) (*scenarioRuntime, 
 	coordinator := workplan.NewCoordinator(coordinationRepo, eventLog, clock, ids)
 	workService := workplan.NewService(queueRepo, workplan.NewRouter(queueRepo, DemoQueueID), planner, coordinator, eventLog, clock, ids)
 	policyService := policy.NewService(policyRepo, policy.NewEvaluator(), eventLog, clock, ids)
-	runner := executionruntime.NewRunner(executionRepo, wal, executionruntime.NewLegacyWorkflowActionExecutor(), eventLog, clock, ids, trustService)
+	runner := executionruntime.NewRunner(executionRepo, wal, executionruntime.NewStubExecutor(), eventLog, clock, ids, trustService)
 	runtimeService := executionruntime.NewService(runner)
 	controlPlaneService := controlplane.NewService(caseRepo, queueRepo, coordinationRepo, policyRepo, proposalRepo, directory, trustRepo, profileRepo, capRepo, executionRepo, wal, eventLog, coordinator)
-	return &scenarioRuntime{baseTime: baseTime, clock: clock, ids: ids, eventLog: eventLog, caseRepo: caseRepo, queueRepo: queueRepo, coordinationRepo: coordinationRepo, policyRepo: policyRepo, proposalRepo: proposalRepo, directory: directory, trustRepo: trustRepo, trustService: trustService, profileRepo: profileRepo, capRepo: capRepo, executionRepo: executionRepo, wal: wal, commandBus: commandBus, caseService: caseService, coordinator: coordinator, workService: workService, policyService: policyService, controlPlane: controlPlaneService, runtimeService: runtimeService}, nil
+	actionRegistry := actionplan.NewRegistry()
+	actionRegistry.Register(actionplan.ActionDefinition{Type: "external_incident_followup", Reversibility: actionplan.ReversibilityIrreversible, Idempotency: actionplan.IdempotencySafe, Validate: func(params map[string]any) error { return nil }})
+	actionPlanService := actionplan.NewService(actionplan.NewCompiler(actionRegistry, clock, ids), actionplan.NewValidator(actionRegistry), eventLog, clock, ids)
+	integrationSvc := integration.NewService(eventLog, commandBus, caseService, workService, coordinator, policyService, executioncontrol.NewService(executioncontrol.NewInMemoryConstraintsRepository(), executioncontrol.NewPlanner(), eventLog, clock, ids), actionPlanService, directory, employee.NewService(employee.NewInMemoryAssignmentRepository(), employee.NewSelector(directory), runtimeService, eventLog, clock, ids, trustService), trustRepo, profileRepo, integration.NewInMemoryProcessedIncidentStore(), clock, ids)
+	return &scenarioRuntime{baseTime: baseTime, clock: clock, ids: ids, eventLog: eventLog, caseRepo: caseRepo, queueRepo: queueRepo, coordinationRepo: coordinationRepo, policyRepo: policyRepo, proposalRepo: proposalRepo, directory: directory, trustRepo: trustRepo, trustService: trustService, profileRepo: profileRepo, capRepo: capRepo, executionRepo: executionRepo, wal: wal, commandBus: commandBus, caseService: caseService, coordinator: coordinator, workService: workService, policyService: policyService, controlPlane: controlPlaneService, runtimeService: runtimeService, integrationSvc: integrationSvc}, nil
 }
 
 func defaultDemoClock() *scriptedClock {
@@ -245,7 +252,9 @@ func (r *scenarioRuntime) runGenericScenario(ctx context.Context) (*ScenarioResu
 	if err != nil {
 		return nil, err
 	}
-	return r.resultFromOutcomes([]scenarioOutcome{outcome}), nil
+	result := r.resultFromOutcomes([]scenarioOutcome{outcome})
+	result.IntegrationService = r.integrationSvc
+	return result, nil
 }
 
 func (r *scenarioRuntime) runAISScenario(ctx context.Context) (*ScenarioResult, error) {
@@ -267,7 +276,9 @@ func (r *scenarioRuntime) runAISScenario(ctx context.Context) (*ScenarioResult, 
 	if err != nil {
 		return nil, err
 	}
-	return r.resultFromOutcomes([]scenarioOutcome{outcome}), nil
+	result := r.resultFromOutcomes([]scenarioOutcome{outcome})
+	result.IntegrationService = r.integrationSvc
+	return result, nil
 }
 
 func (r *scenarioRuntime) runAISMultiScenario(ctx context.Context) (*ScenarioResult, error) {
@@ -318,7 +329,9 @@ func (r *scenarioRuntime) runAISMultiScenario(ctx context.Context) (*ScenarioRes
 		outcomes = append(outcomes, outcome)
 	}
 	sort.Slice(outcomes, func(i, j int) bool { return outcomes[i].caseID < outcomes[j].caseID })
-	return r.resultFromOutcomes(outcomes), nil
+	result := r.resultFromOutcomes(outcomes)
+	result.IntegrationService = r.integrationSvc
+	return result, nil
 }
 
 type scenarioDefinition struct {
