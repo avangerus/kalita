@@ -19,8 +19,16 @@ func registerOperatorRoutes(group *gin.RouterGroup, svc controlplane.Service) {
 		payload, err := svc.ListCases(c.Request.Context())
 		respondOperator(c, payload, err)
 	})
+	operator.GET("/summary", func(c *gin.Context) {
+		payload, err := svc.GetSummary(c.Request.Context())
+		respondOperator(c, payload, err)
+	})
 	operator.GET("/cases/:id", func(c *gin.Context) {
 		payload, err := svc.GetCaseOverview(c.Request.Context(), c.Param("id"))
+		respondOperator(c, payload, err)
+	})
+	operator.GET("/cases/:id/timeline", func(c *gin.Context) {
+		payload, err := svc.GetCaseTimeline(c.Request.Context(), c.Param("id"))
 		respondOperator(c, payload, err)
 	})
 	operator.GET("/work-items", func(c *gin.Context) {

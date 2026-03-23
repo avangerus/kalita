@@ -8,6 +8,7 @@ import (
 	"kalita/internal/capability"
 	"kalita/internal/caseruntime"
 	"kalita/internal/employee"
+	"kalita/internal/eventcore"
 	"kalita/internal/executionruntime"
 	"kalita/internal/policy"
 	"kalita/internal/profile"
@@ -131,7 +132,7 @@ func seededService(t *testing.T) Service {
 	must(t, wal.Append(ctx, executionruntime.WALRecord{ID: "wal-1", ExecutionSessionID: "exec-2", ActionID: "action-1", Type: executionruntime.WALStepIntent, CreatedAt: base.Add(11 * time.Minute)}))
 	must(t, wal.Append(ctx, executionruntime.WALRecord{ID: "wal-2", ExecutionSessionID: "exec-2", ActionID: "action-2", Type: executionruntime.WALStepResult, CreatedAt: base.Add(12 * time.Minute)}))
 
-	return NewService(caseRepo, queueRepo, coordRepo, policyRepo, proposalRepo, directory, trustRepo, profileRepo, capRepo, execRepo, wal)
+	return NewService(caseRepo, queueRepo, coordRepo, policyRepo, proposalRepo, directory, trustRepo, profileRepo, capRepo, execRepo, wal, eventcore.NewInMemoryEventLog())
 }
 
 func must(t *testing.T, err error) {

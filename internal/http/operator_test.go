@@ -12,6 +12,7 @@ import (
 	"kalita/internal/caseruntime"
 	"kalita/internal/controlplane"
 	"kalita/internal/employee"
+	"kalita/internal/eventcore"
 	"kalita/internal/executionruntime"
 	"kalita/internal/policy"
 	"kalita/internal/profile"
@@ -117,7 +118,7 @@ func controlplaneSeededService(t *testing.T) controlplane.Service {
 	mustNoErr(t, execRepo.SaveSession(ctx, executionruntime.ExecutionSession{ID: "exec-1", WorkItemID: "work-1", Status: executionruntime.ExecutionSessionFailed, CurrentStepIndex: 1, FailureReason: "waiting", CreatedAt: base.Add(6 * time.Minute), UpdatedAt: base.Add(6 * time.Minute)}))
 	mustNoErr(t, wal.Append(ctx, executionruntime.WALRecord{ID: "wal-1", ExecutionSessionID: "exec-1", ActionID: "action-1", Type: executionruntime.WALStepResult, CreatedAt: base.Add(6 * time.Minute)}))
 
-	return controlplane.NewService(caseRepo, queueRepo, coordRepo, policyRepo, proposalRepo, directory, trustRepo, profileRepo, capRepo, execRepo, wal)
+	return controlplane.NewService(caseRepo, queueRepo, coordRepo, policyRepo, proposalRepo, directory, trustRepo, profileRepo, capRepo, execRepo, wal, eventcore.NewInMemoryEventLog())
 }
 
 func decode(t *testing.T, rec *httptest.ResponseRecorder, target any) {

@@ -3,6 +3,9 @@ package controlplane
 import "context"
 
 type Service interface {
+	GetSummary(ctx context.Context) (Summary, error)
+	GetCaseTimeline(ctx context.Context, caseID string) ([]TimelineEntry, error)
+
 	GetCaseOverview(ctx context.Context, caseID string) (CaseOverview, error)
 	ListCases(ctx context.Context) ([]CaseOverview, error)
 

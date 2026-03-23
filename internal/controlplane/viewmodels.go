@@ -2,6 +2,20 @@ package controlplane
 
 import "time"
 
+type Summary struct {
+	OpenCaseCount          int `json:"open_case_count"`
+	WorkItemCount          int `json:"work_item_count"`
+	ApprovalPendingCount   int `json:"approval_pending_count"`
+	BlockedOrDeferredCount int `json:"blocked_or_deferred_count"`
+}
+
+type TimelineEntry struct {
+	Step       string         `json:"step"`
+	Status     string         `json:"status,omitempty"`
+	OccurredAt time.Time      `json:"occurred_at"`
+	Payload    map[string]any `json:"payload,omitempty"`
+}
+
 type CaseOverview struct {
 	CaseID        string    `json:"case_id"`
 	Kind          string    `json:"kind"`
