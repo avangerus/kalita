@@ -34,6 +34,7 @@ func RunServerWithServices(addr string, storage *runtime.Storage, commandBus com
 	apiGroup := r.Group("/api")
 	{
 		registerOperatorRoutes(apiGroup, operatorService)
+		registerDemoRoutes(r)
 
 		//r.GET("/api/meta", MetaListHandler(storage))
 		//r.GET("/api/meta/:module/:entity", MetaEntityHandler(storage))
