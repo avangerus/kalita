@@ -28,7 +28,7 @@ kalita/
 │   ├── demo/               # demo scenarios — isolated from domain
 │   └── workplan/           # ActionPlan, ActionRegistry
 ├── plan/                   # pipeline artifacts (not compiled)
-└── docs/                   # architecture docs
+└── doc/                   # architecture docs
 ```
 
 ## Absolute Rules (never break these)
