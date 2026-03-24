@@ -145,7 +145,7 @@ sprints:
       про HTTP или БД.
 
       '
-  - done: false
+  - done: true
     id: '4.3'
     intent: 'Создай AisIngestionService который по расписанию (или по запросу) тянет
       события из AIS, маппирует и инжектирует в Event Core. Endpoint POST /api/integrations/ais/ingest

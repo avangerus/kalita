@@ -1,13 +1,6 @@
 {
   "summaries": [
     {
-      "task_id": "2.3",
-      "done_at": "2026-03-24T12:09:13.470534",
-      "what_was_done": "Изменены файлы:\npipeline.py\nplans/sprints.yaml",
-      "problems": "none",
-      "files_changed": []
-    },
-    {
       "task_id": "2.4",
       "done_at": "2026-03-24T12:28:29.164152",
       "what_was_done": "Изменены файлы:\ngo.mod\ninternal/controlplane/service.go\ninternal/controlplane/service_test.go\ninternal/controlplane/viewmodels.go\ninternal/http/demo.go\ninternal/http/demo_test.go\ninternal/http/operator.go\ninternal/http/operator_test.go\ninternal/workplan/coordination_service.go\ninternal/workplan/coordination_service_test.go\ninternal/workplan/department_load.go\ninternal/workplan/queue_pressure.go\npipeline.py\nplans/context.json\nplans/sprints.yaml",
@@ -67,6 +60,13 @@
       "task_id": "4.2",
       "done_at": "2026-03-24T13:16:43.615256",
       "what_was_done": "Изменены файлы:\ninternal/integrations/aisotkhody/mapper.go\ninternal/integrations/aisotkhody/mapper_test.go\nplans/context.json\nplans/sprints.yaml",
+      "problems": "none",
+      "files_changed": []
+    },
+    {
+      "task_id": "4.3",
+      "done_at": "2026-03-24T13:25:30.653729",
+      "what_was_done": "Изменены файлы:\ncmd/server/main.go\ninternal/app/bootstrap.go\ninternal/config/config.go\ninternal/http/health_test.go\ninternal/http/integration.go\ninternal/http/integration_test.go\ninternal/http/router.go\ninternal/integration/service.go\ninternal/integrations/aisotkhody/service.go\ninternal/integrations/aisotkhody/service_test.go\nplans/context.json\nplans/sprints.yaml",
       "problems": "none",
       "files_changed": []
     }

@@ -24,7 +24,7 @@ ARCH_FILE      = REPO_DIR / "doc" / "ARCHITECTURE.md"
 CLAUDE_MD      = REPO_DIR / "CLAUDE.md"
 
 OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "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")
-GITHUB_TOKEN   = os.environ.get("GITEA_TOKEN", "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")
+GITHUB_TOKEN   = os.environ.get("GITEA_TOKEN", "")
 GITHUB_REPO    = os.environ.get("GITEA_REPO", "avangerus/kalita")
 GITHUB_PROJECT = os.environ.get("GITHUB_PROJECT_ID", "PVT_kwHOAi_bD84BSoqx")
 NTFY_URL       = os.environ.get("NTFY_URL", "")
