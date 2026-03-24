@@ -33,7 +33,7 @@ sprints:
   milestone: true
   name: Coordination 2.0 — system-level decisions
   tasks:
-  - done: false
+  - done: true
     id: '2.1'
     intent: 'Создай интерфейс WorkQueueSnapshot в internal/workplan/ который предоставляет
       CoordinationService read-only вид на всю очередь: количество items по статусам,

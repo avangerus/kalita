@@ -186,7 +186,7 @@ def run_codex(prompt: str, branch: str):
         f"codex {quoted}",
         shell=True,
         cwd=REPO_DIR,
-        timeout=600
+        timeout=1800
         # НЕТ capture_output — Codex видит терминал и работает
     )
 
