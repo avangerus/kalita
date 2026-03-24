@@ -1,23 +1,47 @@
 {
   "summaries": [
     {
-      "task_id": "1.x",
-      "done_at": "2024-01-01T00:00:00",
-      "what_was_done": "M1 завершён: Event→Case→Work→Coordination→Policy→Execution pipeline работает. Control Plane функционален. Demo с multi-case сценариями. Trust system. Approvals с idempotent handling. Server-rendered HTML UI.",
+      "task_id": "M1",
+      "done_at": "2026-03-24T00:00:00",
+      "what_was_done": "Полный pipeline реализован: eventcore → caseruntime → workplan → policy → executioncontrol → executionruntime → trust. Пакеты: actionplan (compiler/validator/service), caseruntime, workplan (coordination_service, daily_plan, planner), policy, executioncontrol, executionruntime (WAL), employee, trust (scorer), profile (matcher), capability, controlplane (summary/list/detail/timeline/inbox), persistence (snapshot/event store), http (router/operator/demo/actions/integration), demo (scenarios/domainview), app/bootstrap. Всё покрыто тестами.",
       "problems": "none",
-      "files_changed": ["internal/controlplane/", "internal/execution/", "internal/demo/"]
+      "files_changed": [
+        "internal/actionplan/", "internal/caseruntime/", "internal/workplan/",
+        "internal/policy/", "internal/executioncontrol/", "internal/executionruntime/",
+        "internal/employee/", "internal/trust/", "internal/profile/", "internal/capability/",
+        "internal/controlplane/", "internal/persistence/", "internal/http/",
+        "internal/demo/", "internal/app/"
+      ]
+    },
+    {
+      "task_id": "M1-postgres-partial",
+      "done_at": "2026-03-24T00:00:00",
+      "what_was_done": "PostgreSQL частично: internal/postgres/conn.go, schema.go, apply.go — подключение и DDL-генерация есть. В bootstrap.go есть ветка DATABASE_URL. Доменных репозиториев на Postgres нет — всё in-memory. /health endpoint отсутствует.",
+      "problems": "Нет postgres-реализаций доменных репозиториев. Нет /health. TODO на cascade delete в internal/http/handlers.go:543.",
+      "files_changed": ["internal/postgres/conn.go", "internal/postgres/schema.go", "internal/postgres/apply.go"]
+    },
+    {
+      "task_id": "M1-integration-partial",
+      "done_at": "2026-03-24T00:00:00",
+      "what_was_done": "Интеграционный ingest реализован через /api/integration/incidents с идемпотентностью (external_id). Файлы: internal/http/integration.go, internal/integration/service.go. Это общий endpoint, не AIS-специфичный.",
+      "problems": "Нет AIS-специфичного клиента, маппера и инжестора из плана спринта 4.",
+      "files_changed": ["internal/http/integration.go", "internal/integration/service.go"]
     }
   ],
   "decisions": [
-    "No logic in HTTP handlers — только parse/call/return",
-    "Control plane агрегирует read models, никаких решений",
-    "Actor != LLM, Proposal != Execution — разделены всегда",
-    "Детерминированное исполнение — никакого random в domain logic",
-    "WAL append-only — никаких UPDATE в execution log",
-    "Read models отделены от domain — controlplane/ только читает",
-    "In-memory репозитории через интерфейсы — легко менять на DB",
-    "No duplication of runtime decisions — каждое решение в одном слое",
-    "Demo изолирован — domain не импортирует из demo/"
+    "Координация живёт в internal/workplan/, не в отдельном пакете coordination",
+    "WAL append-only — только INSERT, никогда UPDATE в internal/executionruntime/wal.go",
+    "Все репозитории через интерфейсы — in-memory дефолт, postgres без смены домена",
+    "Actor != LLM — пакет internal/employee/, не агенты",
+    "Proposal != Execution — разделены всегда",
+    "No logic in HTTP handlers — только parse/call/return в internal/http/",
+    "Control plane агрегирует read models, никаких решений в internal/controlplane/",
+    "Demo изолирован — domain не импортирует из internal/demo/",
+    "Persistence layer для in-memory snapshot — internal/persistence/",
+    "Bootstrap wiring в internal/app/bootstrap.go — DATABASE_URL ветка для postgres",
+    "Интеграционный ingest идемпотентен через external_id",
+    "trust.AdjustForTrust() влияет на eligibility и autonomy level актора",
+    "Schema/validation отдельные пакеты — internal/schema/, internal/validation/"
   ],
   "inbox": []
 }

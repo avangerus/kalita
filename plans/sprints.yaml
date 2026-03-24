@@ -6,6 +6,33 @@
 sprints:
 
   # ─────────────────────────────────────────────
+  - id: 1
+    name: "M1 — Core runtime (Done)"
+    milestone: true
+    goal: >
+      Полный pipeline Event→Case→Work→Coordination→Policy→Execution.
+      Control Plane. Demo. Trust system. Approvals. HTML UI.
+    tasks:
+      - id: "1.1"
+        done: true
+        intent: "Реализовать полный domain pipeline с in-memory репозиториями"
+      - id: "1.2"
+        done: true
+        intent: "Control plane: summary, list, detail, timeline, inbox"
+      - id: "1.3"
+        done: true
+        intent: "HTTP layer: operator, demo, integration, actions, admin endpoints"
+      - id: "1.4"
+        done: true
+        intent: "Trust system, profile matcher, capability scoring"
+      - id: "1.5"
+        done: true
+        intent: "Demo scenarios с multi-case, deterministic seeding"
+      - id: "1.6"
+        done: true
+        intent: "Persistence layer для in-memory snapshot/event store"
+
+  # ─────────────────────────────────────────────
   - id: 2
     name: "Coordination 2.0 — system-level decisions"
     milestone: true
@@ -18,28 +45,28 @@ sprints:
       - id: "2.1"
         done: false
         intent: >
-          Создай интерфейс WorkQueueSnapshot в internal/coordination/
+          Создай интерфейс WorkQueueSnapshot в internal/workplan/
           который предоставляет CoordinationService read-only вид на всю очередь:
           количество items по статусам, средний возраст, items по actor capability.
-          Реализуй in-memory имплементацию. Добавь в wiring через app/.
+          Реализуй in-memory имплементацию. Добавь в wiring через internal/app/bootstrap.go.
           Тесты обязательны.
 
       - id: "2.2"
         done: false
         intent: >
-          Добавь queue-aware scoring в CoordinationService.
+          Добавь queue-aware scoring в coordination_service.go в internal/workplan/.
           Если очередь по capability переполнена (>N items) — решение должно
           склоняться к defer, не execute_now. Порог N берётся из CoordinationConfig.
-          Логика через отдельный QueuePressureScorer, не inline.
+          Логика через отдельный QueuePressureScorer в internal/workplan/queue_pressure.go.
           Существующие тесты не должны сломаться.
 
       - id: "2.3"
         done: false
         intent: >
-          Добавь department-level coordination: CoordinationDecision теперь
-          учитывает не только capability отдельного actor, но и загрузку
-          всего department. DepartmentLoadProvider интерфейс, in-memory реализация.
-          Интегрируй в CoordinationService. Покрой тестами граничные случаи:
+          Добавь department-level coordination в internal/workplan/.
+          CoordinationDecision учитывает загрузку всего department.
+          DepartmentLoadProvider интерфейс, in-memory реализация.
+          Интегрируй в coordination_service.go. Покрой тестами граничные случаи:
           пустой department, все actor заняты, department не существует.
 
       - id: "2.4"
@@ -47,7 +74,7 @@ sprints:
         intent: >
           Обнови Control Plane: добавь в /api/controlplane/summary поле
           queue_pressure с метриками по каждому department.
-          Только read model — никакой логики в controlplane/.
+          Только read model — никакой логики в internal/controlplane/.
           Данные берутся из QueuePressureScorer через read-модель.
           Обнови HTML dashboard чтобы показывал queue pressure.
 
