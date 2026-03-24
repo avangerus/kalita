@@ -113,6 +113,54 @@ Interfaces: `ProcessedIncidentStore`, `IncidentService`
 
 ---
 
+## AIS Otkhody Integration (`internal/integrations/aisotkhody/`)
+
+Adapter for real operational data from AIS Otkhody. Domain runtime is unchanged — this layer sits entirely outside domain packages.
+
+### Data flow
+
+```
+AIS API (HTTP)
+→ DataFetcher.FetchMissedPickups(ctx, date) → []PickupEvent
+→ AisEventMapper.MapPickupEvent(pickup)     → eventcore.Event
+→ EventInjector.IngestExternalEvent(ctx, ExternalEvent)
+→ integration.IncidentService (existing pipeline)
+```
+
+### Idempotency
+
+Each `PickupEvent` carries an `ExternalID`. `IngestExternalEvent` deduplicates by `external_id` — repeated ingests of the same data produce no duplicates.
+
+### Key types and interfaces
+
+| Symbol | Description |
+|---|---|
+| `DataFetcher` | Interface — `FetchMissedPickups(ctx, date) ([]PickupEvent, error)` |
+| `PickupEvent` | Normalized AIS record: `ExternalID`, `RouteID`, `ContainerSite`, `MissedAt` |
+| `AisEventMapper` | Pure mapper — converts `PickupEvent` → `eventcore.Event`; no HTTP/DB knowledge |
+| `IngestionService` | Interface — `IngestDate`, `IngestNow`, `Start(ctx)` |
+| `AisIngestionService` | Implementation; wires fetcher + mapper + injector |
+| `IngestBatchResult` | `Fetched`, `Ingested`, `Duplicates`, `Errors` per batch |
+
+### Configuration (env)
+
+| Var | Purpose |
+|---|---|
+| `AIS_API_URL` | Base URL of AIS HTTP API |
+| `AIS_API_KEY` | API key for authentication |
+
+`AIS_SCHEDULE_ENABLED=true` starts background polling; default interval is 15 minutes.
+
+### HTTP trigger
+
+`POST /api/integrations/ais/ingest` — manual ingest of current date. Returns `IngestBatchResult`.
+
+### Test support
+
+`MockDataFetcher` with recorded responses in `testdata/` (`YYYY-MM-DD_missed-pickups.json`). Mapper tests use real AIS data formats.
+
+---
+
 ## Schema & Validation (`internal/schema/`, `internal/validation/`)
 
 - `schema/`: entity definitions with typed fields, enum/ref/array constraints, and workflow state machines (`Entity`, `Field`, `Constraints`, `Workflow`)
@@ -194,3 +242,25 @@ type CaseRepository interface {
 - Trust system
 - Approvals with idempotent handling
 - Server-rendered HTML UI
+
+### Sprint 2 — Coordination 2.0 (Done)
+- `WorkQueueSnapshot` interface + in-memory implementation
+- Queue-aware scoring via `QueuePressureScorer`
+- Department-level load coordination (`DepartmentLoadProvider`)
+- Control plane summary extended with `queue_pressure` per department
+
+### Sprint 3 — External Persistence (Done)
+- Repository audit documented in `doc/repositories.md`
+- PostgreSQL connection pool (`internal/storage/postgres/`)
+- `PostgresCaseRepository`, `PostgresWorkItemRepository`, `PostgresExecutionSessionRepository`
+- WAL and compensation log backed by Postgres; append-only invariant enforced at DB level
+- Bootstrap wiring: `DATABASE_URL` selects Postgres repos; in-memory remains default
+- `/health` endpoint with DB connectivity check
+
+### Sprint 4 — AIS Otkhody Integration (Done)
+- `internal/integrations/aisotkhody/` adapter: `DataFetcher`, `AisEventMapper`, `AisIngestionService`
+- `PickupEvent` → `eventcore.Event` mapping with `source = ais_otkhody`
+- Idempotent ingestion via `external_id` deduplication
+- `POST /api/integrations/ais/ingest` for manual trigger
+- Optional background scheduler (15 min default, `AIS_SCHEDULE_ENABLED`)
+- Mock fetcher + recorded testdata for deterministic tests
