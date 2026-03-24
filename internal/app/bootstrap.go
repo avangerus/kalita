@@ -239,7 +239,16 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	assignmentRouter := workplan.NewRouter(queueRepo, defaultQueue.ID)
 	planner := workplan.NewPlanner(planRepo, eventLog, clock, ids)
 	workQueueSnapshot := workplan.NewInMemoryWorkQueueSnapshot(queueRepo)
-	coordinator := workplan.NewCoordinationService(coordinationRepo, workQueueSnapshot, eventLog, clock, ids)
+	coordinator := workplan.NewCoordinationService(
+		coordinationRepo,
+		queueRepo,
+		workQueueSnapshot,
+		workplan.CoordinationConfig{QueueDepthThreshold: cfg.QueueDepthThreshold},
+		nil,
+		eventLog,
+		clock,
+		ids,
+	)
 	workService := workplan.NewService(queueRepo, assignmentRouter, planner, coordinator, eventLog, clock, ids)
 
 	defaultEmployee := employee.DigitalEmployee{ID: "employee-legacy-operator", Code: "legacy_operator_default", Role: "legacy_operator", Enabled: true, QueueMemberships: []string{defaultQueue.ID}, AllowedActionTypes: []actionplan.ActionType{"legacy_workflow_action", "external_incident_followup"}, AllowedCommandTypes: []string{"workflow.action", "container_incident_detected"}, PolicyProfile: "default", ExecutionProfile: "default", CreatedAt: clock.Now(), UpdatedAt: clock.Now()}

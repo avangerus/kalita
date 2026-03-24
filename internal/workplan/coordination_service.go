@@ -8,26 +8,61 @@ import (
 	"kalita/internal/eventcore"
 )
 
+type CoordinationConfig struct {
+	QueueDepthThreshold int
+}
+
+func defaultCoordinationConfig() CoordinationConfig {
+	return CoordinationConfig{QueueDepthThreshold: 10}
+}
+
 type DefaultCoordinator struct {
-	repo      CoordinationRepository
-	snapshot  WorkQueueSnapshot
-	log       eventcore.EventLog
-	clock     eventcore.Clock
-	ids       eventcore.IDGenerator
+	repo                CoordinationRepository
+	queueRepo           QueueRepository
+	snapshot            WorkQueueSnapshot
+	queuePressureScorer QueuePressureScorer
+	config              CoordinationConfig
+	log                 eventcore.EventLog
+	clock               eventcore.Clock
+	ids                 eventcore.IDGenerator
 }
 
 func NewCoordinator(repo CoordinationRepository, log eventcore.EventLog, clock eventcore.Clock, ids eventcore.IDGenerator) *DefaultCoordinator {
-	return NewCoordinationService(repo, nil, log, clock, ids)
+	return NewCoordinationService(repo, nil, nil, defaultCoordinationConfig(), nil, log, clock, ids)
 }
 
-func NewCoordinationService(repo CoordinationRepository, snapshot WorkQueueSnapshot, log eventcore.EventLog, clock eventcore.Clock, ids eventcore.IDGenerator) *DefaultCoordinator {
+func NewCoordinationService(
+	repo CoordinationRepository,
+	queueRepo QueueRepository,
+	snapshot WorkQueueSnapshot,
+	config CoordinationConfig,
+	queuePressureScorer QueuePressureScorer,
+	log eventcore.EventLog,
+	clock eventcore.Clock,
+	ids eventcore.IDGenerator,
+) *DefaultCoordinator {
 	if clock == nil {
 		clock = eventcore.RealClock{}
 	}
 	if ids == nil {
 		ids = eventcore.NewULIDGenerator()
 	}
-	return &DefaultCoordinator{repo: repo, snapshot: snapshot, log: log, clock: clock, ids: ids}
+	if config.QueueDepthThreshold <= 0 {
+		config = defaultCoordinationConfig()
+	}
+	if queuePressureScorer == nil {
+		queuePressureScorer = NewQueuePressureScorer(config)
+	}
+	return &DefaultCoordinator{
+		repo:                repo,
+		queueRepo:           queueRepo,
+		snapshot:            snapshot,
+		queuePressureScorer: queuePressureScorer,
+		config:              config,
+		log:                 log,
+		clock:               clock,
+		ids:                 ids,
+	}
 }
 
 func (s *DefaultCoordinator) Decide(ctx context.Context, wi WorkItem, coordinationContext CoordinationContext) (CoordinationDecision, error) {
@@ -41,6 +76,23 @@ func (s *DefaultCoordinator) Decide(ctx context.Context, wi WorkItem, coordinati
 	}
 	now := s.clock.Now()
 	decisionType, reason := s.evaluate(wi, coordinationContext)
+
+	if decisionType == CoordinationExecuteNow {
+		queueLen, err := s.queueLenByCapability(ctx, wi.Type)
+		if err != nil {
+			return CoordinationDecision{}, err
+		}
+		if queueLen > s.config.QueueDepthThreshold {
+			pressure := s.queuePressureScorer.Score(ctx, wi.Type, queueLen)
+			executeNowScore := 1.0 - pressure
+			deferScore := 0.5 + pressure
+			if deferScore > executeNowScore {
+				decisionType = CoordinationDefer
+				reason = fmt.Sprintf("queue pressure %.2f for capability %q (len=%d threshold=%d) favors defer", pressure, wi.Type, queueLen, s.config.QueueDepthThreshold)
+			}
+		}
+	}
+
 	decision := CoordinationDecision{ID: s.ids.NewID(), WorkItemID: wi.ID, CaseID: wi.CaseID, QueueID: wi.QueueID, DecisionType: decisionType, Priority: coordinationPriority(decisionType), Reason: reason, CreatedAt: now}
 	if err := s.repo.SaveDecision(ctx, decision); err != nil {
 		return CoordinationDecision{}, err
@@ -52,6 +104,27 @@ func (s *DefaultCoordinator) Decide(ctx context.Context, wi WorkItem, coordinati
 		}
 	}
 	return decision, nil
+}
+
+func (s *DefaultCoordinator) queueLenByCapability(ctx context.Context, capability string) (int, error) {
+	if s.queueRepo == nil || strings.TrimSpace(capability) == "" {
+		return 0, nil
+	}
+	items, err := s.queueRepo.ListWorkItems(ctx)
+	if err != nil {
+		return 0, err
+	}
+	queueLen := 0
+	for _, item := range items {
+		if item.Type != capability {
+			continue
+		}
+		if item.Status == string(WorkItemDone) {
+			continue
+		}
+		queueLen++
+	}
+	return queueLen, nil
 }
 
 func (s *DefaultCoordinator) evaluate(wi WorkItem, coordinationContext CoordinationContext) (CoordinationDecisionType, string) {

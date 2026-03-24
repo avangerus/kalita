@@ -9,15 +9,16 @@ import (
 )
 
 type Config struct {
-	Port               string `json:"port"`
-	DemoMode           bool   `json:"demoMode"`
-	DSLDir             string `json:"dslDir"`
-	EnumsDir           string `json:"enumsDir"`
-	DBURL              string `json:"dbUrl"`
-	AutoMigrate        bool   `json:"autoMigrate"`
-	PersistenceEnabled bool   `json:"persistenceEnabled"`
-	PersistenceDir     string `json:"persistenceDir"`
-	SnapshotEvery      int    `json:"snapshotEvery"`
+	Port                string `json:"port"`
+	DemoMode            bool   `json:"demoMode"`
+	DSLDir              string `json:"dslDir"`
+	EnumsDir            string `json:"enumsDir"`
+	QueueDepthThreshold int    `json:"queueDepthThreshold"`
+	DBURL               string `json:"dbUrl"`
+	AutoMigrate         bool   `json:"autoMigrate"`
+	PersistenceEnabled  bool   `json:"persistenceEnabled"`
+	PersistenceDir      string `json:"persistenceDir"`
+	SnapshotEvery       int    `json:"snapshotEvery"`
 
 	// Файлы (локально) и задел под S3
 	BlobDriver string `json:"blobDriver"` // "local" (default) | "s3"
@@ -32,15 +33,16 @@ type Config struct {
 
 func def() Config {
 	return Config{
-		Port:               "8080",
-		DemoMode:           false,
-		DSLDir:             "dsl",
-		EnumsDir:           "reference/enums",
-		DBURL:              "",
-		AutoMigrate:        false,
-		PersistenceEnabled: false,
-		PersistenceDir:     "",
-		SnapshotEvery:      50,
+		Port:                "8080",
+		DemoMode:            false,
+		DSLDir:              "dsl",
+		EnumsDir:            "reference/enums",
+		QueueDepthThreshold: 10,
+		DBURL:               "",
+		AutoMigrate:         false,
+		PersistenceEnabled:  false,
+		PersistenceDir:      "",
+		SnapshotEvery:       50,
 
 		BlobDriver: "local",
 		FilesRoot:  "uploads",
@@ -99,6 +101,11 @@ func LoadWithPath(jsonPath string) Config {
 	cfg.DemoMode = getenvBool("KALITA_DEMO_MODE", cfg.DemoMode)
 	cfg.DSLDir = getenv("KALITA_DSL_DIR", cfg.DSLDir)
 	cfg.EnumsDir = getenv("KALITA_ENUMS_DIR", cfg.EnumsDir)
+	if v := getenv("KALITA_QUEUE_DEPTH_THRESHOLD", ""); strings.TrimSpace(v) != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.QueueDepthThreshold = n
+		}
+	}
 	cfg.DBURL = getenv("KALITA_DB_URL", cfg.DBURL)
 	cfg.AutoMigrate = getenvBool("KALITA_AUTO_MIGRATE", cfg.AutoMigrate)
 	cfg.PersistenceEnabled = getenvBool("KALITA_PERSISTENCE_ENABLED", cfg.PersistenceEnabled)
@@ -124,6 +131,7 @@ func LoadWithPath(jsonPath string) Config {
 	demoMode := fs.String("demo-mode", strconv.FormatBool(cfg.DemoMode), "Run deterministic demo console scenario (true/false)")
 	dsl := fs.String("dsl", cfg.DSLDir, "Path to DSL directory")
 	enums := fs.String("enums", cfg.EnumsDir, "Path to enums directory")
+	queueDepthThreshold := fs.String("queue-depth-threshold", strconv.Itoa(cfg.QueueDepthThreshold), "Queue depth threshold for backlog-aware coordination")
 	db := fs.String("db", cfg.DBURL, "Postgres URL (empty = in-memory)")
 	auto := fs.String("auto-migrate", strconv.FormatBool(cfg.AutoMigrate), "Auto-migrate add-only (true/false)")
 	persistenceEnabled := fs.String("persistence-enabled", strconv.FormatBool(cfg.PersistenceEnabled), "Enable file-based persistence (true/false)")
@@ -150,6 +158,9 @@ func LoadWithPath(jsonPath string) Config {
 		strings.EqualFold(strings.TrimSpace(*demoMode), "yes")
 	cfg.DSLDir = strings.TrimSpace(*dsl)
 	cfg.EnumsDir = strings.TrimSpace(*enums)
+	if n, err := strconv.Atoi(strings.TrimSpace(*queueDepthThreshold)); err == nil {
+		cfg.QueueDepthThreshold = n
+	}
 	cfg.DBURL = strings.TrimSpace(*db)
 	cfg.AutoMigrate = strings.EqualFold(strings.TrimSpace(*auto), "true") ||
 		strings.EqualFold(strings.TrimSpace(*auto), "1") ||
