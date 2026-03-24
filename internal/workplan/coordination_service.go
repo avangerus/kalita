@@ -9,7 +9,8 @@ import (
 )
 
 type CoordinationConfig struct {
-	QueueDepthThreshold int
+	QueueDepthThreshold  int
+	DepartmentLoadSource DepartmentLoadProvider
 }
 
 func defaultCoordinationConfig() CoordinationConfig {
@@ -21,6 +22,7 @@ type DefaultCoordinator struct {
 	queueRepo           QueueRepository
 	snapshot            WorkQueueSnapshot
 	queuePressureScorer QueuePressureScorer
+	departmentLoad      DepartmentLoadProvider
 	config              CoordinationConfig
 	log                 eventcore.EventLog
 	clock               eventcore.Clock
@@ -58,6 +60,7 @@ func NewCoordinationService(
 		queueRepo:           queueRepo,
 		snapshot:            snapshot,
 		queuePressureScorer: queuePressureScorer,
+		departmentLoad:      config.DepartmentLoadSource,
 		config:              config,
 		log:                 log,
 		clock:               clock,
@@ -76,6 +79,17 @@ func (s *DefaultCoordinator) Decide(ctx context.Context, wi WorkItem, coordinati
 	}
 	now := s.clock.Now()
 	decisionType, reason := s.evaluate(wi, coordinationContext)
+
+	if decisionType == CoordinationExecuteNow {
+		departmentDecision, departmentReason, err := s.evaluateDepartmentLoad(ctx, wi)
+		if err != nil {
+			return CoordinationDecision{}, err
+		}
+		if departmentDecision != CoordinationExecuteNow {
+			decisionType = departmentDecision
+			reason = departmentReason
+		}
+	}
 
 	if decisionType == CoordinationExecuteNow {
 		queueLen, err := s.queueLenByCapability(ctx, wi.Type)
@@ -104,6 +118,34 @@ func (s *DefaultCoordinator) Decide(ctx context.Context, wi WorkItem, coordinati
 		}
 	}
 	return decision, nil
+}
+
+func (s *DefaultCoordinator) evaluateDepartmentLoad(ctx context.Context, wi WorkItem) (CoordinationDecisionType, string, error) {
+	if s.queueRepo == nil || s.departmentLoad == nil {
+		return CoordinationExecuteNow, "", nil
+	}
+	queue, ok, err := s.queueRepo.GetQueue(ctx, wi.QueueID)
+	if err != nil {
+		return CoordinationBlock, "", err
+	}
+	if !ok {
+		return CoordinationBlock, fmt.Sprintf("queue %s not found for department-level coordination", wi.QueueID), nil
+	}
+	departmentID := strings.TrimSpace(queue.Department)
+	if departmentID == "" {
+		return CoordinationExecuteNow, "", nil
+	}
+	load, err := s.departmentLoad.GetLoad(ctx, departmentID)
+	if err != nil {
+		return CoordinationBlock, "", err
+	}
+	if !load.DepartmentExists {
+		return CoordinationBlock, fmt.Sprintf("department %s does not exist", departmentID), nil
+	}
+	if load.TotalActors > 0 && load.BusyActors >= load.TotalActors {
+		return CoordinationDefer, fmt.Sprintf("all actors busy in department %s (%d/%d)", departmentID, load.BusyActors, load.TotalActors), nil
+	}
+	return CoordinationExecuteNow, "", nil
 }
 
 func (s *DefaultCoordinator) queueLenByCapability(ctx context.Context, capability string) (int, error) {

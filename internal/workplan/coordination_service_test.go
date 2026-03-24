@@ -128,3 +128,85 @@ func TestCoordinatorQueuePressureKeepsExecuteNowWhenBacklogBelowThreshold(t *tes
 		t.Fatalf("decision = %#v", decision)
 	}
 }
+
+func TestCoordinatorDepartmentLoadSkipsWhenDepartmentIsEmpty(t *testing.T) {
+	t.Parallel()
+	queueRepo := NewInMemoryQueueRepository()
+	base := time.Date(2026, 3, 22, 10, 0, 0, 0, time.UTC)
+	if err := queueRepo.SaveQueue(context.Background(), WorkQueue{ID: "queue-1", Department: ""}); err != nil {
+		t.Fatalf("SaveQueue error = %v", err)
+	}
+	provider := NewInMemoryDepartmentLoadProvider()
+	provider.SaveLoad(context.Background(), DepartmentLoad{DepartmentID: "operations", TotalActors: 1, BusyActors: 1, DepartmentExists: true})
+	coordinator := NewCoordinationService(
+		NewInMemoryCoordinationRepository(),
+		queueRepo,
+		nil,
+		CoordinationConfig{QueueDepthThreshold: 3, DepartmentLoadSource: provider},
+		NewQueuePressureScorer(CoordinationConfig{QueueDepthThreshold: 3}),
+		nil,
+		fakeClock{now: base.Add(time.Hour)},
+		&fakeIDGenerator{ids: []string{"coord-1"}},
+	)
+	decision, err := coordinator.Decide(context.Background(), WorkItem{ID: "wi-target", CaseID: "case-1", QueueID: "queue-1", Type: "legacy_workflow_action", Status: string(WorkItemOpen)}, CoordinationContext{ActionTypes: []string{"legacy_workflow_action"}, Complexity: 1, Actors: []CoordinationActor{{ID: "emp-1", Enabled: true, QueueMemberships: []string{"queue-1"}, AllowedActionTypes: []string{"legacy_workflow_action"}}}, Profiles: map[string]CoordinationActorProfile{"emp-1": {ActorID: "emp-1", MaxComplexity: 3, TrustLevel: "high", TrustAvailable: true}}})
+	if err != nil {
+		t.Fatalf("Decide error = %v", err)
+	}
+	if decision.DecisionType != CoordinationExecuteNow {
+		t.Fatalf("decision = %#v", decision)
+	}
+}
+
+func TestCoordinatorDepartmentLoadDefersWhenAllActorsBusy(t *testing.T) {
+	t.Parallel()
+	queueRepo := NewInMemoryQueueRepository()
+	base := time.Date(2026, 3, 22, 10, 0, 0, 0, time.UTC)
+	if err := queueRepo.SaveQueue(context.Background(), WorkQueue{ID: "queue-1", Department: "operations"}); err != nil {
+		t.Fatalf("SaveQueue error = %v", err)
+	}
+	provider := NewInMemoryDepartmentLoadProvider()
+	provider.SaveLoad(context.Background(), DepartmentLoad{DepartmentID: "operations", TotalActors: 2, BusyActors: 2, DepartmentExists: true})
+	coordinator := NewCoordinationService(
+		NewInMemoryCoordinationRepository(),
+		queueRepo,
+		nil,
+		CoordinationConfig{QueueDepthThreshold: 3, DepartmentLoadSource: provider},
+		NewQueuePressureScorer(CoordinationConfig{QueueDepthThreshold: 3}),
+		nil,
+		fakeClock{now: base.Add(time.Hour)},
+		&fakeIDGenerator{ids: []string{"coord-1"}},
+	)
+	decision, err := coordinator.Decide(context.Background(), WorkItem{ID: "wi-target", CaseID: "case-1", QueueID: "queue-1", Type: "legacy_workflow_action", Status: string(WorkItemOpen)}, CoordinationContext{ActionTypes: []string{"legacy_workflow_action"}, Complexity: 1, Actors: []CoordinationActor{{ID: "emp-1", Enabled: true, QueueMemberships: []string{"queue-1"}, AllowedActionTypes: []string{"legacy_workflow_action"}}}, Profiles: map[string]CoordinationActorProfile{"emp-1": {ActorID: "emp-1", MaxComplexity: 3, TrustLevel: "high", TrustAvailable: true}}})
+	if err != nil {
+		t.Fatalf("Decide error = %v", err)
+	}
+	if decision.DecisionType != CoordinationDefer {
+		t.Fatalf("decision = %#v", decision)
+	}
+}
+
+func TestCoordinatorDepartmentLoadBlocksWhenDepartmentDoesNotExist(t *testing.T) {
+	t.Parallel()
+	queueRepo := NewInMemoryQueueRepository()
+	base := time.Date(2026, 3, 22, 10, 0, 0, 0, time.UTC)
+	if err := queueRepo.SaveQueue(context.Background(), WorkQueue{ID: "queue-1", Department: "operations"}); err != nil {
+		t.Fatalf("SaveQueue error = %v", err)
+	}
+	coordinator := NewCoordinationService(
+		NewInMemoryCoordinationRepository(),
+		queueRepo,
+		nil,
+		CoordinationConfig{QueueDepthThreshold: 3, DepartmentLoadSource: NewInMemoryDepartmentLoadProvider()},
+		NewQueuePressureScorer(CoordinationConfig{QueueDepthThreshold: 3}),
+		nil,
+		fakeClock{now: base.Add(time.Hour)},
+		&fakeIDGenerator{ids: []string{"coord-1"}},
+	)
+	decision, err := coordinator.Decide(context.Background(), WorkItem{ID: "wi-target", CaseID: "case-1", QueueID: "queue-1", Type: "legacy_workflow_action", Status: string(WorkItemOpen)}, CoordinationContext{ActionTypes: []string{"legacy_workflow_action"}, Complexity: 1, Actors: []CoordinationActor{{ID: "emp-1", Enabled: true, QueueMemberships: []string{"queue-1"}, AllowedActionTypes: []string{"legacy_workflow_action"}}}, Profiles: map[string]CoordinationActorProfile{"emp-1": {ActorID: "emp-1", MaxComplexity: 3, TrustLevel: "high", TrustAvailable: true}}})
+	if err != nil {
+		t.Fatalf("Decide error = %v", err)
+	}
+	if decision.DecisionType != CoordinationBlock {
+		t.Fatalf("decision = %#v", decision)
+	}
+}

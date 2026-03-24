@@ -50,7 +50,7 @@ sprints:
       тесты не должны сломаться.
 
       '
-  - done: false
+  - done: true
     id: '2.3'
     intent: 'Добавь department-level coordination в internal/workplan/. CoordinationDecision
       учитывает загрузку всего department. DepartmentLoadProvider интерфейс, in-memory

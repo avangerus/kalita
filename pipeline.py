@@ -183,7 +183,7 @@ def run_codex(prompt: str, branch: str):
     # Промпт передаём как аргумент через shlex.quote
     quoted = shlex.quote(prompt)
     result = subprocess.run(
-        f"codex --auto-approve {quoted}",
+        f"codex --full-auto {quoted}",
         shell=True,
         cwd=REPO_DIR,
         timeout=1800
