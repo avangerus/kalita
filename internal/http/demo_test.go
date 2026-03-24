@@ -59,7 +59,7 @@ func TestDemoDashboardRendersDomainWidgets(t *testing.T) {
 		t.Fatalf("GET /demo status=%d body=%s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"AIS Otkhody demo workload", "Unresolved route incidents", "Pending supervisor reviews", "Deferred reconciliation tasks", ">5<", ">1<"} {
+	for _, want := range []string{"AIS Otkhody demo workload", "Unresolved route incidents", "Pending supervisor reviews", "Deferred reconciliation tasks", "Queue pressure by department", ">5<", ">1<"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q: %s", want, body)
 		}

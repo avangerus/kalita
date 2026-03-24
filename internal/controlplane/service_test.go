@@ -95,6 +95,22 @@ func TestBlockedOrDeferredWorkListing(t *testing.T) {
 	}
 }
 
+func TestSummaryIncludesQueuePressure(t *testing.T) {
+	t.Parallel()
+	svc := seededService(t)
+
+	summary, err := svc.GetSummary(context.Background())
+	if err != nil {
+		t.Fatalf("GetSummary error = %v", err)
+	}
+	if len(summary.QueuePressure) != 1 {
+		t.Fatalf("queue pressure = %#v", summary.QueuePressure)
+	}
+	if summary.QueuePressure[0].DepartmentID != "ops" || summary.QueuePressure[0].WorkItemsCount != 1 {
+		t.Fatalf("queue pressure = %#v", summary.QueuePressure)
+	}
+}
+
 func seededService(t *testing.T) Service {
 	t.Helper()
 	ctx := context.Background()
@@ -112,7 +128,7 @@ func seededService(t *testing.T) Service {
 
 	base := time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC)
 	must(t, caseRepo.Save(ctx, caseruntime.Case{ID: "case-1", Kind: "workflow.action", Status: "open", CorrelationID: "corr-1", SubjectRef: "subject-1", OpenedAt: base, UpdatedAt: base.Add(10 * time.Minute)}))
-	must(t, queueRepo.SaveQueue(ctx, workplan.WorkQueue{ID: "queue-1", Name: "Ops"}))
+	must(t, queueRepo.SaveQueue(ctx, workplan.WorkQueue{ID: "queue-1", Name: "Ops", Department: "ops"}))
 	must(t, queueRepo.SaveWorkItem(ctx, workplan.WorkItem{ID: "work-1", CaseID: "case-1", QueueID: "queue-1", Type: "workflow.action", Status: "open", Priority: "high", AssignedEmployeeID: "actor-1", PlanID: "plan-1", CreatedAt: base.Add(1 * time.Minute), UpdatedAt: base.Add(12 * time.Minute)}))
 	must(t, coordRepo.SaveDecision(ctx, workplan.CoordinationDecision{ID: "coord-1", WorkItemID: "work-1", CaseID: "case-1", QueueID: "queue-1", DecisionType: workplan.CoordinationExecuteNow, Priority: 3, Reason: "initial", CreatedAt: base.Add(2 * time.Minute)}))
 	must(t, coordRepo.SaveDecision(ctx, workplan.CoordinationDecision{ID: "coord-2", WorkItemID: "work-1", CaseID: "case-1", QueueID: "queue-1", DecisionType: workplan.CoordinationDefer, Priority: 2, Reason: "waiting for approval", CreatedAt: base.Add(3 * time.Minute)}))

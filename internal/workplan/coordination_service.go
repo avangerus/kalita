@@ -53,7 +53,7 @@ func NewCoordinationService(
 		config = defaultCoordinationConfig()
 	}
 	if queuePressureScorer == nil {
-		queuePressureScorer = NewQueuePressureScorer(config)
+		queuePressureScorer = NewQueuePressureScorer(config, queueRepo, config.DepartmentLoadSource)
 	}
 	return &DefaultCoordinator{
 		repo:                repo,

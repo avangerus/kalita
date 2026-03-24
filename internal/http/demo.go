@@ -58,6 +58,7 @@ type dashboardMetrics struct {
 	ExecutingSessions           int
 	FailedExecutions            int
 	ActorTrustDistribution      []trustBucket
+	QueuePressure               []controlplane.QueuePressure
 	UnresolvedRouteIncidents    int
 	PendingSupervisorReviews    int
 	DeferredReconciliationTasks int
@@ -247,7 +248,7 @@ func loadCaseDetailData(client *demoOperatorClient, caseID string) (controlplane
 }
 
 func buildDashboardMetrics(summary controlplane.Summary, workItems []controlplane.WorkItemOverview, actors []controlplane.ActorOverview) dashboardMetrics {
-	metrics := dashboardMetrics{ActiveCases: summary.OpenCaseCount, PendingApprovals: summary.ApprovalPendingCount, DeferredWorkItems: summary.DeferredCount, ExecutingSessions: summary.ExecutingSessionCount, BlockedCases: summary.BlockedCount}
+	metrics := dashboardMetrics{ActiveCases: summary.OpenCaseCount, PendingApprovals: summary.ApprovalPendingCount, DeferredWorkItems: summary.DeferredCount, ExecutingSessions: summary.ExecutingSessionCount, BlockedCases: summary.BlockedCount, QueuePressure: summary.QueuePressure}
 	trustCounts := map[string]int{}
 	blockedCaseIDs := map[string]struct{}{}
 	for _, wi := range workItems {
@@ -408,6 +409,16 @@ func renderDemoHTML(c *gin.Context, title string, body string, data map[string]a
 			b, _ := json.Marshal(m)
 			return string(b)
 		},
+		"pressureClass": func(score float64) string {
+			switch {
+			case score >= 0.75:
+				return "pressure-high"
+			case score >= 0.4:
+				return "pressure-medium"
+			default:
+				return "pressure-low"
+			}
+		},
 	}
 	tmpl := template.Must(template.New("page").Funcs(funcs).Parse(demoLayoutTemplate + body))
 	if data == nil {
@@ -421,7 +432,7 @@ func renderDemoHTML(c *gin.Context, title string, body string, data map[string]a
 const demoLayoutTemplate = `{{define "layout"}}<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>{{.Title}}</title>
 <style>
-body{font-family:Arial,sans-serif;margin:24px;color:#222}nav a{margin-right:12px}table{border-collapse:collapse;width:100%;margin-top:12px}th,td{border:1px solid #ccc;padding:8px;vertical-align:top;text-align:left} .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:16px 0}.card{border:1px solid #ccc;padding:12px}.muted{color:#666}.pill{display:inline-block;border:1px solid #999;border-radius:999px;padding:2px 8px;font-size:12px}.actions form{display:inline-block;margin-right:8px}pre{white-space:pre-wrap;word-break:break-word;margin:0}.section-title{margin-top:28px}.lede{max-width:900px;margin-top:8px}.domain{background:#f7f8fa;border:1px solid #d8dce3;padding:16px;margin-top:16px}
+body{font-family:Arial,sans-serif;margin:24px;color:#222}nav a{margin-right:12px}table{border-collapse:collapse;width:100%;margin-top:12px}th,td{border:1px solid #ccc;padding:8px;vertical-align:top;text-align:left} .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:16px 0}.card{border:1px solid #ccc;padding:12px}.muted{color:#666}.pill{display:inline-block;border:1px solid #999;border-radius:999px;padding:2px 8px;font-size:12px}.actions form{display:inline-block;margin-right:8px}pre{white-space:pre-wrap;word-break:break-word;margin:0}.section-title{margin-top:28px}.lede{max-width:900px;margin-top:8px}.domain{background:#f7f8fa;border:1px solid #d8dce3;padding:16px;margin-top:16px}.pressure-low{background:#eef8ef}.pressure-medium{background:#fff4d6}.pressure-high{background:#fde4e4}
 </style></head><body>
 <h1>{{.Title}}</h1>
 <nav><a href="/demo">Dashboard</a><a href="/demo/cases">Cases</a><a href="/demo/approvals">Approval Inbox</a></nav>
@@ -443,6 +454,10 @@ const demoDashboardTemplate = `{{define "body"}}
   <div class="card"><strong>Executing sessions</strong><div>{{.Metrics.ExecutingSessions}}</div></div>
   <div class="card"><strong>Failed executions</strong><div>{{.Metrics.FailedExecutions}}</div></div>
 </div>
+<h2>Queue pressure by department</h2>
+<table><thead><tr><th>Department</th><th>Pressure</th><th>Open work items</th></tr></thead><tbody>
+{{range .Metrics.QueuePressure}}<tr class="{{pressureClass .PressureScore}}"><td>{{.DepartmentID}}</td><td>{{printf "%.2f" .PressureScore}}</td><td>{{.WorkItemsCount}}</td></tr>{{else}}<tr><td colspan="3">No department queue pressure found.</td></tr>{{end}}
+</tbody></table>
 <h2>Actor trust distribution</h2>
 <table><thead><tr><th>Trust level</th><th>Actors</th></tr></thead><tbody>
 {{range .Metrics.ActorTrustDistribution}}<tr><td>{{.Level}}</td><td>{{.Count}}</td></tr>{{else}}<tr><td colspan="2">No actors found.</td></tr>{{end}}

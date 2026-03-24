@@ -22,6 +22,8 @@ import (
 	"kalita/internal/workplan"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOperatorEndpointsReturnAggregatedJSON(t *testing.T) {
@@ -86,6 +88,33 @@ func TestOperatorEndpointReturnsNotFound(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
+}
+
+func TestControlPlaneSummaryIncludesQueuePressure(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	api := r.Group("/api")
+	registerOperatorRoutes(api, controlplaneSeededService(t))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/controlplane/summary", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	queuePressure, ok := payload["queue_pressure"].([]any)
+	require.True(t, ok, "queue_pressure missing from payload: %#v", payload)
+	require.Len(t, queuePressure, 1)
+
+	first, ok := queuePressure[0].(map[string]any)
+	require.True(t, ok, "unexpected queue_pressure item: %#v", queuePressure[0])
+	assert.Equal(t, "ops", first["department_id"])
+	assert.Equal(t, 1.0, first["work_items_count"])
+	assert.Contains(t, first, "pressure_score")
 }
 
 func TestOperatorApprovalEndpointsResolveRequestsIdempotently(t *testing.T) {
@@ -231,7 +260,7 @@ func controlplaneSeededService(t *testing.T) controlplane.Service {
 	base := time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC)
 
 	mustNoErr(t, caseRepo.Save(ctx, caseruntime.Case{ID: "case-1", Kind: "workflow.action", Status: "open", CorrelationID: "corr-1", SubjectRef: "subject-1", OpenedAt: base, UpdatedAt: base}))
-	mustNoErr(t, queueRepo.SaveQueue(ctx, workplan.WorkQueue{ID: "queue-1", Name: "Ops"}))
+	mustNoErr(t, queueRepo.SaveQueue(ctx, workplan.WorkQueue{ID: "queue-1", Name: "Ops", Department: "ops"}))
 	mustNoErr(t, queueRepo.SaveWorkItem(ctx, workplan.WorkItem{ID: "work-1", CaseID: "case-1", QueueID: "queue-1", Type: "workflow.action", Status: "open", PlanID: "plan-1", AssignedEmployeeID: "actor-1", CreatedAt: base, UpdatedAt: base}))
 	mustNoErr(t, coordRepo.SaveDecision(ctx, workplan.CoordinationDecision{ID: "coord-1", WorkItemID: "work-1", CaseID: "case-1", QueueID: "queue-1", DecisionType: workplan.CoordinationDefer, Priority: 2, Reason: "awaiting approval", CreatedAt: base.Add(time.Minute)}))
 	mustNoErr(t, policyRepo.SaveDecision(ctx, policy.PolicyDecision{ID: "policy-1", CoordinationDecisionID: "coord-1", CaseID: "case-1", WorkItemID: "work-1", QueueID: "queue-1", Outcome: policy.PolicyRequireApproval, Reason: "review", CreatedAt: base.Add(2 * time.Minute)}))

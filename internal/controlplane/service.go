@@ -32,22 +32,23 @@ type ApprovalRequestLister interface {
 }
 
 type service struct {
-	cases        caseruntime.CaseRepository
-	caseLister   CaseLister
-	workItems    workplan.QueueRepository
-	workLister   WorkItemLister
-	coordination workplan.CoordinationRepository
-	policies     policy.PolicyRepository
-	approvals    ApprovalRequestLister
-	proposals    proposal.Repository
-	actors       employee.Directory
-	trust        trust.Repository
-	profiles     profile.Repository
-	capabilities capability.InMemoryCapabilityRepository
-	executions   executionruntime.ExecutionRepository
-	wal          executionruntime.WAL
-	eventLog     eventcore.EventLog
-	coordinator  workplan.Coordinator
+	cases         caseruntime.CaseRepository
+	caseLister    CaseLister
+	workItems     workplan.QueueRepository
+	workLister    WorkItemLister
+	queuePressure workplan.QueuePressureScorer
+	coordination  workplan.CoordinationRepository
+	policies      policy.PolicyRepository
+	approvals     ApprovalRequestLister
+	proposals     proposal.Repository
+	actors        employee.Directory
+	trust         trust.Repository
+	profiles      profile.Repository
+	capabilities  capability.InMemoryCapabilityRepository
+	executions    executionruntime.ExecutionRepository
+	wal           executionruntime.WAL
+	eventLog      eventcore.EventLog
+	coordinator   workplan.Coordinator
 }
 
 func NewService(
@@ -81,7 +82,25 @@ func NewService(
 	if len(coordinators) > 0 {
 		coordinator = coordinators[0]
 	}
-	return &service{cases: cases, caseLister: caseLister, workItems: workItems, workLister: workLister, coordination: coordination, policies: policies, approvals: approvals, proposals: proposals, actors: actors, trust: trustRepo, profiles: profiles, capabilities: *capRepo, executions: executions, wal: wal, eventLog: eventLog, coordinator: coordinator}
+	return &service{
+		cases:         cases,
+		caseLister:    caseLister,
+		workItems:     workItems,
+		workLister:    workLister,
+		queuePressure: workplan.NewQueuePressureScorer(workplan.CoordinationConfig{}, workItems, nil),
+		coordination:  coordination,
+		policies:      policies,
+		approvals:     approvals,
+		proposals:     proposals,
+		actors:        actors,
+		trust:         trustRepo,
+		profiles:      profiles,
+		capabilities:  *capRepo,
+		executions:    executions,
+		wal:           wal,
+		eventLog:      eventLog,
+		coordinator:   coordinator,
+	}
 }
 
 func (s *service) ApproveApprovalRequest(ctx context.Context, approvalRequestID string) (ApprovalInboxItem, error) {
@@ -254,6 +273,13 @@ func (s *service) GetSummary(ctx context.Context) (Summary, error) {
 		return Summary{}, err
 	}
 	summary := Summary{WorkItemCount: len(items), ApprovalPendingCount: len(approvals), BlockedOrDeferredCount: len(blocked), TrustLevelCounts: map[string]int{}}
+	if s.queuePressure != nil {
+		pressure, err := s.queuePressure.ListQueuePressure(ctx)
+		if err != nil {
+			return Summary{}, err
+		}
+		summary.QueuePressure = mapQueuePressure(pressure)
+	}
 	for _, c := range cases {
 		if c.Status == string(caseruntime.CaseOpen) || c.Status == "open" {
 			summary.OpenCaseCount++
@@ -281,6 +307,18 @@ func (s *service) GetSummary(ctx context.Context) (Summary, error) {
 		}
 	}
 	return summary, nil
+}
+
+func mapQueuePressure(items []workplan.QueuePressure) []QueuePressure {
+	out := make([]QueuePressure, 0, len(items))
+	for _, item := range items {
+		out = append(out, QueuePressure{
+			DepartmentID:   item.DepartmentID,
+			PressureScore:  item.PressureScore,
+			WorkItemsCount: item.WorkItemsCount,
+		})
+	}
+	return out
 }
 
 func (s *service) GetCaseTimeline(ctx context.Context, caseID string) ([]TimelineEntry, error) {

@@ -3,14 +3,21 @@ package controlplane
 import "time"
 
 type Summary struct {
-	OpenCaseCount          int            `json:"open_case_count"`
-	WorkItemCount          int            `json:"work_item_count"`
-	ApprovalPendingCount   int            `json:"approval_pending_count"`
-	BlockedOrDeferredCount int            `json:"blocked_or_deferred_count"`
-	ExecutingSessionCount  int            `json:"executing_session_count"`
-	DeferredCount          int            `json:"deferred_count"`
-	BlockedCount           int            `json:"blocked_count"`
-	TrustLevelCounts       map[string]int `json:"trust_level_counts,omitempty"`
+	OpenCaseCount          int             `json:"open_case_count"`
+	WorkItemCount          int             `json:"work_item_count"`
+	ApprovalPendingCount   int             `json:"approval_pending_count"`
+	BlockedOrDeferredCount int             `json:"blocked_or_deferred_count"`
+	ExecutingSessionCount  int             `json:"executing_session_count"`
+	DeferredCount          int             `json:"deferred_count"`
+	BlockedCount           int             `json:"blocked_count"`
+	TrustLevelCounts       map[string]int  `json:"trust_level_counts,omitempty"`
+	QueuePressure          []QueuePressure `json:"queue_pressure,omitempty"`
+}
+
+type QueuePressure struct {
+	DepartmentID   string  `json:"department_id"`
+	PressureScore  float64 `json:"pressure_score"`
+	WorkItemsCount int     `json:"work_items_count"`
 }
 
 type TimelineEntry struct {
