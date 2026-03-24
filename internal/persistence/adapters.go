@@ -62,8 +62,17 @@ func (r *PersistentCaseRepository) Save(ctx context.Context, c caseruntime.Case)
 func (r *PersistentCaseRepository) GetByID(ctx context.Context, id string) (caseruntime.Case, bool, error) {
 	return r.base.GetByID(ctx, id)
 }
+func (r *PersistentCaseRepository) FindByID(ctx context.Context, id string) (caseruntime.Case, bool, error) {
+	return r.base.FindByID(ctx, id)
+}
 func (r *PersistentCaseRepository) List(ctx context.Context) ([]caseruntime.Case, error) {
 	return r.base.List(ctx)
+}
+func (r *PersistentCaseRepository) FindAll(ctx context.Context) ([]caseruntime.Case, error) {
+	return r.base.FindAll(ctx)
+}
+func (r *PersistentCaseRepository) FindByStatus(ctx context.Context, status string) ([]caseruntime.Case, error) {
+	return r.base.FindByStatus(ctx, status)
 }
 func (r *PersistentCaseRepository) FindByCorrelation(ctx context.Context, correlationID string) (caseruntime.Case, bool, error) {
 	return r.base.FindByCorrelation(ctx, correlationID)

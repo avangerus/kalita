@@ -72,6 +72,27 @@ func TestInMemoryCaseRepositoryFindBySubjectRef(t *testing.T) {
 	}
 }
 
+func TestInMemoryCaseRepositoryFindByStatus(t *testing.T) {
+	t.Parallel()
+
+	repo := NewInMemoryCaseRepository()
+	ctx := context.Background()
+	_ = repo.Save(ctx, Case{ID: "case-1", Status: string(CaseOpen)})
+	_ = repo.Save(ctx, Case{ID: "case-2", Status: string(CaseClosed)})
+	_ = repo.Save(ctx, Case{ID: "case-3", Status: string(CaseOpen)})
+
+	got, err := repo.FindByStatus(ctx, string(CaseOpen))
+	if err != nil {
+		t.Fatalf("FindByStatus error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("FindByStatus len = %d, want 2", len(got))
+	}
+	if got[0].ID != "case-1" || got[1].ID != "case-3" {
+		t.Fatalf("FindByStatus order = %#v", got)
+	}
+}
+
 func TestInMemoryCaseRepositoryOverwriteBySameID(t *testing.T) {
 	t.Parallel()
 

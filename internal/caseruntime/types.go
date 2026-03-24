@@ -30,6 +30,11 @@ type Case struct {
 
 type CaseRepository interface {
 	Save(ctx context.Context, c Case) error
+	FindByID(ctx context.Context, id string) (Case, bool, error)
+	FindAll(ctx context.Context) ([]Case, error)
+	FindByStatus(ctx context.Context, status string) ([]Case, error)
+
+	// Legacy methods kept for existing application code.
 	GetByID(ctx context.Context, id string) (Case, bool, error)
 	List(ctx context.Context) ([]Case, error)
 	FindByCorrelation(ctx context.Context, correlationID string) (Case, bool, error)

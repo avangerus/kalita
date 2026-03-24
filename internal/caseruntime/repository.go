@@ -58,11 +58,34 @@ func (r *InMemoryCaseRepository) GetByID(_ context.Context, id string) (Case, bo
 	return cloneCase(c), true, nil
 }
 
+func (r *InMemoryCaseRepository) FindByID(ctx context.Context, id string) (Case, bool, error) {
+	return r.GetByID(ctx, id)
+}
+
 func (r *InMemoryCaseRepository) List(_ context.Context) ([]Case, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]Case, 0, len(r.byID))
 	for _, c := range r.byID {
+		out = append(out, cloneCase(c))
+	}
+	return out, nil
+}
+
+func (r *InMemoryCaseRepository) FindAll(ctx context.Context) ([]Case, error) {
+	return r.List(ctx)
+}
+
+func (r *InMemoryCaseRepository) FindByStatus(_ context.Context, status string) ([]Case, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := make([]Case, 0)
+	for _, id := range r.order {
+		c, ok := r.byID[id]
+		if !ok || c.Status != status {
+			continue
+		}
 		out = append(out, cloneCase(c))
 	}
 	return out, nil

@@ -81,7 +81,7 @@ sprints:
       все места где нарушается interface segregation. Только документ, никакого кода.
 
       '
-  - done: false
+  - done: true
     id: '3.2'
     intent: 'Добавь PostgreSQL зависимость (pgx/v5). Создай internal/storage/postgres/
       с базовым Connection pool, миграционным механизмом (golang-migrate или ручные

@@ -1,29 +1,6 @@
 {
   "summaries": [
     {
-      "task_id": "M1",
-      "done_at": "2026-03-24T00:00:00",
-      "what_was_done": "Полный pipeline реализован: eventcore → caseruntime → workplan → policy → executioncontrol → executionruntime → trust. Пакеты: actionplan (compiler/validator/service), caseruntime, workplan (coordination_service, daily_plan, planner), policy, executioncontrol, executionruntime (WAL), employee, trust (scorer), profile (matcher), capability, controlplane (summary/list/detail/timeline/inbox), persistence (snapshot/event store), http (router/operator/demo/actions/integration), demo (scenarios/domainview), app/bootstrap. Всё покрыто тестами.",
-      "problems": "none",
-      "files_changed": [
-        "internal/actionplan/",
-        "internal/caseruntime/",
-        "internal/workplan/",
-        "internal/policy/",
-        "internal/executioncontrol/",
-        "internal/executionruntime/",
-        "internal/employee/",
-        "internal/trust/",
-        "internal/profile/",
-        "internal/capability/",
-        "internal/controlplane/",
-        "internal/persistence/",
-        "internal/http/",
-        "internal/demo/",
-        "internal/app/"
-      ]
-    },
-    {
       "task_id": "M1-postgres-partial",
       "done_at": "2026-03-24T00:00:00",
       "what_was_done": "PostgreSQL частично: internal/postgres/conn.go, schema.go, apply.go — подключение и DDL-генерация есть. В bootstrap.go есть ветка DATABASE_URL. Доменных репозиториев на Postgres нет — всё in-memory. /health endpoint отсутствует.",
@@ -90,6 +67,13 @@
       "task_id": "3.1",
       "done_at": "2026-03-24T12:46:39.000042",
       "what_was_done": "Изменены файлы:\ndoc/repositories.md\npipeline.py",
+      "problems": "none",
+      "files_changed": []
+    },
+    {
+      "task_id": "3.2",
+      "done_at": "2026-03-24T12:50:43.357567",
+      "what_was_done": "Изменены файлы:\ninternal/app/bootstrap.go\ninternal/config/config.go\ninternal/config/config_test.go\ninternal/storage/postgres/case_repository.go\ninternal/storage/postgres/case_repository_test.go\ninternal/storage/postgres/errors.go\ninternal/storage/postgres/migrations.go\ninternal/storage/postgres/migrations/0001_create_cases.sql\ninternal/storage/postgres/pool.go\nplans/context.json\nplans/sprints.yaml",
       "problems": "none",
       "files_changed": []
     }
