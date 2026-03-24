@@ -21,6 +21,7 @@ import (
 	"kalita/internal/executioncontrol"
 	"kalita/internal/executionruntime"
 	"kalita/internal/integration"
+	"kalita/internal/integrations/aisotkhody"
 	"kalita/internal/persistence"
 	"kalita/internal/policy"
 	"kalita/internal/postgres"
@@ -37,52 +38,53 @@ import (
 
 // BootstrapResult holds the initialized application components
 type BootstrapResult struct {
-	Storage            *runtime.Storage
-	EventLog           eventcore.EventLog
-	CommandBus         command.CommandBus
-	CaseRepo           caseruntime.CaseRepository
-	CaseResolver       caseruntime.CaseResolver
-	CaseService        *caseruntime.Service
-	QueueRepo          workplan.QueueRepository
-	WorkQueueSnapshot  workplan.WorkQueueSnapshot
-	PlanRepo           workplan.PlanRepository
-	CoordinationRepo   workplan.CoordinationRepository
-	AssignmentRouter   workplan.AssignmentRouter
-	Planner            workplan.Planner
-	Coordinator        workplan.Coordinator
-	WorkService        *workplan.Service
-	PolicyRepo         policy.PolicyRepository
-	PolicyEvaluator    policy.Evaluator
-	PolicyService      policy.Service
-	ConstraintsRepo    executioncontrol.ConstraintsRepository
-	ConstraintsPlanner executioncontrol.ConstraintsPlanner
-	ConstraintsService executioncontrol.ConstraintsService
-	ActionRegistry     actionplan.Registry
-	ActionCompiler     actionplan.Compiler
-	ActionValidator    actionplan.Validator
-	ActionPlanService  actionplan.Service
-	ProposalRepo       proposal.Repository
-	ProposalValidator  proposal.Validator
-	ProposalCompiler   proposal.CompilerAdapter
-	ProposalService    proposal.Service
-	EmployeeDirectory  employee.Directory
-	AssignmentRepo     employee.AssignmentRepository
-	EmployeeSelector   employee.Selector
-	EmployeeService    employee.Service
-	TrustRepo          trust.Repository
-	TrustScorer        trust.Scorer
-	TrustService       trust.Service
-	ExecutionRepo      executionruntime.ExecutionRepository
-	ExecutionWAL       executionruntime.WAL
-	ActionExecutor     executionruntime.ActionExecutor
-	ExecutionRunner    executionruntime.Runner
-	ExecutionRuntime   executionruntime.Service
-	ControlPlane       controlplane.Service
-	IntegrationService integration.IncidentService
-	PostgresPool       *pgxpool.Pool
-	DBBackend          string
-	DBHealthCheck      func(context.Context) error
-	Config             config.Config
+	Storage             *runtime.Storage
+	EventLog            eventcore.EventLog
+	CommandBus          command.CommandBus
+	CaseRepo            caseruntime.CaseRepository
+	CaseResolver        caseruntime.CaseResolver
+	CaseService         *caseruntime.Service
+	QueueRepo           workplan.QueueRepository
+	WorkQueueSnapshot   workplan.WorkQueueSnapshot
+	PlanRepo            workplan.PlanRepository
+	CoordinationRepo    workplan.CoordinationRepository
+	AssignmentRouter    workplan.AssignmentRouter
+	Planner             workplan.Planner
+	Coordinator         workplan.Coordinator
+	WorkService         *workplan.Service
+	PolicyRepo          policy.PolicyRepository
+	PolicyEvaluator     policy.Evaluator
+	PolicyService       policy.Service
+	ConstraintsRepo     executioncontrol.ConstraintsRepository
+	ConstraintsPlanner  executioncontrol.ConstraintsPlanner
+	ConstraintsService  executioncontrol.ConstraintsService
+	ActionRegistry      actionplan.Registry
+	ActionCompiler      actionplan.Compiler
+	ActionValidator     actionplan.Validator
+	ActionPlanService   actionplan.Service
+	ProposalRepo        proposal.Repository
+	ProposalValidator   proposal.Validator
+	ProposalCompiler    proposal.CompilerAdapter
+	ProposalService     proposal.Service
+	EmployeeDirectory   employee.Directory
+	AssignmentRepo      employee.AssignmentRepository
+	EmployeeSelector    employee.Selector
+	EmployeeService     employee.Service
+	TrustRepo           trust.Repository
+	TrustScorer         trust.Scorer
+	TrustService        trust.Service
+	ExecutionRepo       executionruntime.ExecutionRepository
+	ExecutionWAL        executionruntime.WAL
+	ActionExecutor      executionruntime.ActionExecutor
+	ExecutionRunner     executionruntime.Runner
+	ExecutionRuntime    executionruntime.Service
+	ControlPlane        controlplane.Service
+	IntegrationService  integration.IncidentService
+	AISIngestionService aisotkhody.IngestionService
+	PostgresPool        *pgxpool.Pool
+	DBBackend           string
+	DBHealthCheck       func(context.Context) error
+	Config              config.Config
 }
 
 func Bootstrap(cfgPath string) (*BootstrapResult, error) {
@@ -262,7 +264,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	executionRunner := executionruntime.NewRunner(executionRepo, executionWAL, actionExecutor, eventLog, clock, ids, trustService)
 	executionRuntime := executionruntime.NewService(executionRunner)
 
-	defaultQueue := workplan.WorkQueue{ID: "default-intake", Name: "Default Intake", Department: "operations", Purpose: "Default operational intake for resolved cases", AllowedCaseKinds: []string{"workflow.action", "container_incident_detected"}}
+	defaultQueue := workplan.WorkQueue{ID: "default-intake", Name: "Default Intake", Department: "operations", Purpose: "Default operational intake for resolved cases", AllowedCaseKinds: []string{"workflow.action", "container_incident_detected", "missed_container_pickup_review"}}
 	if _, ok, err := baseQueueRepo.GetQueue(context.Background(), defaultQueue.ID); err != nil {
 		return nil, fmt.Errorf("load default queue: %w", err)
 	} else if !ok {
@@ -285,7 +287,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	)
 	workService := workplan.NewService(queueRepo, assignmentRouter, planner, coordinator, eventLog, clock, ids)
 
-	defaultEmployee := employee.DigitalEmployee{ID: "employee-legacy-operator", Code: "legacy_operator_default", Role: "legacy_operator", Enabled: true, QueueMemberships: []string{defaultQueue.ID}, AllowedActionTypes: []actionplan.ActionType{"legacy_workflow_action", "external_incident_followup"}, AllowedCommandTypes: []string{"workflow.action", "container_incident_detected"}, PolicyProfile: "default", ExecutionProfile: "default", CreatedAt: clock.Now(), UpdatedAt: clock.Now()}
+	defaultEmployee := employee.DigitalEmployee{ID: "employee-legacy-operator", Code: "legacy_operator_default", Role: "legacy_operator", Enabled: true, QueueMemberships: []string{defaultQueue.ID}, AllowedActionTypes: []actionplan.ActionType{"legacy_workflow_action", "external_incident_followup"}, AllowedCommandTypes: []string{"workflow.action", "container_incident_detected", "missed_container_pickup_review"}, PolicyProfile: "default", ExecutionProfile: "default", CreatedAt: clock.Now(), UpdatedAt: clock.Now()}
 	if _, ok, err := baseEmployeeDirectory.GetEmployee(context.Background(), defaultEmployee.ID); err != nil {
 		return nil, fmt.Errorf("load default employee: %w", err)
 	} else if !ok {
@@ -312,7 +314,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	if _, ok, err := baseProfileRepo.GetProfileByActor(context.Background(), defaultEmployee.ID); err != nil {
 		return nil, fmt.Errorf("load competency profile: %w", err)
 	} else if !ok {
-		if err := profileRepo.SaveProfile(context.Background(), profile.CompetencyProfile{ID: "profile-legacy-operator", ActorID: defaultEmployee.ID, Name: "Legacy Operator", MaxComplexity: 10, PreferredWorkKinds: []string{"workflow.action", "container_incident_detected"}}); err != nil {
+		if err := profileRepo.SaveProfile(context.Background(), profile.CompetencyProfile{ID: "profile-legacy-operator", ActorID: defaultEmployee.ID, Name: "Legacy Operator", MaxComplexity: 10, PreferredWorkKinds: []string{"workflow.action", "container_incident_detected", "missed_container_pickup_review"}}); err != nil {
 			return nil, fmt.Errorf("seed competency profile: %w", err)
 		}
 	}
@@ -333,6 +335,15 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	employeeService := employee.NewService(assignmentRepo, employeeSelector, executionRuntime, eventLog, clock, ids, trustService)
 	controlPlaneService := controlplane.NewService(caseRepo, queueRepo, coordinationRepo, policyRepo, proposalRepo, employeeDirectory, trustRepo, profileRepo, baseCapabilityRepo, executionRepo, executionWAL, eventLog, coordinator)
 	integrationService := integration.NewService(eventLog, commandBus, caseService, workService, coordinator, policyService, constraintsService, actionPlanService, employeeDirectory, employeeService, trustRepo, profileRepo, integration.NewInMemoryProcessedIncidentStore(), clock, ids)
+	var aisIngestionService aisotkhody.IngestionService
+	if aisCfg, err := aisotkhody.LoadConfigFromEnv(); err == nil {
+		aisClient := aisotkhody.NewClient(aisCfg)
+		aisIngestionService = aisotkhody.NewIngestionService(aisClient, integrationService, clock, log.Default(), aisotkhody.IngestionConfig{
+			ScheduleEnabled: cfg.AISIngestScheduleEnabled,
+			Interval:        time.Duration(cfg.AISIngestIntervalMinutes) * time.Minute,
+			LookbackDays:    cfg.AISIngestLookbackDays,
+		})
+	}
 	if persistMgr != nil && persistMgr.Enabled() {
 		if err := persistMgr.SaveSnapshot(context.Background()); err != nil {
 			return nil, fmt.Errorf("save runtime snapshot: %w", err)
@@ -344,7 +355,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	}
 	st.Blob = &blob.LocalBlobStore{Root: cfg.FilesRoot}
 
-	return &BootstrapResult{Storage: st, EventLog: eventLog, CommandBus: commandBus, CaseRepo: caseRepo, CaseResolver: caseResolver, CaseService: caseService, QueueRepo: queueRepo, WorkQueueSnapshot: workQueueSnapshot, PlanRepo: planRepo, CoordinationRepo: coordinationRepo, AssignmentRouter: assignmentRouter, Planner: planner, Coordinator: coordinator, WorkService: workService, PolicyRepo: policyRepo, PolicyEvaluator: policyEvaluator, PolicyService: policyService, ConstraintsRepo: constraintsRepo, ConstraintsPlanner: constraintsPlanner, ConstraintsService: constraintsService, ActionRegistry: actionRegistry, ActionCompiler: actionCompiler, ActionValidator: actionValidator, ActionPlanService: actionPlanService, ProposalRepo: proposalRepo, ProposalValidator: proposalValidator, ProposalCompiler: proposalCompiler, ProposalService: proposalService, EmployeeDirectory: employeeDirectory, AssignmentRepo: assignmentRepo, EmployeeSelector: employeeSelector, EmployeeService: employeeService, TrustRepo: trustRepo, TrustScorer: trustScorer, TrustService: trustService, ExecutionRepo: executionRepo, ExecutionWAL: executionWAL, ActionExecutor: actionExecutor, ExecutionRunner: executionRunner, ExecutionRuntime: executionRuntime, ControlPlane: controlPlaneService, IntegrationService: integrationService, PostgresPool: casePool, DBBackend: dbBackend, DBHealthCheck: dbHealthCheck, Config: cfg}, nil
+	return &BootstrapResult{Storage: st, EventLog: eventLog, CommandBus: commandBus, CaseRepo: caseRepo, CaseResolver: caseResolver, CaseService: caseService, QueueRepo: queueRepo, WorkQueueSnapshot: workQueueSnapshot, PlanRepo: planRepo, CoordinationRepo: coordinationRepo, AssignmentRouter: assignmentRouter, Planner: planner, Coordinator: coordinator, WorkService: workService, PolicyRepo: policyRepo, PolicyEvaluator: policyEvaluator, PolicyService: policyService, ConstraintsRepo: constraintsRepo, ConstraintsPlanner: constraintsPlanner, ConstraintsService: constraintsService, ActionRegistry: actionRegistry, ActionCompiler: actionCompiler, ActionValidator: actionValidator, ActionPlanService: actionPlanService, ProposalRepo: proposalRepo, ProposalValidator: proposalValidator, ProposalCompiler: proposalCompiler, ProposalService: proposalService, EmployeeDirectory: employeeDirectory, AssignmentRepo: assignmentRepo, EmployeeSelector: employeeSelector, EmployeeService: employeeService, TrustRepo: trustRepo, TrustScorer: trustScorer, TrustService: trustService, ExecutionRepo: executionRepo, ExecutionWAL: executionWAL, ActionExecutor: actionExecutor, ExecutionRunner: executionRunner, ExecutionRuntime: executionRuntime, ControlPlane: controlPlaneService, IntegrationService: integrationService, AISIngestionService: aisIngestionService, PostgresPool: casePool, DBBackend: dbBackend, DBHealthCheck: dbHealthCheck, Config: cfg}, nil
 }
 
 func tern(condition bool, yes string, no string) string {

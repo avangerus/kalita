@@ -16,7 +16,7 @@ func TestHealthEndpointReturnsOKForMemoryBackend(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
-	r := newRouterWithServices(&runtime.Storage{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "memory", nil)
+	r := newRouterWithServices(&runtime.Storage{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "memory", nil)
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -33,7 +33,7 @@ func TestHealthEndpointReturnsServiceUnavailableWhenDBCheckFails(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
-	r := newRouterWithServices(&runtime.Storage{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "postgres", func(_ context.Context) error {
+	r := newRouterWithServices(&runtime.Storage{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "postgres", func(_ context.Context) error {
 		return errors.New("db unavailable")
 	})
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)

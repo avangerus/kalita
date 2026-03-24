@@ -137,7 +137,7 @@ sprints:
       ответы в testdata/).
 
       '
-  - done: false
+  - done: true
     id: '4.2'
     intent: 'Создай AisEventMapper который конвертирует AIS PickupEvent в доменный
       Event. Маппинг живёт в internal/integrations/aisotkhody/mapper.go — не в demo/.

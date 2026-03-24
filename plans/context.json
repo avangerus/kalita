@@ -1,13 +1,6 @@
 {
   "summaries": [
     {
-      "task_id": "2.1",
-      "done_at": "2026-03-24T11:02:55.794531",
-      "what_was_done": "Error: stdout is not a terminal\n",
-      "problems": "none",
-      "files_changed": []
-    },
-    {
       "task_id": "2.3",
       "done_at": "2026-03-24T12:09:13.470534",
       "what_was_done": "Изменены файлы:\npipeline.py\nplans/sprints.yaml",
@@ -67,6 +60,13 @@
       "task_id": "4.1",
       "done_at": "2026-03-24T13:14:18.218277",
       "what_was_done": "Изменены файлы:\ninternal/integrations/aisotkhody/client.go\ninternal/integrations/aisotkhody/client_test.go\ninternal/integrations/aisotkhody/config.go\ninternal/integrations/aisotkhody/config_test.go\ninternal/integrations/aisotkhody/mock.go\ninternal/integrations/aisotkhody/mock_test.go\ninternal/integrations/aisotkhody/testdata/2026-03-20_missed-pickups.json\ninternal/integrations/aisotkhody/testdata/2026-03-21_missed-pickups.json\ninternal/integrations/aisotkhody/types.go\nplans/context.json\nplans/sp",
+      "problems": "none",
+      "files_changed": []
+    },
+    {
+      "task_id": "4.2",
+      "done_at": "2026-03-24T13:16:43.615256",
+      "what_was_done": "Изменены файлы:\ninternal/integrations/aisotkhody/mapper.go\ninternal/integrations/aisotkhody/mapper_test.go\nplans/context.json\nplans/sprints.yaml",
       "problems": "none",
       "files_changed": []
     }

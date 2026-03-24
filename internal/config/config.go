@@ -9,16 +9,19 @@ import (
 )
 
 type Config struct {
-	Port                string `json:"port"`
-	DemoMode            bool   `json:"demoMode"`
-	DSLDir              string `json:"dslDir"`
-	EnumsDir            string `json:"enumsDir"`
-	QueueDepthThreshold int    `json:"queueDepthThreshold"`
-	DBURL               string `json:"dbUrl"`
-	AutoMigrate         bool   `json:"autoMigrate"`
-	PersistenceEnabled  bool   `json:"persistenceEnabled"`
-	PersistenceDir      string `json:"persistenceDir"`
-	SnapshotEvery       int    `json:"snapshotEvery"`
+	Port                     string `json:"port"`
+	DemoMode                 bool   `json:"demoMode"`
+	DSLDir                   string `json:"dslDir"`
+	EnumsDir                 string `json:"enumsDir"`
+	QueueDepthThreshold      int    `json:"queueDepthThreshold"`
+	DBURL                    string `json:"dbUrl"`
+	AutoMigrate              bool   `json:"autoMigrate"`
+	PersistenceEnabled       bool   `json:"persistenceEnabled"`
+	PersistenceDir           string `json:"persistenceDir"`
+	SnapshotEvery            int    `json:"snapshotEvery"`
+	AISIngestScheduleEnabled bool   `json:"aisIngestScheduleEnabled"`
+	AISIngestIntervalMinutes int    `json:"aisIngestIntervalMinutes"`
+	AISIngestLookbackDays    int    `json:"aisIngestLookbackDays"`
 
 	// Файлы (локально) и задел под S3
 	BlobDriver string `json:"blobDriver"` // "local" (default) | "s3"
@@ -33,16 +36,19 @@ type Config struct {
 
 func def() Config {
 	return Config{
-		Port:                "8080",
-		DemoMode:            false,
-		DSLDir:              "dsl",
-		EnumsDir:            "reference/enums",
-		QueueDepthThreshold: 10,
-		DBURL:               "",
-		AutoMigrate:         false,
-		PersistenceEnabled:  false,
-		PersistenceDir:      "",
-		SnapshotEvery:       50,
+		Port:                     "8080",
+		DemoMode:                 false,
+		DSLDir:                   "dsl",
+		EnumsDir:                 "reference/enums",
+		QueueDepthThreshold:      10,
+		DBURL:                    "",
+		AutoMigrate:              false,
+		PersistenceEnabled:       false,
+		PersistenceDir:           "",
+		SnapshotEvery:            50,
+		AISIngestScheduleEnabled: false,
+		AISIngestIntervalMinutes: 15,
+		AISIngestLookbackDays:    0,
 
 		BlobDriver: "local",
 		FilesRoot:  "uploads",
@@ -115,6 +121,17 @@ func LoadWithPath(jsonPath string) Config {
 			cfg.SnapshotEvery = n
 		}
 	}
+	cfg.AISIngestScheduleEnabled = getenvBool("KALITA_AIS_INGEST_SCHEDULE_ENABLED", cfg.AISIngestScheduleEnabled)
+	if v := getenv("KALITA_AIS_INGEST_INTERVAL_MINUTES", ""); strings.TrimSpace(v) != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.AISIngestIntervalMinutes = n
+		}
+	}
+	if v := getenv("KALITA_AIS_INGEST_LOOKBACK_DAYS", ""); strings.TrimSpace(v) != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.AISIngestLookbackDays = n
+		}
+	}
 
 	cfg.BlobDriver = getenv("KALITA_BLOB_DRIVER", cfg.BlobDriver)
 	cfg.FilesRoot = getenv("KALITA_FILES_ROOT", cfg.FilesRoot)
@@ -137,6 +154,9 @@ func LoadWithPath(jsonPath string) Config {
 	persistenceEnabled := fs.String("persistence-enabled", strconv.FormatBool(cfg.PersistenceEnabled), "Enable file-based persistence (true/false)")
 	persistenceDir := fs.String("persistence-dir", cfg.PersistenceDir, "Persistence working directory")
 	snapshotEvery := fs.String("snapshot-every", strconv.Itoa(cfg.SnapshotEvery), "Snapshot cadence in persisted events")
+	aisScheduleEnabled := fs.String("ais-ingest-schedule-enabled", strconv.FormatBool(cfg.AISIngestScheduleEnabled), "Enable scheduled AIS ingestion (true/false)")
+	aisIntervalMinutes := fs.String("ais-ingest-interval-minutes", strconv.Itoa(cfg.AISIngestIntervalMinutes), "AIS ingestion interval in minutes")
+	aisLookbackDays := fs.String("ais-ingest-lookback-days", strconv.Itoa(cfg.AISIngestLookbackDays), "AIS ingestion lookback in whole days")
 
 	blob := fs.String("blob-driver", cfg.BlobDriver, "Blob driver (local/s3)")
 	files := fs.String("files-root", cfg.FilesRoot, "Local files root (if blob=local)")
@@ -171,6 +191,15 @@ func LoadWithPath(jsonPath string) Config {
 	cfg.PersistenceDir = strings.TrimSpace(*persistenceDir)
 	if n, err := strconv.Atoi(strings.TrimSpace(*snapshotEvery)); err == nil {
 		cfg.SnapshotEvery = n
+	}
+	cfg.AISIngestScheduleEnabled = strings.EqualFold(strings.TrimSpace(*aisScheduleEnabled), "true") ||
+		strings.EqualFold(strings.TrimSpace(*aisScheduleEnabled), "1") ||
+		strings.EqualFold(strings.TrimSpace(*aisScheduleEnabled), "yes")
+	if n, err := strconv.Atoi(strings.TrimSpace(*aisIntervalMinutes)); err == nil {
+		cfg.AISIngestIntervalMinutes = n
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(*aisLookbackDays)); err == nil {
+		cfg.AISIngestLookbackDays = n
 	}
 
 	cfg.BlobDriver = strings.TrimSpace(*blob)

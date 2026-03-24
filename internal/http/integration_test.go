@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"kalita/internal/app"
 	"kalita/internal/demo"
+	"kalita/internal/integrations/aisotkhody"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,7 +22,7 @@ func TestIntegrationIncidentEndpointCreatesCaseAndTimeline(t *testing.T) {
 	result := bootstrapIntegrationApp(t)
 	r := gin.New()
 	api := r.Group("/api")
-	registerIntegrationRoutes(api, result.IntegrationService)
+	registerIntegrationRoutes(api, result.IntegrationService, nil)
 	registerOperatorRoutes(api, result.ControlPlane)
 
 	body := `{"external_id":"ext-incident-1","source":"gps","route_id":"R-42","container_site":"SITE-9","timestamp":"2026-03-23T12:34:00Z","payload":{"severity":"high"}}`
@@ -75,7 +77,7 @@ func TestIntegrationIncidentEndpointIsIdempotentAndDemoCompatible(t *testing.T) 
 	}
 	r := gin.New()
 	api := r.Group("/api")
-	registerIntegrationRoutes(api, demoResult.IntegrationService)
+	registerIntegrationRoutes(api, demoResult.IntegrationService, nil)
 	registerOperatorRoutes(api, demoResult.ControlPlane)
 
 	body := `{"external_id":"ext-incident-demo-1","source":"photo","route_id":"R-777","container_site":"SITE-77","timestamp":"2026-03-23T13:00:00Z","payload":{"photo_id":"ph-1"}}`
@@ -147,7 +149,7 @@ func TestIntegrationIncidentEndpointRejectsMalformedInput(t *testing.T) {
 	result := bootstrapIntegrationApp(t)
 	r := gin.New()
 	api := r.Group("/api")
-	registerIntegrationRoutes(api, result.IntegrationService)
+	registerIntegrationRoutes(api, result.IntegrationService, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/integration/incidents", strings.NewReader(`{"external_id":"","timestamp":"`+time.Now().UTC().Format(time.RFC3339)+`"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -157,3 +159,54 @@ func TestIntegrationIncidentEndpointRejectsMalformedInput(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestAISIngestEndpointReturnsBatchResult(t *testing.T) {
+	r := gin.New()
+	api := r.Group("/api")
+	registerIntegrationRoutes(api, nil, stubAISIngestionService{
+		result: aisotkhody.IngestBatchResult{Date: "2026-03-20", Fetched: 2, Ingested: 1, Duplicates: 1},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/integrations/ais/ingest", strings.NewReader(`{"date":"2026-03-20"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	var payload map[string]any
+	decode(t, w, &payload)
+	if payload["date"] != "2026-03-20" || payload["duplicates"].(float64) != 1 {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestAISIngestEndpointRejectsInvalidDate(t *testing.T) {
+	r := gin.New()
+	api := r.Group("/api")
+	registerIntegrationRoutes(api, nil, stubAISIngestionService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/integrations/ais/ingest", strings.NewReader(`{"date":"20-03-2026"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+type stubAISIngestionService struct {
+	result aisotkhody.IngestBatchResult
+	err    error
+}
+
+func (s stubAISIngestionService) IngestDate(_ context.Context, _ time.Time) (aisotkhody.IngestBatchResult, error) {
+	return s.result, s.err
+}
+
+func (s stubAISIngestionService) IngestNow(context.Context) (aisotkhody.IngestBatchResult, error) {
+	return s.result, s.err
+}
+
+func (stubAISIngestionService) Start(context.Context) {}

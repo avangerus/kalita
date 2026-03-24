@@ -38,6 +38,18 @@ type IncidentService interface {
 	IngestIncident(ctx context.Context, incident ExternalIncident) (IngestResult, error)
 }
 
+type ExternalEvent struct {
+	ExternalID     string
+	Source         string
+	EventType      string
+	OccurredAt     time.Time
+	CorrelationID  string
+	TargetRef      string
+	EventPayload   map[string]any
+	CommandPayload map[string]any
+	PlanInput      map[string]any
+}
+
 type Service struct {
 	events            eventcore.EventLog
 	commandBus        command.CommandBus
@@ -123,14 +135,33 @@ func (s *Service) IngestIncident(ctx context.Context, incident ExternalIncident)
 	if err := validateIncident(incident); err != nil {
 		return IngestResult{}, err
 	}
-	if existingCaseID, processed, err := s.processed.Seen(ctx, incident.ExternalID); err != nil {
+	return s.IngestExternalEvent(ctx, externalEventFromIncident(incident))
+}
+
+func (s *Service) IngestExternalEvent(ctx context.Context, event ExternalEvent) (IngestResult, error) {
+	if err := validateExternalEvent(event); err != nil {
+		return IngestResult{}, err
+	}
+	if existingCaseID, processed, err := s.processed.Seen(ctx, event.ExternalID); err != nil {
 		return IngestResult{}, err
 	} else if processed {
 		return IngestResult{Case: caseruntime.Case{ID: existingCaseID}, Duplicate: true}, nil
 	}
+	if existingCaseID, processed, err := s.alreadyIngested(ctx, event); err != nil {
+		return IngestResult{}, err
+	} else if processed {
+		_ = s.processed.Record(ctx, event.ExternalID, existingCaseID)
+		return IngestResult{Case: caseruntime.Case{ID: existingCaseID}, Duplicate: true}, nil
+	}
 
-	evt := MapIncidentToEvent(incident)
-	evt.ID = s.ids.NewID()
+	evt := eventcore.Event{
+		ID:            s.ids.NewID(),
+		Type:          event.EventType,
+		OccurredAt:    event.OccurredAt.UTC(),
+		Source:        strings.TrimSpace(event.Source),
+		CorrelationID: strings.TrimSpace(event.CorrelationID),
+		Payload:       cloneMap(event.EventPayload),
+	}
 	evt.ExecutionID = s.ids.NewID()
 	evt.CausationID = evt.ID
 	if s.events != nil {
@@ -141,7 +172,17 @@ func (s *Service) IngestIncident(ctx context.Context, incident ExternalIncident)
 			return IngestResult{}, err
 		}
 	}
-	cmd := eventcore.Command{Type: evt.Type, RequestedAt: evt.OccurredAt, CorrelationID: evt.CorrelationID, CausationID: evt.ID, ExecutionID: evt.ExecutionID, TargetRef: incidentTargetRef(incident), IdempotencyKey: incident.ExternalID, Actor: eventcore.ActorContext{ActorType: eventcore.ActorService, DisplayName: strings.TrimSpace(incident.Source)}, Payload: map[string]any{"external_id": incident.ExternalID, "source": incident.Source, "route_id": incident.RouteID, "container_site": incident.ContainerSite, "payload": cloneMap(incident.Payload)}}
+	cmd := eventcore.Command{
+		Type:           evt.Type,
+		RequestedAt:    evt.OccurredAt,
+		CorrelationID:  evt.CorrelationID,
+		CausationID:    evt.ID,
+		ExecutionID:    evt.ExecutionID,
+		TargetRef:      strings.TrimSpace(event.TargetRef),
+		IdempotencyKey: strings.TrimSpace(event.ExternalID),
+		Actor:          eventcore.ActorContext{ActorType: eventcore.ActorService, DisplayName: strings.TrimSpace(event.Source)},
+		Payload:        cloneMap(event.CommandPayload),
+	}
 	admitted, err := s.commandBus.Submit(ctx, cmd)
 	if err != nil {
 		return IngestResult{}, err
@@ -150,7 +191,13 @@ func (s *Service) IngestIncident(ctx context.Context, incident ExternalIncident)
 	if err != nil {
 		return IngestResult{}, err
 	}
-	if err := s.processed.Record(ctx, incident.ExternalID, resolved.Case.ID); err != nil {
+	if resolved.Existed && strings.TrimSpace(resolved.Case.CorrelationID) == strings.TrimSpace(admitted.CorrelationID) {
+		if err := s.processed.Record(ctx, event.ExternalID, resolved.Case.ID); err != nil {
+			return IngestResult{}, err
+		}
+		return IngestResult{Event: evt, Command: admitted, Case: resolved.Case, Duplicate: true}, nil
+	}
+	if err := s.processed.Record(ctx, event.ExternalID, resolved.Case.ID); err != nil {
 		return IngestResult{}, err
 	}
 	intake, err := s.workService.IntakeCommand(ctx, resolved)
@@ -158,7 +205,7 @@ func (s *Service) IngestIncident(ctx context.Context, incident ExternalIncident)
 		return IngestResult{}, err
 	}
 	planCtx := actionplan.ContextWithExecution(ctx, actionplan.ExecutionContext{ExecutionID: intake.Command.ExecutionID, CorrelationID: intake.Command.CorrelationID, CausationID: intake.Command.ID})
-	plan, err := s.actionPlans.CreatePlan(planCtx, intake.WorkItem.ID, intake.Case.ID, incidentPlanInput(incident))
+	plan, err := s.actionPlans.CreatePlan(planCtx, intake.WorkItem.ID, intake.Case.ID, cloneMap(event.PlanInput))
 	if err != nil {
 		return IngestResult{}, err
 	}
@@ -199,6 +246,78 @@ func (s *Service) IngestIncident(ctx context.Context, incident ExternalIncident)
 		result.ExecutionSession = &session
 	}
 	return result, nil
+}
+
+func externalEventFromIncident(incident ExternalIncident) ExternalEvent {
+	evt := MapIncidentToEvent(incident)
+	return ExternalEvent{
+		ExternalID:     incident.ExternalID,
+		Source:         incident.Source,
+		EventType:      evt.Type,
+		OccurredAt:     evt.OccurredAt,
+		CorrelationID:  evt.CorrelationID,
+		TargetRef:      incidentTargetRef(incident),
+		EventPayload:   evt.Payload,
+		CommandPayload: map[string]any{"external_id": incident.ExternalID, "source": incident.Source, "route_id": incident.RouteID, "container_site": incident.ContainerSite, "payload": cloneMap(incident.Payload)},
+		PlanInput:      incidentPlanInput(incident),
+	}
+}
+
+func (s *Service) alreadyIngested(ctx context.Context, event ExternalEvent) (string, bool, error) {
+	if s.events == nil {
+		return "", false, nil
+	}
+	events, executionEvents, err := s.events.ListByCorrelation(ctx, strings.TrimSpace(event.CorrelationID))
+	if err != nil {
+		return "", false, err
+	}
+	if len(events) == 0 && len(executionEvents) == 0 {
+		return "", false, nil
+	}
+	for _, executionEvent := range executionEvents {
+		if executionEvent.CaseID != "" {
+			return executionEvent.CaseID, true, nil
+		}
+		if caseID, ok := stringFromMap(executionEvent.Payload, "case_id"); ok {
+			return caseID, true, nil
+		}
+	}
+	return "", true, nil
+}
+
+func stringFromMap(payload map[string]any, key string) (string, bool) {
+	value, ok := payload[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", false
+	}
+	return text, true
+}
+
+func validateExternalEvent(event ExternalEvent) error {
+	switch {
+	case strings.TrimSpace(event.ExternalID) == "":
+		return fmt.Errorf("external_id is required")
+	case strings.TrimSpace(event.Source) == "":
+		return fmt.Errorf("source is required")
+	case strings.TrimSpace(event.EventType) == "":
+		return fmt.Errorf("event_type is required")
+	case event.OccurredAt.IsZero():
+		return fmt.Errorf("timestamp is required")
+	case strings.TrimSpace(event.CorrelationID) == "":
+		return fmt.Errorf("correlation_id is required")
+	case strings.TrimSpace(event.TargetRef) == "":
+		return fmt.Errorf("target_ref is required")
+	default:
+		return nil
+	}
 }
 
 func (s *Service) buildCoordinationContext(ctx context.Context, wi workplan.WorkItem, plan actionplan.ActionPlan) (workplan.CoordinationContext, error) {
