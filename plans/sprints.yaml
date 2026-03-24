@@ -65,7 +65,7 @@ sprints:
         done: false
         intent: >
           Аудит всех Repository интерфейсов в internal/domain/.
-          Создай docs/repositories.md со списком всех интерфейсов,
+          Создай doc/repositories.md со списком всех интерфейсов,
           их методов и текущих in-memory реализаций.
           Выяви все места где нарушается interface segregation.
           Только документ, никакого кода.
