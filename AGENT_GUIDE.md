@@ -2,10 +2,11 @@
 
 ## Default workflow
 
-- Work directly on the current branch.
-- Implement changes on the current branch instead of creating topic branches.
+- Work directly on the current branch (typically `main`).
+- Implement changes directly in `main` instead of creating topic branches.
 - Create focused, slice-sized local commits with clear messages.
-- Do not open a pull request or prepare pull request metadata unless explicitly requested.
+- Do not create a PR by default.
+- Do not open a pull request or prepare PR metadata unless explicitly requested.
 - Do not use PR flow for routine incremental slices.
 - Use direct branch commits unless the task is explicitly marked as a review checkpoint.
 
