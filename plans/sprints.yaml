@@ -1,0 +1,149 @@
+# Kalita — Sprint Plan
+# pipeline.py читает этот файл и двигает конвейер
+# intent: что должно получиться (не как — это генерирует OpenRouter)
+# done: pipeline.py ставит true после успешного codex run
+
+sprints:
+
+  # ─────────────────────────────────────────────
+  - id: 2
+    name: "Coordination 2.0 — system-level decisions"
+    milestone: true
+    goal: >
+      CoordinationService принимает решения с учётом состояния всей очереди,
+      а не только отдельного WorkItem. Backlog-aware scoring.
+
+    tasks:
+
+      - id: "2.1"
+        done: false
+        intent: >
+          Создай интерфейс WorkQueueSnapshot в internal/coordination/
+          который предоставляет CoordinationService read-only вид на всю очередь:
+          количество items по статусам, средний возраст, items по actor capability.
+          Реализуй in-memory имплементацию. Добавь в wiring через app/.
+          Тесты обязательны.
+
+      - id: "2.2"
+        done: false
+        intent: >
+          Добавь queue-aware scoring в CoordinationService.
+          Если очередь по capability переполнена (>N items) — решение должно
+          склоняться к defer, не execute_now. Порог N берётся из CoordinationConfig.
+          Логика через отдельный QueuePressureScorer, не inline.
+          Существующие тесты не должны сломаться.
+
+      - id: "2.3"
+        done: false
+        intent: >
+          Добавь department-level coordination: CoordinationDecision теперь
+          учитывает не только capability отдельного actor, но и загрузку
+          всего department. DepartmentLoadProvider интерфейс, in-memory реализация.
+          Интегрируй в CoordinationService. Покрой тестами граничные случаи:
+          пустой department, все actor заняты, department не существует.
+
+      - id: "2.4"
+        done: false
+        intent: >
+          Обнови Control Plane: добавь в /api/controlplane/summary поле
+          queue_pressure с метриками по каждому department.
+          Только read model — никакой логики в controlplane/.
+          Данные берутся из QueuePressureScorer через read-модель.
+          Обнови HTML dashboard чтобы показывал queue pressure.
+
+  # ─────────────────────────────────────────────
+  - id: 3
+    name: "External persistence — repository layer"
+    milestone: true
+    goal: >
+      Заменить in-memory репозитории на PostgreSQL.
+      Domain код не должен измениться — только реализации интерфейсов.
+
+    tasks:
+
+      - id: "3.1"
+        done: false
+        intent: >
+          Аудит всех Repository интерфейсов в internal/domain/.
+          Создай docs/repositories.md со списком всех интерфейсов,
+          их методов и текущих in-memory реализаций.
+          Выяви все места где нарушается interface segregation.
+          Только документ, никакого кода.
+
+      - id: "3.2"
+        done: false
+        intent: >
+          Добавь PostgreSQL зависимость (pgx/v5).
+          Создай internal/storage/postgres/ с базовым Connection pool,
+          миграционным механизмом (golang-migrate или ручные SQL файлы в migrations/).
+          Первая миграция: таблица cases с полями id, status, created_at, updated_at, metadata jsonb.
+          Конфиг через переменные окружения: DATABASE_URL.
+          In-memory остаётся дефолтом если DATABASE_URL не задан.
+
+      - id: "3.3"
+        done: false
+        intent: >
+          Реализуй PostgresCaseRepository имплементирующий CaseRepository интерфейс.
+          Все методы: Save, FindByID, FindAll, FindByStatus.
+          Transactions через pgx. Правильный маппинг доменных типов ↔ SQL.
+          Тесты через testcontainers-go (поднимает реальный postgres для тестов).
+
+      - id: "3.4"
+        done: false
+        intent: >
+          Реализуй PostgresWorkItemRepository имплементирующий WorkItemRepository.
+          Таблица work_items с foreign key на cases.
+          Методы: Save, FindByID, FindByCaseID, FindByStatus, FindByActorID.
+          Индексы на case_id и status. Тесты через testcontainers.
+
+      - id: "3.5"
+        done: false
+        intent: >
+          Реализуй PostgresExecutionSessionRepository.
+          Таблица execution_sessions, WAL entries в отдельной таблице wal_entries.
+          WAL должен быть append-only (нет UPDATE, только INSERT).
+          Compensation log в compensation_log таблице.
+          Тесты проверяют append-only инвариант.
+
+      - id: "3.6"
+        done: false
+        intent: >
+          Обнови internal/app/ wiring: если DATABASE_URL задан —
+          используются Postgres репозитории, иначе in-memory.
+          Добавь health check endpoint /health который проверяет DB connectivity.
+          Обнови README с инструкцией запуска с postgres (docker-compose пример).
+
+  # ─────────────────────────────────────────────
+  - id: 4
+    name: "AIS Otkhody — real data integration"
+    milestone: true
+    goal: >
+      Подключить реальные операционные данные из AIS Otkhody.
+      Domain runtime не меняется — только адаптер на входе.
+
+    tasks:
+
+      - id: "4.1"
+        done: false
+        intent: >
+          Создай internal/integrations/aisotkhody/ с HTTP клиентом к AIS API.
+          DataFetcher интерфейс с методом FetchMissedPickups(ctx, date) ([]PickupEvent, error).
+          Конфиг: AIS_API_URL, AIS_API_KEY из env.
+          Mock-реализация для тестов (записанные реальные ответы в testdata/).
+
+      - id: "4.2"
+        done: false
+        intent: >
+          Создай AisEventMapper который конвертирует AIS PickupEvent в доменный Event.
+          Маппинг живёт в internal/integrations/aisotkhody/mapper.go — не в demo/.
+          Тесты с реальными форматами данных из testdata/.
+          Mapper не должен знать ничего про HTTP или БД.
+
+      - id: "4.3"
+        done: false
+        intent: >
+          Создай AisIngestionService который по расписанию (или по запросу)
+          тянет события из AIS, маппирует и инжектирует в Event Core.
+          Endpoint POST /api/integrations/ais/ingest для ручного триггера.
+          Идемпотентность: повторный ingest одних данных не создаёт дубли.
+          Логирование каждого инжектированного события.

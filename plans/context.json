@@ -1,0 +1,23 @@
+{
+  "summaries": [
+    {
+      "task_id": "1.x",
+      "done_at": "2024-01-01T00:00:00",
+      "what_was_done": "M1 завершён: Event→Case→Work→Coordination→Policy→Execution pipeline работает. Control Plane функционален. Demo с multi-case сценариями. Trust system. Approvals с idempotent handling. Server-rendered HTML UI.",
+      "problems": "none",
+      "files_changed": ["internal/controlplane/", "internal/execution/", "internal/demo/"]
+    }
+  ],
+  "decisions": [
+    "No logic in HTTP handlers — только parse/call/return",
+    "Control plane агрегирует read models, никаких решений",
+    "Actor != LLM, Proposal != Execution — разделены всегда",
+    "Детерминированное исполнение — никакого random в domain logic",
+    "WAL append-only — никаких UPDATE в execution log",
+    "Read models отделены от domain — controlplane/ только читает",
+    "In-memory репозитории через интерфейсы — легко менять на DB",
+    "No duplication of runtime decisions — каждое решение в одном слое",
+    "Demo изолирован — domain не импортирует из demo/"
+  ],
+  "inbox": []
+}
