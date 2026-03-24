@@ -25,10 +25,9 @@ from pathlib import Path
 
 REPO_DIR      = Path(os.environ.get("REPO_DIR", "/repos/kalita"))
 PLAN_DIR      = REPO_DIR / "plan"
-DOCS_DIR      = REPO_DIR / "doc"
 CONTEXT_FILE  = PLAN_DIR / "context.json"
 SPRINTS_FILE  = PLAN_DIR / "sprints.yaml"
-ARCH_FILE     = DOCS_DIR / "ARCHITECTURE.md"
+ARCH_FILE     = REPO_DIR / "doc" / "ARCHITECTURE.md"
 CLAUDE_MD     = REPO_DIR / "CLAUDE.md"
 
 OPENROUTER_KEY  = os.environ["OPENROUTER_KEY"]
