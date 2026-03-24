@@ -41,6 +41,14 @@ type WorkQueue struct {
 	PolicyRef          string
 }
 
+type WorkItemRepository interface {
+	Save(ctx context.Context, wi WorkItem) error
+	FindByID(ctx context.Context, id string) (WorkItem, bool, error)
+	FindByCaseID(ctx context.Context, caseID string) ([]WorkItem, error)
+	FindByStatus(ctx context.Context, status string) ([]WorkItem, error)
+	FindByActorID(ctx context.Context, actorID string) ([]WorkItem, error)
+}
+
 type QueueRepository interface {
 	SaveQueue(ctx context.Context, q WorkQueue) error
 	GetQueue(ctx context.Context, id string) (WorkQueue, bool, error)

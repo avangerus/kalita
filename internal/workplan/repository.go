@@ -2,6 +2,7 @@ package workplan
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	"kalita/internal/actionplan"
@@ -16,6 +17,8 @@ type InMemoryQueueRepository struct {
 	workIDsByCase  map[string][]string
 	workIDsByQueue map[string][]string
 }
+
+var _ WorkItemRepository = (*InMemoryQueueRepository)(nil)
 
 func NewInMemoryQueueRepository() *InMemoryQueueRepository {
 	return &InMemoryQueueRepository{
@@ -89,6 +92,14 @@ func (r *InMemoryQueueRepository) GetWorkItem(_ context.Context, id string) (Wor
 	return cloneWorkItem(wi), true, nil
 }
 
+func (r *InMemoryQueueRepository) Save(ctx context.Context, wi WorkItem) error {
+	return r.SaveWorkItem(ctx, wi)
+}
+
+func (r *InMemoryQueueRepository) FindByID(ctx context.Context, id string) (WorkItem, bool, error) {
+	return r.GetWorkItem(ctx, id)
+}
+
 func (r *InMemoryQueueRepository) ListWorkItemsByCase(_ context.Context, caseID string) ([]WorkItem, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -98,6 +109,10 @@ func (r *InMemoryQueueRepository) ListWorkItemsByCase(_ context.Context, caseID 
 		out = append(out, cloneWorkItem(r.workItemsByID[id]))
 	}
 	return out, nil
+}
+
+func (r *InMemoryQueueRepository) FindByCaseID(ctx context.Context, caseID string) ([]WorkItem, error) {
+	return r.ListWorkItemsByCase(ctx, caseID)
 }
 
 func (r *InMemoryQueueRepository) ListWorkItemsByQueue(_ context.Context, queueID string) ([]WorkItem, error) {
@@ -118,6 +133,40 @@ func (r *InMemoryQueueRepository) ListWorkItems(_ context.Context) ([]WorkItem, 
 	for _, id := range r.workItemOrder {
 		out = append(out, cloneWorkItem(r.workItemsByID[id]))
 	}
+	return out, nil
+}
+
+func (r *InMemoryQueueRepository) FindByStatus(_ context.Context, status string) ([]WorkItem, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := make([]WorkItem, 0)
+	for _, id := range r.workItemOrder {
+		item := r.workItemsByID[id]
+		if item.Status == status {
+			out = append(out, cloneWorkItem(item))
+		}
+	}
+	return out, nil
+}
+
+func (r *InMemoryQueueRepository) FindByActorID(_ context.Context, actorID string) ([]WorkItem, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := make([]WorkItem, 0)
+	for _, id := range r.workItemOrder {
+		item := r.workItemsByID[id]
+		if item.AssignedEmployeeID == actorID {
+			out = append(out, cloneWorkItem(item))
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
 	return out, nil
 }
 

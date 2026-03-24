@@ -58,3 +58,35 @@ func TestInMemoryQueueRepositorySaveGetListWorkItemsByCaseAndQueue(t *testing.T)
 		t.Fatalf("byQueue = %#v", byQueue)
 	}
 }
+
+func TestInMemoryQueueRepositoryFindWorkItemsByStatusAndActor(t *testing.T) {
+	t.Parallel()
+
+	repo := NewInMemoryQueueRepository()
+	items := []WorkItem{
+		{ID: "wi-1", CaseID: "case-1", QueueID: "queue-1", Status: "open", AssignedEmployeeID: "actor-1"},
+		{ID: "wi-2", CaseID: "case-2", QueueID: "queue-1", Status: "done", AssignedEmployeeID: "actor-1"},
+		{ID: "wi-3", CaseID: "case-3", QueueID: "queue-2", Status: "open", AssignedEmployeeID: "actor-2"},
+	}
+	for _, item := range items {
+		if err := repo.Save(context.Background(), item); err != nil {
+			t.Fatalf("Save(%s) error = %v", item.ID, err)
+		}
+	}
+
+	openItems, err := repo.FindByStatus(context.Background(), "open")
+	if err != nil {
+		t.Fatalf("FindByStatus error = %v", err)
+	}
+	if len(openItems) != 2 || openItems[0].ID != "wi-1" || openItems[1].ID != "wi-3" {
+		t.Fatalf("openItems = %#v", openItems)
+	}
+
+	actorItems, err := repo.FindByActorID(context.Background(), "actor-1")
+	if err != nil {
+		t.Fatalf("FindByActorID error = %v", err)
+	}
+	if len(actorItems) != 2 || actorItems[0].ID != "wi-1" || actorItems[1].ID != "wi-2" {
+		t.Fatalf("actorItems = %#v", actorItems)
+	}
+}

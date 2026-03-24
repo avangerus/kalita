@@ -6,6 +6,8 @@ require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/stretchr/testify v1.9.0
+	github.com/testcontainers/testcontainers-go v0.39.0
+	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

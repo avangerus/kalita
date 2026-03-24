@@ -90,7 +90,7 @@ sprints:
       In-memory остаётся дефолтом если DATABASE_URL не задан.
 
       '
-  - done: false
+  - done: true
     id: '3.3'
     intent: 'Реализуй PostgresCaseRepository имплементирующий CaseRepository интерфейс.
       Все методы: Save, FindByID, FindAll, FindByStatus. Transactions через pgx. Правильный

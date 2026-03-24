@@ -1,17 +1,6 @@
 {
   "summaries": [
     {
-      "task_id": "M1-postgres-partial",
-      "done_at": "2026-03-24T00:00:00",
-      "what_was_done": "PostgreSQL частично: internal/postgres/conn.go, schema.go, apply.go — подключение и DDL-генерация есть. В bootstrap.go есть ветка DATABASE_URL. Доменных репозиториев на Postgres нет — всё in-memory. /health endpoint отсутствует.",
-      "problems": "Нет postgres-реализаций доменных репозиториев. Нет /health. TODO на cascade delete в internal/http/handlers.go:543.",
-      "files_changed": [
-        "internal/postgres/conn.go",
-        "internal/postgres/schema.go",
-        "internal/postgres/apply.go"
-      ]
-    },
-    {
       "task_id": "M1-integration-partial",
       "done_at": "2026-03-24T00:00:00",
       "what_was_done": "Интеграционный ingest реализован через /api/integration/incidents с идемпотентностью (external_id). Файлы: internal/http/integration.go, internal/integration/service.go. Это общий endpoint, не AIS-специфичный.",
@@ -74,6 +63,13 @@
       "task_id": "3.2",
       "done_at": "2026-03-24T12:50:43.357567",
       "what_was_done": "Изменены файлы:\ninternal/app/bootstrap.go\ninternal/config/config.go\ninternal/config/config_test.go\ninternal/storage/postgres/case_repository.go\ninternal/storage/postgres/case_repository_test.go\ninternal/storage/postgres/errors.go\ninternal/storage/postgres/migrations.go\ninternal/storage/postgres/migrations/0001_create_cases.sql\ninternal/storage/postgres/pool.go\nplans/context.json\nplans/sprints.yaml",
+      "problems": "none",
+      "files_changed": []
+    },
+    {
+      "task_id": "3.3",
+      "done_at": "2026-03-24T12:56:27.026618",
+      "what_was_done": "Изменены файлы:\ninternal/caseruntime/repository.go\ninternal/caseruntime/repository_test.go\ninternal/caseruntime/types.go\ninternal/persistence/adapters.go\ninternal/storage/postgres/case_repository.go\ninternal/storage/postgres/case_repository_integration_test.go\nplans/context.json\nplans/sprints.yaml",
       "problems": "none",
       "files_changed": []
     }
