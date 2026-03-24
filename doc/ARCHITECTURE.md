@@ -12,107 +12,163 @@ Approvals with idempotent handling. Server-rendered HTML UI.
 
 ```
 Event
-→ Case
-→ WorkItem
-→ CoordinationDecision (execute_now / defer / escalate / block)
-→ PolicyDecision / ApprovalRequest
-→ Actor Selection (capability + profile + trust)
-→ ActionPlan
-→ ExecutionRuntime (WAL + compensation)
-→ Trust Update
+→ Case (caseruntime)
+→ WorkItem / CoordinationDecision (workplan)
+→ ExecutionConstraints (executioncontrol)
+→ Actor Selection — capability + profile + trust (employee / capability / profile / trust)
+→ Proposal → ActionPlan (proposal / actionplan)
+→ ExecutionRuntime — WAL + compensation (executionruntime)
+→ Trust Update (trust)
 ```
 
 ---
 
 ## Layers
 
-### 1. Event Core (`internal/domain/events/`)
-- Append-only event log
-- System backbone — all state changes start here
+### 1. Event Core (`internal/eventcore/`)
+- Core event and command abstractions for the event-driven backbone
+- Types: `Event`, `Command`, `ExecutionEvent`, `ActorContext`
+- Interfaces: `IDGenerator`, `Clock`
+- All state changes originate here; provides correlation/causation tracking
 
-### 2. Case Runtime (`internal/domain/cases/`)
+### 2. Case Runtime (`internal/caseruntime/`)
 - Case = unit of operational work
-- Lifecycle: created → active → resolved / blocked
+- Lifecycle: open → closed
+- Types: `Case`, `CaseStatus`
+- Interfaces: `CaseRepository`, `CaseResolver`
+- Resolves commands to cases by correlation, subject reference, and other criteria
 
-### 3. Work Layer (`internal/domain/work/`)
-- WorkItem = executable unit within a Case
-- WorkQueue = ordered backlog
-
-### 4. Coordination Layer (`internal/coordination/`) — CRITICAL
-- Decides: execute_now / defer / escalate / block
-- Must be queue-aware (M2)
+### 3. Work & Coordination Layer (`internal/workplan/`) — CRITICAL
+- WorkItem = executable unit within a Case; WorkQueue = ordered backlog
+- Coordination decides: `execute_now` / `defer` / `escalate` / `block`
+- Types: `WorkItem`, `WorkItemStatus`, `WorkQueue`, `CoordinationDecision`
+- Interfaces: `QueueRepository`, `AssignmentRouter`, `Coordinator`, `Planner`
 - No probabilistic decisions — deterministic only
 
-### 5. Policy Layer (`internal/policy/`)
-- allow / require_approval / deny
-- Creates ApprovalRequest when needed
-- Approval is idempotent
+### 4. Execution Constraints (`internal/executioncontrol/`)
+- Defines risk levels, token limits, step caps, duration limits per execution
+- Types: `ExecutionConstraints`, `RiskLevel`, `ExecutionMode`
+- Interfaces: `ConstraintsRepository`, `ConstraintsPlanner`, `ConstraintsService`
+- `AdjustForTrust()` tightens/loosens constraints based on actor trust score
 
-### 6. Execution Runtime (`internal/execution/`) — SENSITIVE
-- ExecutionSession lifecycle
+### 5. Execution Runtime (`internal/executionruntime/`) — SENSITIVE
+- ExecutionSession lifecycle with per-step tracking
 - WAL (write-ahead log) — append-only, never UPDATE
 - Compensation log for rollback
+- Types: `ExecutionSession`, `StepExecution`, `WALRecord`, `WALRecordType`
+- Interfaces: `ExecutionRepository`, `WAL`, `ActionExecutor`, `Runner`, `Service`
 - Do not modify without explicit instruction
 
-### 7. Actor Model (`internal/domain/actor/`)
-- Digital employees — NOT LLM agents
+### 6. Actor Model (`internal/employee/`)
+- Digital employees — NOT LLM agents; hard invariant
 - Selected by: capability + profile + trust score
-- Actor ≠ LLM — hard invariant
+- Types: `DigitalEmployee`, `Assignment`
+- Interfaces: `Directory`, `AssignmentRepository`, `Selector`, `Service`
 
-### 8. Trust Layer (`internal/domain/trust/`)
-- Updated from execution outcomes (success/failure/compensation)
-- Affects actor eligibility and autonomy level
+### 7. Capability (`internal/capability/`)
+- Skills and tools modelled as capabilities with levels
+- Types: `Capability`, `CapabilityType`, `ActorCapability`
+- Interfaces: `CapabilityRepository`, `ActorCapabilityRepository`, `Matcher`, `Service`
+
+### 8. Profile (`internal/profile/`)
+- Execution style profiles: careful / fast / balanced / strict / exploratory
+- Types: `CompetencyProfile`, `CapabilityRequirement`, `ExecutionStyle`
+- Interfaces: `Repository`, `RequirementRepository`, `Matcher`, `Service`
+
+### 9. Trust Layer (`internal/trust/`)
+- Updated from execution outcomes (success / failure / compensation)
+- Affects actor eligibility and autonomy tier
+- Types: `TrustProfile`, `TrustLevel`, `AutonomyTier`, `TrustMetrics`, `ExecutionOutcome`
+- Interfaces: `Repository`, `Scorer`, `Service`
 - Deterministic updates only
+
+### 10. Proposal (`internal/proposal/`)
+- Captures action intent from an employee before execution
+- Lifecycle: draft → validated → compiled
+- Types: `Proposal`, `ProposalType`, `ProposalStatus`
+- Interfaces: `Repository`, `Validator`, `CompilerAdapter`, `Service`
+- Proposal ≠ Execution — always separated
+
+### 11. Action Plan (`internal/actionplan/`)
+- Compiled, validated plan of actions with reversibility and idempotency metadata
+- Types: `Action`, `ActionPlan`, `ActionDefinition`, `ReversibilityType`, `IdempotencyType`
+- Interfaces: `Registry`, `Compiler`, `Validator`, `Service`
 
 ---
 
-## Control Plane (`internal/controlplane/`)
+## Integration Layer (`internal/integration/`)
 
-Read-only aggregations for operator view:
-- Case list + detail
-- WorkItem status
-- Approval inbox
-- Decision timeline (audit trace)
-- System summary
+Orchestrates end-to-end incident ingestion from external systems:
 
-**Rules:**
-- No business logic here — aggregations only
-- No writes to domain state
-- Read models separated from domain
+```
+ExternalIncident
+→ Case creation (caseruntime)
+→ WorkItem intake + coordination (workplan)
+→ ExecutionConstraints (executioncontrol)
+→ ExecutionSession start (executionruntime)
+```
+
+Types: `ExternalIncident`, `IngestResult`
+Interfaces: `ProcessedIncidentStore`, `IncidentService`
+
+---
+
+## Schema & Validation (`internal/schema/`, `internal/validation/`)
+
+- `schema/`: entity definitions with typed fields, enum/ref/array constraints, and workflow state machines (`Entity`, `Field`, `Constraints`, `Workflow`)
+- `validation/`: validates and coerces objects against schemas; strict type checking and unique constraint enforcement
 
 ---
 
 ## HTTP Layer (`internal/http/`)
 
-Thin handlers only:
+Thin handlers only — Gin framework:
+
 ```
 parse input → call service → return response
 ```
+
 No logic. No domain decisions. No direct repo access.
+Routes: CRUD, actions, metadata, file uploads, bulk ops, integration, operator endpoints.
+
+---
+
+## Application Bootstrap (`internal/app/`)
+
+Wires all domain services, repositories, and persistence into a ready-to-run `BootstrapResult`.
+`Bootstrap(cfgPath string) (*BootstrapResult, error)` is the single entry point for startup.
 
 ---
 
 ## Demo Layer (`internal/demo/`)
 
 Isolated from domain — domain never imports from demo.
-Contains: deterministic scenarios, seeded data, domain mapping for AIS Otkhody.
+Contains scripted scenarios with fixed IDs and deterministic clocks for reproducible demonstrations.
 
 ---
 
 ## Storage
 
-Current: in-memory repositories behind interfaces.
-Future (M3): PostgreSQL via pgx/v5, same interfaces.
+### In-Memory (current default)
+All repositories are interface-first; in-memory implementations ship by default.
 
-All repositories are interface-first:
 ```go
 type CaseRepository interface {
     Save(ctx context.Context, c *Case) error
     FindByID(ctx context.Context, id CaseID) (*Case, error)
     FindAll(ctx context.Context) ([]*Case, error)
-    FindByStatus(ctx context.Context, status CaseStatus) ([]*Case, error)
 }
 ```
+
+### File-Based Persistence (`internal/persistence/`)
+- Event sourcing with append-only event log (`FileEventStore`)
+- Snapshot store for system state recovery (`FileSnapshotStore`)
+- Types: `SystemState`, `Manager`, `Restorer`
+- Interfaces: `EventStore`, `SnapshotStore`, `Collector`
+
+### PostgreSQL (`internal/postgres/`)
+- Connection management via pgx driver; same repository interfaces as in-memory layer
+- `Open(url string) (*sql.DB, error)` — connection pooling + health checks
 
 ---
 
@@ -120,13 +176,12 @@ type CaseRepository interface {
 
 1. No direct LLM execution in runtime
 2. No logic in HTTP handlers
-3. No logic in controlplane — read models only
-4. Actor ≠ LLM
-5. Proposal ≠ Execution — always separated
-6. WAL is append-only — no UPDATE in execution log
-7. No duplication of runtime decisions
-8. Deterministic ordering everywhere
-9. Demo layer is isolated — no domain imports from demo/
+3. Actor ≠ LLM
+4. Proposal ≠ Execution — always separated
+5. WAL is append-only — no UPDATE in execution log
+6. No duplication of runtime decisions
+7. Deterministic ordering everywhere
+8. Demo layer is isolated — no domain imports from demo/
 
 ---
 
