@@ -41,7 +41,7 @@ sprints:
       Добавь в wiring через internal/app/bootstrap.go. Тесты обязательны.
 
       '
-  - done: false
+  - done: true
     id: '2.2'
     intent: 'Добавь queue-aware scoring в coordination_service.go в internal/workplan/.
       Если очередь по capability переполнена (>N items) — решение должно склоняться
