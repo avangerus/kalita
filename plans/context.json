@@ -2,13 +2,6 @@
   "summaries": [
     {
       "task_id": "2.1",
-      "done_at": "2026-03-24T10:50:12.937732",
-      "what_was_done": "error: unexpected argument '--quiet' found\n\n  tip: to pass '--quiet' as a value, use '-- --quiet'\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nFor more information, try '--help'.\n",
-      "problems": "error: unexpected argument '--quiet' found\n\n  tip: to pass '--quiet' as a value, use '-- --quiet'\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nFor more information, try '--help'.\n",
-      "files_changed": []
-    },
-    {
-      "task_id": "2.1",
       "done_at": "2026-03-24T10:55:07.541387",
       "what_was_done": "Error: stdout is not a terminal\n",
       "problems": "Error: stdout is not a terminal\n",
@@ -67,6 +60,13 @@
       "task_id": "3.5",
       "done_at": "2026-03-24T13:05:45.436807",
       "what_was_done": "Изменены файлы:\ninternal/storage/postgres/execution_session_repository.go\ninternal/storage/postgres/execution_session_repository_integration_test.go\ninternal/storage/postgres/migrations/0003_create_execution_runtime.sql\nplans/context.json\nplans/sprints.yaml",
+      "problems": "none",
+      "files_changed": []
+    },
+    {
+      "task_id": "3.6",
+      "done_at": "2026-03-24T13:10:11.319319",
+      "what_was_done": "Изменены файлы:\nREADME.md\ncmd/server/main.go\ninternal/app/bootstrap.go\ninternal/http/health_test.go\ninternal/http/router.go\ninternal/storage/postgres/queue_repository.go\ninternal/storage/postgres/work_item_repository.go\nplans/context.json\nplans/sprints.yaml",
       "problems": "none",
       "files_changed": []
     }

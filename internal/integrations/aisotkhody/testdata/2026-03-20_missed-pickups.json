@@ -1,0 +1,25 @@
+{
+  "status": "ok",
+  "data": [
+    {
+      "id": "ais-evt-1001",
+      "route_id": "R-42",
+      "container_site": "SITE-17",
+      "status": "missed",
+      "reason": "blocked_access",
+      "pickup_date": "2026-03-20",
+      "missed_at": "2026-03-20T06:35:00Z",
+      "vehicle": "A123BC77"
+    },
+    {
+      "id": "ais-evt-1002",
+      "route_id": "R-77",
+      "container_site": "SITE-19",
+      "status": "missed",
+      "reason": "container_not_ready",
+      "pickup_date": "2026-03-20",
+      "missed_at": "2026-03-20T09:12:00Z",
+      "driver_comment": "Gate was closed"
+    }
+  ]
+}

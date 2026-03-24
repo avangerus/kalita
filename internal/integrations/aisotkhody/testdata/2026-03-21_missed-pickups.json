@@ -1,0 +1,11 @@
+[
+  {
+    "external_id": "ais-evt-1003",
+    "route": "R-900",
+    "site_id": "SITE-33",
+    "state": "missed",
+    "comment": "snow_cleanup_delay",
+    "date": "2026-03-21",
+    "timestamp": "2026-03-21 08:05:00"
+  }
+]

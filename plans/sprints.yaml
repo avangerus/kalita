@@ -113,7 +113,7 @@ sprints:
       append-only инвариант.
 
       '
-  - done: false
+  - done: true
     id: '3.6'
     intent: 'Обнови internal/app/ wiring: если DATABASE_URL задан — используются Postgres
       репозитории, иначе in-memory. Добавь health check endpoint /health который проверяет
