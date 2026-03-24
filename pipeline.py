@@ -25,7 +25,7 @@ from pathlib import Path
 
 REPO_DIR      = Path(os.environ.get("REPO_DIR", "/repos/kalita"))
 PLAN_DIR      = REPO_DIR / "plan"
-DOCS_DIR      = REPO_DIR / "docs"
+DOCS_DIR      = REPO_DIR / "doc"
 CONTEXT_FILE  = PLAN_DIR / "context.json"
 SPRINTS_FILE  = PLAN_DIR / "sprints.yaml"
 ARCH_FILE     = DOCS_DIR / "ARCHITECTURE.md"
@@ -227,10 +227,10 @@ def run_claude_review(sprint: dict) -> str:
 {chr(10).join(f"- {t['id']}: {t['intent'][:100]}" for t in sprint['tasks'])}
 
 Выполни:
-1. Проверь docs/ARCHITECTURE.md на актуальность — обнови если появились новые компоненты
+1. Проверь doc/ARCHITECTURE.md на актуальность — обнови если появились новые компоненты
 2. Проверь что ни один из инвариантов из CLAUDE.md не нарушен в новом коде
-3. Если нашёл архитектурные проблемы — добавь в docs/ARCHITECTURE.md секцию "## Known Issues Sprint {sprint['id']}"
-4. Если всё хорошо — добавь в docs/ARCHITECTURE.md секцию "## Sprint {sprint['id']} — Done" с кратким описанием что добавлено
+3. Если нашёл архитектурные проблемы — добавь в doc/ARCHITECTURE.md секцию "## Known Issues Sprint {sprint['id']}"
+4. Если всё хорошо — добавь в doc/ARCHITECTURE.md секцию "## Sprint {sprint['id']} — Done" с кратким описанием что добавлено
 
 Будь конкретен и краток. Правь файлы напрямую.
 """
@@ -242,7 +242,7 @@ def run_claude_review(sprint: dict) -> str:
     )
 
     # Коммитим правки Claude
-    subprocess.run(["git", "add", "docs/"], cwd=REPO_DIR, capture_output=True)
+    subprocess.run(["git", "add", "doc/"], cwd=REPO_DIR, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", f"docs: claude review after sprint {sprint['id']}"],
         cwd=REPO_DIR, capture_output=True
