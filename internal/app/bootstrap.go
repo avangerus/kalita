@@ -27,8 +27,11 @@ import (
 	"kalita/internal/proposal"
 	"kalita/internal/runtime"
 	"kalita/internal/schema"
+	storagepostgres "kalita/internal/storage/postgres"
 	"kalita/internal/trust"
 	"kalita/internal/workplan"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // BootstrapResult holds the initialized application components
@@ -75,6 +78,7 @@ type BootstrapResult struct {
 	ExecutionRuntime   executionruntime.Service
 	ControlPlane       controlplane.Service
 	IntegrationService integration.IncidentService
+	PostgresPool       *pgxpool.Pool
 	Config             config.Config
 }
 
@@ -94,6 +98,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		entities = append(entities, e)
 	}
 
+	var casePool *pgxpool.Pool
 	if cfg.DBURL != "" {
 		db, err := postgres.Open(cfg.DBURL)
 		if err != nil {
@@ -111,6 +116,16 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 			}
 			log.Printf("DDL applied (add-only)")
 		}
+
+		pool, err := storagepostgres.OpenPool(context.Background(), cfg.DBURL)
+		if err != nil {
+			return nil, fmt.Errorf("PG pool connect failed: %w", err)
+		}
+		if err := storagepostgres.RunMigrations(context.Background(), pool); err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("PG migrations failed: %w", err)
+		}
+		casePool = pool
 	}
 
 	enumCatalog, err := catalog.LoadEnumCatalog(cfg.EnumsDir)
@@ -175,6 +190,10 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 		}); err != nil {
 			return nil, fmt.Errorf("restore persisted runtime state: %w", err)
 		}
+	}
+
+	if casePool != nil {
+		caseRepo = storagepostgres.NewCaseRepository(casePool)
 	}
 
 	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, clock, ids)
@@ -310,7 +329,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	}
 	st.Blob = &blob.LocalBlobStore{Root: cfg.FilesRoot}
 
-	return &BootstrapResult{Storage: st, EventLog: eventLog, CommandBus: commandBus, CaseRepo: caseRepo, CaseResolver: caseResolver, CaseService: caseService, QueueRepo: queueRepo, WorkQueueSnapshot: workQueueSnapshot, PlanRepo: planRepo, CoordinationRepo: coordinationRepo, AssignmentRouter: assignmentRouter, Planner: planner, Coordinator: coordinator, WorkService: workService, PolicyRepo: policyRepo, PolicyEvaluator: policyEvaluator, PolicyService: policyService, ConstraintsRepo: constraintsRepo, ConstraintsPlanner: constraintsPlanner, ConstraintsService: constraintsService, ActionRegistry: actionRegistry, ActionCompiler: actionCompiler, ActionValidator: actionValidator, ActionPlanService: actionPlanService, ProposalRepo: proposalRepo, ProposalValidator: proposalValidator, ProposalCompiler: proposalCompiler, ProposalService: proposalService, EmployeeDirectory: employeeDirectory, AssignmentRepo: assignmentRepo, EmployeeSelector: employeeSelector, EmployeeService: employeeService, TrustRepo: trustRepo, TrustScorer: trustScorer, TrustService: trustService, ExecutionRepo: executionRepo, ExecutionWAL: executionWAL, ActionExecutor: actionExecutor, ExecutionRunner: executionRunner, ExecutionRuntime: executionRuntime, ControlPlane: controlPlaneService, IntegrationService: integrationService, Config: cfg}, nil
+	return &BootstrapResult{Storage: st, EventLog: eventLog, CommandBus: commandBus, CaseRepo: caseRepo, CaseResolver: caseResolver, CaseService: caseService, QueueRepo: queueRepo, WorkQueueSnapshot: workQueueSnapshot, PlanRepo: planRepo, CoordinationRepo: coordinationRepo, AssignmentRouter: assignmentRouter, Planner: planner, Coordinator: coordinator, WorkService: workService, PolicyRepo: policyRepo, PolicyEvaluator: policyEvaluator, PolicyService: policyService, ConstraintsRepo: constraintsRepo, ConstraintsPlanner: constraintsPlanner, ConstraintsService: constraintsService, ActionRegistry: actionRegistry, ActionCompiler: actionCompiler, ActionValidator: actionValidator, ActionPlanService: actionPlanService, ProposalRepo: proposalRepo, ProposalValidator: proposalValidator, ProposalCompiler: proposalCompiler, ProposalService: proposalService, EmployeeDirectory: employeeDirectory, AssignmentRepo: assignmentRepo, EmployeeSelector: employeeSelector, EmployeeService: employeeService, TrustRepo: trustRepo, TrustScorer: trustScorer, TrustService: trustService, ExecutionRepo: executionRepo, ExecutionWAL: executionWAL, ActionExecutor: actionExecutor, ExecutionRunner: executionRunner, ExecutionRuntime: executionRuntime, ControlPlane: controlPlaneService, IntegrationService: integrationService, PostgresPool: casePool, Config: cfg}, nil
 }
 
 func tern(condition bool, yes string, no string) string {

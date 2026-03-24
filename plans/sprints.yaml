@@ -74,7 +74,7 @@ sprints:
   milestone: true
   name: External persistence — repository layer
   tasks:
-  - done: false
+  - done: true
     id: '3.1'
     intent: 'Аудит всех Repository интерфейсов в internal/domain/. Создай doc/repositories.md
       со списком всех интерфейсов, их методов и текущих in-memory реализаций. Выяви

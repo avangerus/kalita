@@ -106,7 +106,7 @@ func LoadWithPath(jsonPath string) Config {
 			cfg.QueueDepthThreshold = n
 		}
 	}
-	cfg.DBURL = getenv("KALITA_DB_URL", cfg.DBURL)
+	cfg.DBURL = getenv("DATABASE_URL", getenv("KALITA_DB_URL", cfg.DBURL))
 	cfg.AutoMigrate = getenvBool("KALITA_AUTO_MIGRATE", cfg.AutoMigrate)
 	cfg.PersistenceEnabled = getenvBool("KALITA_PERSISTENCE_ENABLED", cfg.PersistenceEnabled)
 	cfg.PersistenceDir = getenv("KALITA_PERSISTENCE_DIR", cfg.PersistenceDir)
