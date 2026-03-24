@@ -78,6 +78,13 @@
       "what_was_done": "Изменены файлы:\npipeline.py\nplans/sprints.yaml",
       "problems": "none",
       "files_changed": []
+    },
+    {
+      "task_id": "2.4",
+      "done_at": "2026-03-24T12:28:29.164152",
+      "what_was_done": "Изменены файлы:\ngo.mod\ninternal/controlplane/service.go\ninternal/controlplane/service_test.go\ninternal/controlplane/viewmodels.go\ninternal/http/demo.go\ninternal/http/demo_test.go\ninternal/http/operator.go\ninternal/http/operator_test.go\ninternal/workplan/coordination_service.go\ninternal/workplan/coordination_service_test.go\ninternal/workplan/department_load.go\ninternal/workplan/queue_pressure.go\npipeline.py\nplans/context.json\nplans/sprints.yaml",
+      "problems": "none",
+      "files_changed": []
     }
   ],
   "decisions": [

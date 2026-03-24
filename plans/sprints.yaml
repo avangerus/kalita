@@ -58,7 +58,7 @@ sprints:
       пустой department, все actor заняты, department не существует.
 
       '
-  - done: false
+  - done: true
     id: '2.4'
     intent: 'Обнови Control Plane: добавь в /api/controlplane/summary поле queue_pressure
       с метриками по каждому department. Только read model — никакой логики в internal/controlplane/.
