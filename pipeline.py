@@ -24,7 +24,7 @@ from pathlib import Path
 # ── Config ──────────────────────────────────────────────────────────────────
 
 REPO_DIR      = Path(os.environ.get("REPO_DIR", "/repos/kalita"))
-PLAN_DIR      = REPO_DIR / "plan"
+PLAN_DIR      = REPO_DIR / "plans"
 CONTEXT_FILE  = PLAN_DIR / "context.json"
 SPRINTS_FILE  = PLAN_DIR / "sprints.yaml"
 ARCH_FILE     = REPO_DIR / "doc" / "ARCHITECTURE.md"
