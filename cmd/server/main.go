@@ -17,6 +17,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	if result.PostgresPool != nil {
+		defer result.PostgresPool.Close()
+	}
 
 	operatorService := result.ControlPlane
 	integrationService := result.IntegrationService
@@ -32,5 +35,5 @@ func main() {
 
 	// HTTP
 	fmt.Printf("Стартуем сервер Kalita на :%s...\n", result.Config.Port)
-	http.RunServerWithServices(":"+result.Config.Port, result.Storage, result.CommandBus, result.CaseService, result.WorkService, result.Coordinator, result.PolicyService, result.ConstraintsService, result.ActionPlanService, result.ProposalService, result.EmployeeDirectory, operatorService, integrationService, result.EmployeeService)
+	http.RunServerWithServicesAndHealth(":"+result.Config.Port, result.Storage, result.CommandBus, result.CaseService, result.WorkService, result.Coordinator, result.PolicyService, result.ConstraintsService, result.ActionPlanService, result.ProposalService, result.EmployeeDirectory, operatorService, integrationService, result.DBBackend, result.DBHealthCheck, result.EmployeeService)
 }

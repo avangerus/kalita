@@ -2,13 +2,6 @@
   "summaries": [
     {
       "task_id": "2.1",
-      "done_at": "2026-03-24T10:45:41.629177",
-      "what_was_done": "error: unexpected argument '--quiet' found\n\n  tip: to pass '--quiet' as a value, use '-- --quiet'\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nFor more information, try '--help'.\n",
-      "problems": "error: unexpected argument '--quiet' found\n\n  tip: to pass '--quiet' as a value, use '-- --quiet'\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nFor more information, try '--help'.\n",
-      "files_changed": []
-    },
-    {
-      "task_id": "2.1",
       "done_at": "2026-03-24T10:50:12.937732",
       "what_was_done": "error: unexpected argument '--quiet' found\n\n  tip: to pass '--quiet' as a value, use '-- --quiet'\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nFor more information, try '--help'.\n",
       "problems": "error: unexpected argument '--quiet' found\n\n  tip: to pass '--quiet' as a value, use '-- --quiet'\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nFor more information, try '--help'.\n",
@@ -67,6 +60,13 @@
       "task_id": "3.4",
       "done_at": "2026-03-24T13:00:59.929401",
       "what_was_done": "Изменены файлы:\ngo.mod\ninternal/storage/postgres/migrations/0002_create_work_items.sql\ninternal/storage/postgres/work_item_repository.go\ninternal/storage/postgres/work_item_repository_integration_test.go\ninternal/storage/postgres/work_item_repository_test.go\ninternal/workplan/repository.go\ninternal/workplan/repository_test.go\ninternal/workplan/types.go\nplans/context.json\nplans/sprints.yaml",
+      "problems": "none",
+      "files_changed": []
+    },
+    {
+      "task_id": "3.5",
+      "done_at": "2026-03-24T13:05:45.436807",
+      "what_was_done": "Изменены файлы:\ninternal/storage/postgres/execution_session_repository.go\ninternal/storage/postgres/execution_session_repository_integration_test.go\ninternal/storage/postgres/migrations/0003_create_execution_runtime.sql\nplans/context.json\nplans/sprints.yaml",
       "problems": "none",
       "files_changed": []
     }

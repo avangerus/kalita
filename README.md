@@ -240,9 +240,53 @@ i18n:
    ```
 3. Try it out:
 
+   * Health: `GET /health`
    * Meta: `GET /api/meta/entities`
    * List: `GET /api/<module>/<entity>?limit=10&sort=-created_at`
    * Filters: `GET /api/<module>/<entity>?q=...&status__in=Draft,Closed`
+
+### Run With Postgres
+
+If `DATABASE_URL` is set, Kalita uses Postgres-backed repositories for cases, work items, and execution runtime. If `DATABASE_URL` is empty, in-memory repositories are used.
+
+Example `docker-compose.yml`:
+
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kalita
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d kalita"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+```
+
+Start Postgres:
+
+```bash
+docker compose up -d postgres
+```
+
+Run Kalita against Postgres:
+
+```bash
+export DATABASE_URL=postgres://postgres:postgres@localhost:5432/kalita?sslmode=disable
+export KALITA_AUTO_MIGRATE=true
+go run ./cmd/server/main.go
+```
+
+Health check will verify database connectivity:
+
+```bash
+curl http://localhost:8080/health
+```
 
 ---
 
@@ -291,5 +335,4 @@ i18n:
 > Models in text — API in life.
 
 ---
-
 

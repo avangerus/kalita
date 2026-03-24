@@ -109,6 +109,25 @@ func (r *PostgresWorkItemRepository) FindByActorID(ctx context.Context, actorID 
 	`, actorID)
 }
 
+func (r *PostgresWorkItemRepository) ListWorkItemsByQueue(ctx context.Context, queueID string) ([]workplan.WorkItem, error) {
+	return r.queryMany(ctx, `
+		SELECT id, case_id, queue_id, type, status, priority, reason,
+			assigned_employee_id, plan_id, due_at, action_plan, created_at, updated_at
+		FROM work_items
+		WHERE queue_id = $1
+		ORDER BY created_at, id
+	`, queueID)
+}
+
+func (r *PostgresWorkItemRepository) ListWorkItems(ctx context.Context) ([]workplan.WorkItem, error) {
+	return r.queryMany(ctx, `
+		SELECT id, case_id, queue_id, type, status, priority, reason,
+			assigned_employee_id, plan_id, due_at, action_plan, created_at, updated_at
+		FROM work_items
+		ORDER BY created_at, id
+	`)
+}
+
 func (r *PostgresWorkItemRepository) withTx(ctx context.Context, opts pgx.TxOptions, fn func(tx pgx.Tx) error) error {
 	tx, err := r.pool.BeginTx(ctx, opts)
 	if err != nil {

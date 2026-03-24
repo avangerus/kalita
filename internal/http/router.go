@@ -1,7 +1,10 @@
 package http
 
 import (
+	"context"
 	"log"
+	"net/http"
+	"time"
 
 	"kalita/internal/caseruntime"
 	"kalita/internal/command"
@@ -23,6 +26,15 @@ func RunServerWithCommandBus(addr string, storage *runtime.Storage, commandBus c
 }
 
 func RunServerWithServices(addr string, storage *runtime.Storage, commandBus command.CommandBus, caseService *caseruntime.Service, workService workItemIntakeService, coordinator coordinator, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, operatorService controlplane.Service, integrationService integration.IncidentService, employeeServices ...employeeService) {
+	RunServerWithServicesAndHealth(addr, storage, commandBus, caseService, workService, coordinator, policyService, constraintsService, actionPlanService, proposalService, employeeDirectory, operatorService, integrationService, "memory", nil, employeeServices...)
+}
+
+func RunServerWithServicesAndHealth(addr string, storage *runtime.Storage, commandBus command.CommandBus, caseService *caseruntime.Service, workService workItemIntakeService, coordinator coordinator, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, operatorService controlplane.Service, integrationService integration.IncidentService, dbBackend string, dbHealthCheck func(context.Context) error, employeeServices ...employeeService) {
+	r := newRouterWithServices(storage, commandBus, caseService, workService, coordinator, policyService, constraintsService, actionPlanService, proposalService, employeeDirectory, operatorService, integrationService, dbBackend, dbHealthCheck, employeeServices...)
+	_ = r.Run(addr)
+}
+
+func newRouterWithServices(storage *runtime.Storage, commandBus command.CommandBus, caseService *caseruntime.Service, workService workItemIntakeService, coordinator coordinator, policyService policyService, constraintsService constraintsService, actionPlanService actionPlanService, proposalService proposalService, employeeDirectory employee.Directory, operatorService controlplane.Service, integrationService integration.IncidentService, dbBackend string, dbHealthCheck func(context.Context) error, employeeServices ...employeeService) *gin.Engine {
 	// fail-fast, если есть критичные проблемы схемы
 	if issues := schema.Lint(storage.Schemas); len(issues) > 0 {
 		for _, it := range issues {
@@ -31,6 +43,7 @@ func RunServerWithServices(addr string, storage *runtime.Storage, commandBus com
 		log.Fatal("schema has blocking issues; fix DSL and restart")
 	}
 	r := gin.Default()
+	registerHealthRoute(r, dbBackend, dbHealthCheck)
 
 	apiGroup := r.Group("/api")
 	{
@@ -74,6 +87,30 @@ func RunServerWithServices(addr string, storage *runtime.Storage, commandBus com
 		apiGroup.DELETE("/:module/:entity/:id", DeleteHandler(storage))
 
 	}
+	return r
+}
 
-	_ = r.Run(addr)
+func registerHealthRoute(r *gin.Engine, dbBackend string, dbHealthCheck func(context.Context) error) {
+	backend := dbBackend
+	if backend == "" {
+		backend = "memory"
+	}
+	r.GET("/health", func(c *gin.Context) {
+		if dbHealthCheck != nil {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+			defer cancel()
+			if err := dbHealthCheck(ctx); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"status": "degraded",
+					"db":     backend,
+					"error":  err.Error(),
+				})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ok",
+			"db":     backend,
+		})
+	})
 }

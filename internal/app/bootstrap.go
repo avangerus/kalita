@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"kalita/internal/actionplan"
 	"kalita/internal/blob"
@@ -79,6 +80,8 @@ type BootstrapResult struct {
 	ControlPlane       controlplane.Service
 	IntegrationService integration.IncidentService
 	PostgresPool       *pgxpool.Pool
+	DBBackend          string
+	DBHealthCheck      func(context.Context) error
 	Config             config.Config
 }
 
@@ -99,6 +102,8 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	}
 
 	var casePool *pgxpool.Pool
+	dbBackend := "memory"
+	dbHealthCheck := func(context.Context) error { return nil }
 	if cfg.DBURL != "" {
 		db, err := postgres.Open(cfg.DBURL)
 		if err != nil {
@@ -126,6 +131,12 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 			return nil, fmt.Errorf("PG migrations failed: %w", err)
 		}
 		casePool = pool
+		dbBackend = "postgres"
+		dbHealthCheck = func(ctx context.Context) error {
+			pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			return casePool.Ping(pingCtx)
+		}
 	}
 
 	enumCatalog, err := catalog.LoadEnumCatalog(cfg.EnumsDir)
@@ -153,7 +164,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	baseProfileRepo := profile.NewInMemoryRepository()
 
 	var persistMgr *persistence.Manager
-	if cfg.PersistenceEnabled {
+	if cfg.PersistenceEnabled && casePool == nil {
 		persistDir := cfg.PersistenceDir
 		if strings.TrimSpace(persistDir) == "" {
 			persistDir = filepath.Join(filepath.Dir(cfgPath), ".kalita-persistence")
@@ -162,13 +173,13 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	}
 
 	eventLog := persistence.WrapEventLog(baseEventLog, persistMgr)
-	caseRepo := persistence.WrapCaseRepository(baseCaseRepo, persistMgr)
-	queueRepo := persistence.WrapQueueRepository(baseQueueRepo, persistMgr)
+	var caseRepo caseruntime.CaseRepository = persistence.WrapCaseRepository(baseCaseRepo, persistMgr)
+	var queueRepo workplan.QueueRepository = persistence.WrapQueueRepository(baseQueueRepo, persistMgr)
 	coordinationRepo := persistence.WrapCoordinationRepository(baseCoordinationRepo, persistMgr)
 	policyRepo := persistence.WrapPolicyRepository(basePolicyRepo, persistMgr)
 	proposalRepo := persistence.WrapProposalRepository(baseProposalRepo, persistMgr)
-	executionRepo := persistence.WrapExecutionRepository(baseExecutionRepo, persistMgr)
-	executionWAL := persistence.WrapWAL(baseExecutionWAL, persistMgr)
+	var executionRepo executionruntime.ExecutionRepository = persistence.WrapExecutionRepository(baseExecutionRepo, persistMgr)
+	var executionWAL executionruntime.WAL = persistence.WrapWAL(baseExecutionWAL, persistMgr)
 	employeeDirectory := persistence.WrapDirectory(baseEmployeeDirectory, persistMgr)
 	assignmentRepo := persistence.WrapAssignments(baseAssignmentRepo, persistMgr)
 	trustRepo := persistence.WrapTrustRepository(baseTrustRepo, persistMgr)
@@ -194,6 +205,10 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 
 	if casePool != nil {
 		caseRepo = storagepostgres.NewCaseRepository(casePool)
+		queueRepo = storagepostgres.NewHybridQueueRepository(baseQueueRepo, casePool)
+		executionSessionRepo := storagepostgres.NewExecutionSessionRepository(casePool)
+		executionRepo = executionSessionRepo
+		executionWAL = executionSessionRepo
 	}
 
 	commandBus := command.NewService(eventLog, command.PassThroughAdmissionPolicy{}, clock, ids)
@@ -329,7 +344,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	}
 	st.Blob = &blob.LocalBlobStore{Root: cfg.FilesRoot}
 
-	return &BootstrapResult{Storage: st, EventLog: eventLog, CommandBus: commandBus, CaseRepo: caseRepo, CaseResolver: caseResolver, CaseService: caseService, QueueRepo: queueRepo, WorkQueueSnapshot: workQueueSnapshot, PlanRepo: planRepo, CoordinationRepo: coordinationRepo, AssignmentRouter: assignmentRouter, Planner: planner, Coordinator: coordinator, WorkService: workService, PolicyRepo: policyRepo, PolicyEvaluator: policyEvaluator, PolicyService: policyService, ConstraintsRepo: constraintsRepo, ConstraintsPlanner: constraintsPlanner, ConstraintsService: constraintsService, ActionRegistry: actionRegistry, ActionCompiler: actionCompiler, ActionValidator: actionValidator, ActionPlanService: actionPlanService, ProposalRepo: proposalRepo, ProposalValidator: proposalValidator, ProposalCompiler: proposalCompiler, ProposalService: proposalService, EmployeeDirectory: employeeDirectory, AssignmentRepo: assignmentRepo, EmployeeSelector: employeeSelector, EmployeeService: employeeService, TrustRepo: trustRepo, TrustScorer: trustScorer, TrustService: trustService, ExecutionRepo: executionRepo, ExecutionWAL: executionWAL, ActionExecutor: actionExecutor, ExecutionRunner: executionRunner, ExecutionRuntime: executionRuntime, ControlPlane: controlPlaneService, IntegrationService: integrationService, PostgresPool: casePool, Config: cfg}, nil
+	return &BootstrapResult{Storage: st, EventLog: eventLog, CommandBus: commandBus, CaseRepo: caseRepo, CaseResolver: caseResolver, CaseService: caseService, QueueRepo: queueRepo, WorkQueueSnapshot: workQueueSnapshot, PlanRepo: planRepo, CoordinationRepo: coordinationRepo, AssignmentRouter: assignmentRouter, Planner: planner, Coordinator: coordinator, WorkService: workService, PolicyRepo: policyRepo, PolicyEvaluator: policyEvaluator, PolicyService: policyService, ConstraintsRepo: constraintsRepo, ConstraintsPlanner: constraintsPlanner, ConstraintsService: constraintsService, ActionRegistry: actionRegistry, ActionCompiler: actionCompiler, ActionValidator: actionValidator, ActionPlanService: actionPlanService, ProposalRepo: proposalRepo, ProposalValidator: proposalValidator, ProposalCompiler: proposalCompiler, ProposalService: proposalService, EmployeeDirectory: employeeDirectory, AssignmentRepo: assignmentRepo, EmployeeSelector: employeeSelector, EmployeeService: employeeService, TrustRepo: trustRepo, TrustScorer: trustScorer, TrustService: trustService, ExecutionRepo: executionRepo, ExecutionWAL: executionWAL, ActionExecutor: actionExecutor, ExecutionRunner: executionRunner, ExecutionRuntime: executionRuntime, ControlPlane: controlPlaneService, IntegrationService: integrationService, PostgresPool: casePool, DBBackend: dbBackend, DBHealthCheck: dbHealthCheck, Config: cfg}, nil
 }
 
 func tern(condition bool, yes string, no string) string {

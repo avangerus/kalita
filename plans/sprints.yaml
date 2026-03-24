@@ -105,7 +105,7 @@ sprints:
       FindByStatus, FindByActorID. Индексы на case_id и status. Тесты через testcontainers.
 
       '
-  - done: false
+  - done: true
     id: '3.5'
     intent: 'Реализуй PostgresExecutionSessionRepository. Таблица execution_sessions,
       WAL entries в отдельной таблице wal_entries. WAL должен быть append-only (нет
