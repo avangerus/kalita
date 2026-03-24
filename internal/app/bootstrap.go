@@ -40,6 +40,7 @@ type BootstrapResult struct {
 	CaseResolver       caseruntime.CaseResolver
 	CaseService        *caseruntime.Service
 	QueueRepo          workplan.QueueRepository
+	WorkQueueSnapshot  workplan.WorkQueueSnapshot
 	PlanRepo           workplan.PlanRepository
 	CoordinationRepo   workplan.CoordinationRepository
 	AssignmentRouter   workplan.AssignmentRouter
@@ -237,7 +238,8 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	}
 	assignmentRouter := workplan.NewRouter(queueRepo, defaultQueue.ID)
 	planner := workplan.NewPlanner(planRepo, eventLog, clock, ids)
-	coordinator := workplan.NewCoordinator(coordinationRepo, eventLog, clock, ids)
+	workQueueSnapshot := workplan.NewInMemoryWorkQueueSnapshot(queueRepo)
+	coordinator := workplan.NewCoordinationService(coordinationRepo, workQueueSnapshot, eventLog, clock, ids)
 	workService := workplan.NewService(queueRepo, assignmentRouter, planner, coordinator, eventLog, clock, ids)
 
 	defaultEmployee := employee.DigitalEmployee{ID: "employee-legacy-operator", Code: "legacy_operator_default", Role: "legacy_operator", Enabled: true, QueueMemberships: []string{defaultQueue.ID}, AllowedActionTypes: []actionplan.ActionType{"legacy_workflow_action", "external_incident_followup"}, AllowedCommandTypes: []string{"workflow.action", "container_incident_detected"}, PolicyProfile: "default", ExecutionProfile: "default", CreatedAt: clock.Now(), UpdatedAt: clock.Now()}
@@ -299,7 +301,7 @@ func Bootstrap(cfgPath string) (*BootstrapResult, error) {
 	}
 	st.Blob = &blob.LocalBlobStore{Root: cfg.FilesRoot}
 
-	return &BootstrapResult{Storage: st, EventLog: eventLog, CommandBus: commandBus, CaseRepo: caseRepo, CaseResolver: caseResolver, CaseService: caseService, QueueRepo: queueRepo, PlanRepo: planRepo, CoordinationRepo: coordinationRepo, AssignmentRouter: assignmentRouter, Planner: planner, Coordinator: coordinator, WorkService: workService, PolicyRepo: policyRepo, PolicyEvaluator: policyEvaluator, PolicyService: policyService, ConstraintsRepo: constraintsRepo, ConstraintsPlanner: constraintsPlanner, ConstraintsService: constraintsService, ActionRegistry: actionRegistry, ActionCompiler: actionCompiler, ActionValidator: actionValidator, ActionPlanService: actionPlanService, ProposalRepo: proposalRepo, ProposalValidator: proposalValidator, ProposalCompiler: proposalCompiler, ProposalService: proposalService, EmployeeDirectory: employeeDirectory, AssignmentRepo: assignmentRepo, EmployeeSelector: employeeSelector, EmployeeService: employeeService, TrustRepo: trustRepo, TrustScorer: trustScorer, TrustService: trustService, ExecutionRepo: executionRepo, ExecutionWAL: executionWAL, ActionExecutor: actionExecutor, ExecutionRunner: executionRunner, ExecutionRuntime: executionRuntime, ControlPlane: controlPlaneService, IntegrationService: integrationService, Config: cfg}, nil
+	return &BootstrapResult{Storage: st, EventLog: eventLog, CommandBus: commandBus, CaseRepo: caseRepo, CaseResolver: caseResolver, CaseService: caseService, QueueRepo: queueRepo, WorkQueueSnapshot: workQueueSnapshot, PlanRepo: planRepo, CoordinationRepo: coordinationRepo, AssignmentRouter: assignmentRouter, Planner: planner, Coordinator: coordinator, WorkService: workService, PolicyRepo: policyRepo, PolicyEvaluator: policyEvaluator, PolicyService: policyService, ConstraintsRepo: constraintsRepo, ConstraintsPlanner: constraintsPlanner, ConstraintsService: constraintsService, ActionRegistry: actionRegistry, ActionCompiler: actionCompiler, ActionValidator: actionValidator, ActionPlanService: actionPlanService, ProposalRepo: proposalRepo, ProposalValidator: proposalValidator, ProposalCompiler: proposalCompiler, ProposalService: proposalService, EmployeeDirectory: employeeDirectory, AssignmentRepo: assignmentRepo, EmployeeSelector: employeeSelector, EmployeeService: employeeService, TrustRepo: trustRepo, TrustScorer: trustScorer, TrustService: trustService, ExecutionRepo: executionRepo, ExecutionWAL: executionWAL, ActionExecutor: actionExecutor, ExecutionRunner: executionRunner, ExecutionRuntime: executionRuntime, ControlPlane: controlPlaneService, IntegrationService: integrationService, Config: cfg}, nil
 }
 
 func tern(condition bool, yes string, no string) string {

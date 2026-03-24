@@ -9,25 +9,35 @@ import (
 )
 
 type DefaultCoordinator struct {
-	repo  CoordinationRepository
-	log   eventcore.EventLog
-	clock eventcore.Clock
-	ids   eventcore.IDGenerator
+	repo      CoordinationRepository
+	snapshot  WorkQueueSnapshot
+	log       eventcore.EventLog
+	clock     eventcore.Clock
+	ids       eventcore.IDGenerator
 }
 
 func NewCoordinator(repo CoordinationRepository, log eventcore.EventLog, clock eventcore.Clock, ids eventcore.IDGenerator) *DefaultCoordinator {
+	return NewCoordinationService(repo, nil, log, clock, ids)
+}
+
+func NewCoordinationService(repo CoordinationRepository, snapshot WorkQueueSnapshot, log eventcore.EventLog, clock eventcore.Clock, ids eventcore.IDGenerator) *DefaultCoordinator {
 	if clock == nil {
 		clock = eventcore.RealClock{}
 	}
 	if ids == nil {
 		ids = eventcore.NewULIDGenerator()
 	}
-	return &DefaultCoordinator{repo: repo, log: log, clock: clock, ids: ids}
+	return &DefaultCoordinator{repo: repo, snapshot: snapshot, log: log, clock: clock, ids: ids}
 }
 
 func (s *DefaultCoordinator) Decide(ctx context.Context, wi WorkItem, coordinationContext CoordinationContext) (CoordinationDecision, error) {
 	if s.repo == nil {
 		return CoordinationDecision{}, fmt.Errorf("coordination repository is nil")
+	}
+	if s.snapshot != nil {
+		if err := s.snapshot.Refresh(ctx); err != nil {
+			return CoordinationDecision{}, err
+		}
 	}
 	now := s.clock.Now()
 	decisionType, reason := s.evaluate(wi, coordinationContext)

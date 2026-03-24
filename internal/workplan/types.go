@@ -50,6 +50,7 @@ type QueueRepository interface {
 	GetWorkItem(ctx context.Context, id string) (WorkItem, bool, error)
 	ListWorkItemsByCase(ctx context.Context, caseID string) ([]WorkItem, error)
 	ListWorkItemsByQueue(ctx context.Context, queueID string) ([]WorkItem, error)
+	ListWorkItems(ctx context.Context) ([]WorkItem, error)
 }
 
 type AssignmentRouter interface {

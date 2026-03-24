@@ -6,11 +6,21 @@
       "what_was_done": "Полный pipeline реализован: eventcore → caseruntime → workplan → policy → executioncontrol → executionruntime → trust. Пакеты: actionplan (compiler/validator/service), caseruntime, workplan (coordination_service, daily_plan, planner), policy, executioncontrol, executionruntime (WAL), employee, trust (scorer), profile (matcher), capability, controlplane (summary/list/detail/timeline/inbox), persistence (snapshot/event store), http (router/operator/demo/actions/integration), demo (scenarios/domainview), app/bootstrap. Всё покрыто тестами.",
       "problems": "none",
       "files_changed": [
-        "internal/actionplan/", "internal/caseruntime/", "internal/workplan/",
-        "internal/policy/", "internal/executioncontrol/", "internal/executionruntime/",
-        "internal/employee/", "internal/trust/", "internal/profile/", "internal/capability/",
-        "internal/controlplane/", "internal/persistence/", "internal/http/",
-        "internal/demo/", "internal/app/"
+        "internal/actionplan/",
+        "internal/caseruntime/",
+        "internal/workplan/",
+        "internal/policy/",
+        "internal/executioncontrol/",
+        "internal/executionruntime/",
+        "internal/employee/",
+        "internal/trust/",
+        "internal/profile/",
+        "internal/capability/",
+        "internal/controlplane/",
+        "internal/persistence/",
+        "internal/http/",
+        "internal/demo/",
+        "internal/app/"
       ]
     },
     {
@@ -18,14 +28,49 @@
       "done_at": "2026-03-24T00:00:00",
       "what_was_done": "PostgreSQL частично: internal/postgres/conn.go, schema.go, apply.go — подключение и DDL-генерация есть. В bootstrap.go есть ветка DATABASE_URL. Доменных репозиториев на Postgres нет — всё in-memory. /health endpoint отсутствует.",
       "problems": "Нет postgres-реализаций доменных репозиториев. Нет /health. TODO на cascade delete в internal/http/handlers.go:543.",
-      "files_changed": ["internal/postgres/conn.go", "internal/postgres/schema.go", "internal/postgres/apply.go"]
+      "files_changed": [
+        "internal/postgres/conn.go",
+        "internal/postgres/schema.go",
+        "internal/postgres/apply.go"
+      ]
     },
     {
       "task_id": "M1-integration-partial",
       "done_at": "2026-03-24T00:00:00",
       "what_was_done": "Интеграционный ingest реализован через /api/integration/incidents с идемпотентностью (external_id). Файлы: internal/http/integration.go, internal/integration/service.go. Это общий endpoint, не AIS-специфичный.",
       "problems": "Нет AIS-специфичного клиента, маппера и инжестора из плана спринта 4.",
-      "files_changed": ["internal/http/integration.go", "internal/integration/service.go"]
+      "files_changed": [
+        "internal/http/integration.go",
+        "internal/integration/service.go"
+      ]
+    },
+    {
+      "task_id": "2.1",
+      "done_at": "2026-03-24T10:45:41.629177",
+      "what_was_done": "error: unexpected argument '--quiet' found\n\n  tip: to pass '--quiet' as a value, use '-- --quiet'\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nFor more information, try '--help'.\n",
+      "problems": "error: unexpected argument '--quiet' found\n\n  tip: to pass '--quiet' as a value, use '-- --quiet'\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nFor more information, try '--help'.\n",
+      "files_changed": []
+    },
+    {
+      "task_id": "2.1",
+      "done_at": "2026-03-24T10:50:12.937732",
+      "what_was_done": "error: unexpected argument '--quiet' found\n\n  tip: to pass '--quiet' as a value, use '-- --quiet'\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nFor more information, try '--help'.\n",
+      "problems": "error: unexpected argument '--quiet' found\n\n  tip: to pass '--quiet' as a value, use '-- --quiet'\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nFor more information, try '--help'.\n",
+      "files_changed": []
+    },
+    {
+      "task_id": "2.1",
+      "done_at": "2026-03-24T10:55:07.541387",
+      "what_was_done": "Error: stdout is not a terminal\n",
+      "problems": "Error: stdout is not a terminal\n",
+      "files_changed": []
+    },
+    {
+      "task_id": "2.1",
+      "done_at": "2026-03-24T11:02:55.794531",
+      "what_was_done": "Error: stdout is not a terminal\n",
+      "problems": "none",
+      "files_changed": []
     }
   ],
   "decisions": [

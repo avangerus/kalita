@@ -2,13 +2,12 @@
 """
 Kalita Pipeline — AI-assisted development orchestrator
 Читает sprints.yaml + context.json → генерирует промпты → запускает Codex
-Один и тот же скрипт для всех проектов, меняются только артефакты.
 
 Usage:
     python pipeline.py run          # запустить следующую задачу
     python pipeline.py run --all    # гнать до конца или до ошибки
-    python pipeline.py inbox "текст замечания"   # добавить в inbox
-    python pipeline.py status       # показать прогресс
+    python pipeline.py inbox "текст замечания"
+    python pipeline.py status
 """
 
 import subprocess
@@ -16,33 +15,30 @@ import json
 import yaml
 import requests
 import os
-import sys
+import shlex
 import argparse
 from datetime import datetime
 from pathlib import Path
 
-# ── Config ──────────────────────────────────────────────────────────────────
+# ── Config ───────────────────────────────────────────────────────────────────
 
-REPO_DIR      = Path(os.environ.get("REPO_DIR", "/repos/kalita"))
+REPO_DIR      = Path(os.environ.get("REPO_DIR", str(Path.home() / "kalita")))
 PLAN_DIR      = REPO_DIR / "plans"
 CONTEXT_FILE  = PLAN_DIR / "context.json"
 SPRINTS_FILE  = PLAN_DIR / "sprints.yaml"
 ARCH_FILE     = REPO_DIR / "doc" / "ARCHITECTURE.md"
 CLAUDE_MD     = REPO_DIR / "CLAUDE.md"
 
-OPENROUTER_KEY  = os.environ["OPENROUTER_KEY"]
-GITEA_URL       = os.environ.get("GITEA_URL", "http://nas-ip:3000")
-GITEA_TOKEN     = os.environ.get("GITEA_TOKEN", "")
-GITEA_REPO      = os.environ.get("GITEA_REPO", "me/kalita")
-NTFY_URL        = os.environ.get("NTFY_URL", "http://nas-ip:8080")
-NTFY_TOPIC      = os.environ.get("NTFY_TOPIC", "kalita-pipeline")
+OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "")
+GITHUB_TOKEN   = os.environ.get("GITEA_TOKEN", "")
+GITHUB_REPO    = os.environ.get("GITEA_REPO", "")
+NTFY_URL       = os.environ.get("NTFY_URL", "")
+NTFY_TOPIC     = os.environ.get("NTFY_TOPIC", "kalita-pipeline")
 
-# OpenRouter: дешёвая быстрая модель для prompt building
-PROMPT_MODEL    = "google/gemini-flash-1.5"
-# Резервная если основная недоступна
+PROMPT_MODEL    = "qwen/qwen3.5-plus-02-15"
 PROMPT_MODEL_FB = "qwen/qwen-2.5-72b-instruct"
 
-# ── Context helpers ──────────────────────────────────────────────────────────
+# ── Context helpers ───────────────────────────────────────────────────────────
 
 def load_context() -> dict:
     if CONTEXT_FILE.exists():
@@ -58,16 +54,18 @@ def load_sprints() -> dict:
 def save_sprints(data: dict):
     SPRINTS_FILE.write_text(yaml.dump(data, allow_unicode=True, default_flow_style=False))
 
-def get_current_task(sprints: dict) -> tuple[dict | None, dict | None]:
+def get_current_task(sprints: dict):
     for sprint in sprints["sprints"]:
         for task in sprint["tasks"]:
             if not task.get("done", False):
                 return sprint, task
     return None, None
 
-# ── Notifications ────────────────────────────────────────────────────────────
+# ── Notifications ─────────────────────────────────────────────────────────────
 
 def notify(message: str, title: str = "Kalita Pipeline"):
+    if not NTFY_URL:
+        return
     try:
         requests.post(
             f"{NTFY_URL}/{NTFY_TOPIC}",
@@ -76,20 +74,15 @@ def notify(message: str, title: str = "Kalita Pipeline"):
             timeout=5
         )
     except Exception:
-        pass  # уведомления не должны ронять конвейер
+        pass
 
-# ── Prompt builder via OpenRouter ────────────────────────────────────────────
+# ── Prompt builder ────────────────────────────────────────────────────────────
 
 def build_codex_prompt(task: dict, sprint: dict, context: dict) -> str:
-    """
-    OpenRouter собирает точный промпт для Codex из:
-    - намерения задачи (intent из sprints.yaml)
-    - последних 3 summaries (что уже было сделано)
-    - архитектурных решений (decisions)
-    - inbox (твои замечания)
-    - CLAUDE.md правил
-    - контекста спринта (goal)
-    """
+    if not OPENROUTER_KEY:
+        print("OPENROUTER_KEY не задан — используем raw intent")
+        return task["intent"]
+
     recent_summaries = context["summaries"][-3:]
     inbox_items      = context.get("inbox", [])
     decisions        = context.get("decisions", [])
@@ -102,45 +95,26 @@ def build_codex_prompt(task: dict, sprint: dict, context: dict) -> str:
         for s in recent_summaries
     ]) or "Нет предыдущих изменений"
 
-    decisions_text = "\n".join(f"- {d}" for d in decisions) or "Нет зафиксированных решений"
+    decisions_text = "\n".join(f"- {d}" for d in decisions) or "Нет решений"
     inbox_text     = "\n".join(f"- {i}" for i in inbox_items) or "Нет замечаний"
 
-    system_prompt = f"""Ты технический ассистент который формулирует точные задачи для Codex CLI.
-Codex — AI-кодер который читает промпт и вносит изменения в Go-проект.
+    system_prompt = (
+        "Ты технический ассистент который формулирует точные задачи для Codex CLI.\n"
+        "Codex — AI-кодер который читает промпт и вносит изменения в Go-проект.\n"
+        "Проект: Kalita — enterprise runtime для AI-агентов.\n\n"
+        f"ПРАВИЛА ПРОЕКТА (из CLAUDE.md):\n{claude_md[:3000]}\n\n"
+        f"АРХИТЕКТУРА:\n{arch_md[:2000] if arch_md else 'см. CLAUDE.md'}\n\n"
+        "Верни только текст промпта для Codex, без объяснений."
+    )
 
-Проект: Kalita — enterprise runtime для AI-агентов.
-
-ПРАВИЛА ПРОЕКТА (из CLAUDE.md):
-{claude_md}
-
-АРХИТЕКТУРА:
-{arch_md[:2000] if arch_md else "см. CLAUDE.md"}
-
-Твоя задача: взять намерение и превратить его в точный исполнимый промпт для Codex.
-Промпт должен:
-- Указывать конкретные файлы и пакеты которые нужно создать/изменить
-- Указывать сигнатуры интерфейсов и функций где это важно
-- Явно называть что НЕ трогать
-- Быть выполнимым за один сеанс (не слишком большим)
-- Учитывать предыдущий прогресс и замечания
-"""
-
-    user_prompt = f"""ТЕКУЩИЙ СПРИНТ: {sprint['name']}
-ЦЕЛЬ СПРИНТА: {sprint.get('goal', '')}
-
-НАМЕРЕНИЕ ЗАДАЧИ {task['id']}:
-{task['intent']}
-
-ЧТО УЖЕ БЫЛО СДЕЛАНО (последние задачи):
-{summaries_text}
-
-АРХИТЕКТУРНЫЕ РЕШЕНИЯ (нельзя нарушать):
-{decisions_text}
-
-МОИ ЗАМЕЧАНИЯ (учти обязательно):
-{inbox_text}
-
-Сформулируй точный промпт для Codex. Только промпт, без объяснений."""
+    user_prompt = (
+        f"СПРИНТ: {sprint['name']}\n"
+        f"ЦЕЛЬ: {sprint.get('goal', '')}\n\n"
+        f"ЗАДАЧА {task['id']}:\n{task['intent']}\n\n"
+        f"ЧТО УЖЕ СДЕЛАНО:\n{summaries_text}\n\n"
+        f"РЕШЕНИЯ (нельзя нарушать):\n{decisions_text}\n\n"
+        f"МОИ ЗАМЕЧАНИЯ:\n{inbox_text}"
+    )
 
     try:
         response = requests.post(
@@ -164,49 +138,109 @@ Codex — AI-кодер который читает промпт и вносит
         print(f"OpenRouter error: {e}, falling back to raw intent")
         return task["intent"]
 
-# ── Codex runner ─────────────────────────────────────────────────────────────
+# ── Codex runner ──────────────────────────────────────────────────────────────
 
-def run_codex(prompt: str, branch: str) -> tuple[str, bool]:
-    """Запускает Codex, возвращает (summary, success)"""
+def get_git_changes() -> str:
+    """Возвращает список изменённых файлов через git"""
+    r1 = subprocess.run(
+        ["git", "diff", "--name-only"],
+        cwd=REPO_DIR, capture_output=True, text=True
+    )
+    r2 = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        cwd=REPO_DIR, capture_output=True, text=True
+    )
+    r3 = subprocess.run(
+        ["git", "diff", "--name-only", "HEAD~1", "HEAD"],
+        cwd=REPO_DIR, capture_output=True, text=True
+    )
+    files = set(
+        r1.stdout.strip().splitlines() +
+        r2.stdout.strip().splitlines() +
+        r3.stdout.strip().splitlines()
+    )
+    return "\n".join(sorted(files))
+
+def run_codex(prompt: str, branch: str):
+    """Запускает Codex интерактивно, возвращает (summary, success)"""
 
     # Переключаемся на feature ветку
-    subprocess.run(["git", "checkout", "-B", branch], cwd=REPO_DIR, check=True,
-                   capture_output=True)
+    subprocess.run(
+        ["git", "checkout", "-B", branch],
+        cwd=REPO_DIR, check=True, capture_output=True
+    )
 
     print(f"\n{'='*60}")
     print(f"CODEX PROMPT:\n{prompt[:500]}...")
     print(f"{'='*60}\n")
+    print("Codex запущен. Работает...\n")
 
+    # Пишем промпт в файл — Codex умеет читать из stdin или файла
+    prompt_file = Path("/tmp/kalita_prompt.txt")
+    prompt_file.write_text(prompt, encoding="utf-8")
+
+    # Запускаем Codex напрямую в терминале — он интерактивный
+    # Промпт передаём как аргумент через shlex.quote
+    quoted = shlex.quote(prompt)
     result = subprocess.run(
-        ["codex", "--quiet", "--no-interactive", prompt],
-        capture_output=True, text=True,
-        cwd=REPO_DIR, timeout=600
+        f"codex {quoted}",
+        shell=True,
+        cwd=REPO_DIR,
+        timeout=600
+        # НЕТ capture_output — Codex видит терминал и работает
     )
 
-    success = result.returncode == 0
+    # Определяем успех по git изменениям, не по exit code
+    changes = get_git_changes()
+    success = bool(changes.strip())
 
-    # Пушим что есть даже если были ошибки
-    subprocess.run(["git", "push", "origin", branch, "--force"],
-                   cwd=REPO_DIR, capture_output=True)
+    if success:
+        summary = f"Изменены файлы:\n{changes}"
+        # Добавляем все изменения в коммит если Codex не закоммитил
+        subprocess.run(["git", "add", "-A"], cwd=REPO_DIR, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "--allow-empty", "-m", f"feat: task via codex"],
+            cwd=REPO_DIR, capture_output=True
+        )
+    else:
+        summary = "Codex не внёс изменений"
 
-    summary = result.stdout[-2000:] if result.stdout else result.stderr[-1000:]
+    # Пушим в любом случае
+    subprocess.run(
+        ["git", "push", "origin", branch, "--force"],
+        cwd=REPO_DIR, capture_output=True
+    )
+
     return summary, success
 
-# ── Gitea PR ──────────────────────────────────────────────────────────────────
+# ── GitHub PR ─────────────────────────────────────────────────────────────────
 
-def create_pr(branch: str, title: str, body: str) -> str | None:
-    if not GITEA_TOKEN:
-        print("No GITEA_TOKEN — skipping PR creation")
+def create_pr(branch: str, title: str, body: str):
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        print("GITEA_TOKEN или GITEA_REPO не заданы — пропускаем PR")
         return None
     try:
         r = requests.post(
-            f"{GITEA_URL}/api/v1/repos/{GITEA_REPO}/pulls",
-            headers={"Authorization": f"token {GITEA_TOKEN}"},
-            json={"title": title, "body": body, "head": branch, "base": "main"},
-            timeout=10
+            f"https://api.github.com/repos/{GITHUB_REPO}/pulls",
+            headers={
+                "Authorization": f"token {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github.v3+json"
+            },
+            json={
+                "title": title,
+                "body":  body,
+                "head":  branch,
+                "base":  "main"
+            },
+            timeout=15
         )
         pr = r.json()
-        return pr.get("html_url")
+        url = pr.get("html_url")
+        if url:
+            print(f"PR создан: {url}")
+        else:
+            print(f"PR ответ: {pr.get('message', pr)}")
+        return url
     except Exception as e:
         print(f"PR creation failed: {e}")
         return None
@@ -214,25 +248,20 @@ def create_pr(branch: str, title: str, body: str) -> str | None:
 # ── Claude review on milestone ────────────────────────────────────────────────
 
 def run_claude_review(sprint: dict) -> str:
-    """Запускает Claude CLI для ревью архитектуры после вехи"""
-    print(f"\n🏁 MILESTONE: {sprint['name']} — запускаем Claude review...")
+    print(f"\nMILESTONE: {sprint['name']} — запускаем Claude review...")
 
-    review_prompt = f"""Ты архитектор проекта Kalita.
-
-Только что завершён спринт: {sprint['name']}
-Цель спринта: {sprint.get('goal', '')}
-
-Задачи:
-{chr(10).join(f"- {t['id']}: {t['intent'][:100]}" for t in sprint['tasks'])}
-
-Выполни:
-1. Проверь doc/ARCHITECTURE.md на актуальность — обнови если появились новые компоненты
-2. Проверь что ни один из инвариантов из CLAUDE.md не нарушен в новом коде
-3. Если нашёл архитектурные проблемы — добавь в doc/ARCHITECTURE.md секцию "## Known Issues Sprint {sprint['id']}"
-4. Если всё хорошо — добавь в doc/ARCHITECTURE.md секцию "## Sprint {sprint['id']} — Done" с кратким описанием что добавлено
-
-Будь конкретен и краток. Правь файлы напрямую.
-"""
+    review_prompt = (
+        f"Ты архитектор проекта Kalita.\n\n"
+        f"Завершён спринт: {sprint['name']}\n"
+        f"Цель: {sprint.get('goal', '')}\n\n"
+        "Задачи:\n"
+        + "\n".join(f"- {t['id']}: {t['intent'][:100]}" for t in sprint['tasks'])
+        + "\n\nВыполни:\n"
+        "1. Проверь doc/ARCHITECTURE.md — обнови если нужно\n"
+        "2. Проверь инварианты из CLAUDE.md\n"
+        f"3. Добавь секцию '## Sprint {sprint['id']} — Done' с описанием\n"
+        "Правь файлы напрямую."
+    )
 
     result = subprocess.run(
         ["claude", "--print", review_prompt],
@@ -240,7 +269,6 @@ def run_claude_review(sprint: dict) -> str:
         cwd=REPO_DIR, timeout=300
     )
 
-    # Коммитим правки Claude
     subprocess.run(["git", "add", "doc/"], cwd=REPO_DIR, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", f"docs: claude review after sprint {sprint['id']}"],
@@ -258,64 +286,59 @@ def run_one_task():
 
     sprint, task = get_current_task(sprints_data)
     if not sprint:
-        print("✅ Все задачи выполнены!")
+        print("Все задачи выполнены!")
         notify("Все задачи выполнены! Kalita готова.", "Pipeline Done")
         return False
 
     task_id = task["id"]
     branch  = f"feature/task-{task_id}"
-    print(f"\n▶ Задача {task_id}: {task['intent'][:80]}...")
+    print(f"\nЗадача {task_id}: {task['intent'][:80]}...")
     notify(f"Начинаю задачу {task_id}", "Pipeline")
 
-    # Шаг 1: OpenRouter генерирует точный промпт
-    print("→ Генерирую промпт через OpenRouter...")
+    print("-> Генерирую промпт через OpenRouter...")
     prompt = build_codex_prompt(task, sprint, context)
 
-    # Шаг 2: Codex кодит
-    print("→ Запускаю Codex...")
+    print("-> Запускаю Codex...")
     summary, success = run_codex(prompt, branch)
 
-    # Шаг 3: Сохраняем summary в context
     context["summaries"].append({
-        "task_id":      task_id,
-        "done_at":      datetime.now().isoformat(),
+        "task_id":       task_id,
+        "done_at":       datetime.now().isoformat(),
         "what_was_done": summary[:500],
-        "problems":     "none" if success else summary[-300:],
-        "files_changed": []  # codex может вернуть список
+        "problems":      "none" if success else "Codex не внёс изменений",
+        "files_changed": []
     })
-    # Храним только последние 10 summaries
     context["summaries"] = context["summaries"][-10:]
-    # Очищаем inbox — он был учтён в промпте
     context["inbox"] = []
     save_context(context)
 
     if not success:
-        notify(f"❌ Задача {task_id} завершилась с ошибкой. Проверь логи.", "Pipeline Error")
-        print(f"❌ Codex вернул ошибку для задачи {task_id}")
+        notify(f"Задача {task_id} — Codex не внёс изменений.", "Pipeline Warning")
+        print(f"Codex не внёс изменений для задачи {task_id}")
+        print("Проверь промпт или запусти вручную: codex '<промпт>'")
         return False
 
-    # Шаг 4: Помечаем задачу done
+    # Помечаем done
     for sp in sprints_data["sprints"]:
         for t in sp["tasks"]:
             if t["id"] == task_id:
                 t["done"] = True
     save_sprints(sprints_data)
 
-    # Шаг 5: PR в Gitea
     pr_body = f"**Sprint {sprint['id']}:** {sprint['name']}\n\n**Task {task_id}**\n\n{summary[:1000]}"
     pr_url  = create_pr(branch, f"[{task_id}] {sprint['name']}", pr_body)
 
-    msg = f"✅ Задача {task_id} готова"
+    msg = f"Задача {task_id} готова"
     if pr_url:
         msg += f"\nPR: {pr_url}"
     notify(msg, "Pipeline")
-    print(f"\n✅ Задача {task_id} выполнена")
+    print(f"\nЗадача {task_id} выполнена")
 
-    # Шаг 6: Проверяем веху
-    sprint_tasks = next(s for s in sprints_data["sprints"] if s["id"] == sprint["id"])["tasks"]
+    sprint_obj   = next(s for s in sprints_data["sprints"] if s["id"] == sprint["id"])
+    sprint_tasks = sprint_obj["tasks"]
     if sprint.get("milestone") and all(t.get("done") for t in sprint_tasks):
-        review = run_claude_review(sprint)
-        notify(f"🏁 Спринт {sprint['id']} завершён. Claude сделал ревью архитектуры.", "Milestone")
+        run_claude_review(sprint)
+        notify(f"Спринт {sprint['id']} завершён. Claude сделал ревью.", "Milestone")
 
     return True
 
@@ -330,10 +353,9 @@ def cmd_status():
         print(f"\nСпринт {sprint['id']}: {sprint['name']}")
         for task in sprint["tasks"]:
             total += 1
-            status = "✅" if task.get("done") else "⬜"
             if task.get("done"):
                 done += 1
-            print(f"  {status} [{task['id']}] {task['intent'][:70]}...")
+            print(f"  {'OK' if task.get('done') else '--'} [{task['id']}] {task['intent'][:70]}...")
 
     print(f"\nПрогресс: {done}/{total} задач")
     if context.get("inbox"):
@@ -345,7 +367,7 @@ def cmd_inbox(message: str):
     context = load_context()
     context["inbox"].append(message)
     save_context(context)
-    print(f"✅ Добавлено в inbox: {message}")
+    print(f"Добавлено в inbox: {message}")
 
 def cmd_run(run_all: bool):
     if run_all:
@@ -361,10 +383,10 @@ if __name__ == "__main__":
     sub    = parser.add_subparsers(dest="command")
 
     run_p = sub.add_parser("run")
-    run_p.add_argument("--all", action="store_true", help="Run all tasks sequentially")
+    run_p.add_argument("--all", action="store_true")
 
     inbox_p = sub.add_parser("inbox")
-    inbox_p.add_argument("message", help="Note to add to inbox")
+    inbox_p.add_argument("message")
 
     sub.add_parser("status")
 

@@ -1,176 +1,155 @@
-# Kalita — Sprint Plan
-# pipeline.py читает этот файл и двигает конвейер
-# intent: что должно получиться (не как — это генерирует OpenRouter)
-# done: pipeline.py ставит true после успешного codex run
-
 sprints:
+- goal: 'Полный pipeline Event→Case→Work→Coordination→Policy→Execution. Control Plane.
+    Demo. Trust system. Approvals. HTML UI.
 
-  # ─────────────────────────────────────────────
-  - id: 1
-    name: "M1 — Core runtime (Done)"
-    milestone: true
-    goal: >
-      Полный pipeline Event→Case→Work→Coordination→Policy→Execution.
-      Control Plane. Demo. Trust system. Approvals. HTML UI.
-    tasks:
-      - id: "1.1"
-        done: true
-        intent: "Реализовать полный domain pipeline с in-memory репозиториями"
-      - id: "1.2"
-        done: true
-        intent: "Control plane: summary, list, detail, timeline, inbox"
-      - id: "1.3"
-        done: true
-        intent: "HTTP layer: operator, demo, integration, actions, admin endpoints"
-      - id: "1.4"
-        done: true
-        intent: "Trust system, profile matcher, capability scoring"
-      - id: "1.5"
-        done: true
-        intent: "Demo scenarios с multi-case, deterministic seeding"
-      - id: "1.6"
-        done: true
-        intent: "Persistence layer для in-memory snapshot/event store"
+    '
+  id: 1
+  milestone: true
+  name: M1 — Core runtime (Done)
+  tasks:
+  - done: true
+    id: '1.1'
+    intent: Реализовать полный domain pipeline с in-memory репозиториями
+  - done: true
+    id: '1.2'
+    intent: 'Control plane: summary, list, detail, timeline, inbox'
+  - done: true
+    id: '1.3'
+    intent: 'HTTP layer: operator, demo, integration, actions, admin endpoints'
+  - done: true
+    id: '1.4'
+    intent: Trust system, profile matcher, capability scoring
+  - done: true
+    id: '1.5'
+    intent: Demo scenarios с multi-case, deterministic seeding
+  - done: true
+    id: '1.6'
+    intent: Persistence layer для in-memory snapshot/event store
+- goal: 'CoordinationService принимает решения с учётом состояния всей очереди, а
+    не только отдельного WorkItem. Backlog-aware scoring.
 
-  # ─────────────────────────────────────────────
-  - id: 2
-    name: "Coordination 2.0 — system-level decisions"
-    milestone: true
-    goal: >
-      CoordinationService принимает решения с учётом состояния всей очереди,
-      а не только отдельного WorkItem. Backlog-aware scoring.
+    '
+  id: 2
+  milestone: true
+  name: Coordination 2.0 — system-level decisions
+  tasks:
+  - done: false
+    id: '2.1'
+    intent: 'Создай интерфейс WorkQueueSnapshot в internal/workplan/ который предоставляет
+      CoordinationService read-only вид на всю очередь: количество items по статусам,
+      средний возраст, items по actor capability. Реализуй in-memory имплементацию.
+      Добавь в wiring через internal/app/bootstrap.go. Тесты обязательны.
 
-    tasks:
+      '
+  - done: false
+    id: '2.2'
+    intent: 'Добавь queue-aware scoring в coordination_service.go в internal/workplan/.
+      Если очередь по capability переполнена (>N items) — решение должно склоняться
+      к defer, не execute_now. Порог N берётся из CoordinationConfig. Логика через
+      отдельный QueuePressureScorer в internal/workplan/queue_pressure.go. Существующие
+      тесты не должны сломаться.
 
-      - id: "2.1"
-        done: false
-        intent: >
-          Создай интерфейс WorkQueueSnapshot в internal/workplan/
-          который предоставляет CoordinationService read-only вид на всю очередь:
-          количество items по статусам, средний возраст, items по actor capability.
-          Реализуй in-memory имплементацию. Добавь в wiring через internal/app/bootstrap.go.
-          Тесты обязательны.
+      '
+  - done: false
+    id: '2.3'
+    intent: 'Добавь department-level coordination в internal/workplan/. CoordinationDecision
+      учитывает загрузку всего department. DepartmentLoadProvider интерфейс, in-memory
+      реализация. Интегрируй в coordination_service.go. Покрой тестами граничные случаи:
+      пустой department, все actor заняты, department не существует.
 
-      - id: "2.2"
-        done: false
-        intent: >
-          Добавь queue-aware scoring в coordination_service.go в internal/workplan/.
-          Если очередь по capability переполнена (>N items) — решение должно
-          склоняться к defer, не execute_now. Порог N берётся из CoordinationConfig.
-          Логика через отдельный QueuePressureScorer в internal/workplan/queue_pressure.go.
-          Существующие тесты не должны сломаться.
+      '
+  - done: false
+    id: '2.4'
+    intent: 'Обнови Control Plane: добавь в /api/controlplane/summary поле queue_pressure
+      с метриками по каждому department. Только read model — никакой логики в internal/controlplane/.
+      Данные берутся из QueuePressureScorer через read-модель. Обнови HTML dashboard
+      чтобы показывал queue pressure.
 
-      - id: "2.3"
-        done: false
-        intent: >
-          Добавь department-level coordination в internal/workplan/.
-          CoordinationDecision учитывает загрузку всего department.
-          DepartmentLoadProvider интерфейс, in-memory реализация.
-          Интегрируй в coordination_service.go. Покрой тестами граничные случаи:
-          пустой department, все actor заняты, department не существует.
+      '
+- goal: 'Заменить in-memory репозитории на PostgreSQL. Domain код не должен измениться
+    — только реализации интерфейсов.
 
-      - id: "2.4"
-        done: false
-        intent: >
-          Обнови Control Plane: добавь в /api/controlplane/summary поле
-          queue_pressure с метриками по каждому department.
-          Только read model — никакой логики в internal/controlplane/.
-          Данные берутся из QueuePressureScorer через read-модель.
-          Обнови HTML dashboard чтобы показывал queue pressure.
+    '
+  id: 3
+  milestone: true
+  name: External persistence — repository layer
+  tasks:
+  - done: false
+    id: '3.1'
+    intent: 'Аудит всех Repository интерфейсов в internal/domain/. Создай doc/repositories.md
+      со списком всех интерфейсов, их методов и текущих in-memory реализаций. Выяви
+      все места где нарушается interface segregation. Только документ, никакого кода.
 
-  # ─────────────────────────────────────────────
-  - id: 3
-    name: "External persistence — repository layer"
-    milestone: true
-    goal: >
-      Заменить in-memory репозитории на PostgreSQL.
-      Domain код не должен измениться — только реализации интерфейсов.
+      '
+  - done: false
+    id: '3.2'
+    intent: 'Добавь PostgreSQL зависимость (pgx/v5). Создай internal/storage/postgres/
+      с базовым Connection pool, миграционным механизмом (golang-migrate или ручные
+      SQL файлы в migrations/). Первая миграция: таблица cases с полями id, status,
+      created_at, updated_at, metadata jsonb. Конфиг через переменные окружения: DATABASE_URL.
+      In-memory остаётся дефолтом если DATABASE_URL не задан.
 
-    tasks:
+      '
+  - done: false
+    id: '3.3'
+    intent: 'Реализуй PostgresCaseRepository имплементирующий CaseRepository интерфейс.
+      Все методы: Save, FindByID, FindAll, FindByStatus. Transactions через pgx. Правильный
+      маппинг доменных типов ↔ SQL. Тесты через testcontainers-go (поднимает реальный
+      postgres для тестов).
 
-      - id: "3.1"
-        done: false
-        intent: >
-          Аудит всех Repository интерфейсов в internal/domain/.
-          Создай doc/repositories.md со списком всех интерфейсов,
-          их методов и текущих in-memory реализаций.
-          Выяви все места где нарушается interface segregation.
-          Только документ, никакого кода.
+      '
+  - done: false
+    id: '3.4'
+    intent: 'Реализуй PostgresWorkItemRepository имплементирующий WorkItemRepository.
+      Таблица work_items с foreign key на cases. Методы: Save, FindByID, FindByCaseID,
+      FindByStatus, FindByActorID. Индексы на case_id и status. Тесты через testcontainers.
 
-      - id: "3.2"
-        done: false
-        intent: >
-          Добавь PostgreSQL зависимость (pgx/v5).
-          Создай internal/storage/postgres/ с базовым Connection pool,
-          миграционным механизмом (golang-migrate или ручные SQL файлы в migrations/).
-          Первая миграция: таблица cases с полями id, status, created_at, updated_at, metadata jsonb.
-          Конфиг через переменные окружения: DATABASE_URL.
-          In-memory остаётся дефолтом если DATABASE_URL не задан.
+      '
+  - done: false
+    id: '3.5'
+    intent: 'Реализуй PostgresExecutionSessionRepository. Таблица execution_sessions,
+      WAL entries в отдельной таблице wal_entries. WAL должен быть append-only (нет
+      UPDATE, только INSERT). Compensation log в compensation_log таблице. Тесты проверяют
+      append-only инвариант.
 
-      - id: "3.3"
-        done: false
-        intent: >
-          Реализуй PostgresCaseRepository имплементирующий CaseRepository интерфейс.
-          Все методы: Save, FindByID, FindAll, FindByStatus.
-          Transactions через pgx. Правильный маппинг доменных типов ↔ SQL.
-          Тесты через testcontainers-go (поднимает реальный postgres для тестов).
+      '
+  - done: false
+    id: '3.6'
+    intent: 'Обнови internal/app/ wiring: если DATABASE_URL задан — используются Postgres
+      репозитории, иначе in-memory. Добавь health check endpoint /health который проверяет
+      DB connectivity. Обнови README с инструкцией запуска с postgres (docker-compose
+      пример).
 
-      - id: "3.4"
-        done: false
-        intent: >
-          Реализуй PostgresWorkItemRepository имплементирующий WorkItemRepository.
-          Таблица work_items с foreign key на cases.
-          Методы: Save, FindByID, FindByCaseID, FindByStatus, FindByActorID.
-          Индексы на case_id и status. Тесты через testcontainers.
+      '
+- goal: 'Подключить реальные операционные данные из AIS Otkhody. Domain runtime не
+    меняется — только адаптер на входе.
 
-      - id: "3.5"
-        done: false
-        intent: >
-          Реализуй PostgresExecutionSessionRepository.
-          Таблица execution_sessions, WAL entries в отдельной таблице wal_entries.
-          WAL должен быть append-only (нет UPDATE, только INSERT).
-          Compensation log в compensation_log таблице.
-          Тесты проверяют append-only инвариант.
+    '
+  id: 4
+  milestone: true
+  name: AIS Otkhody — real data integration
+  tasks:
+  - done: false
+    id: '4.1'
+    intent: 'Создай internal/integrations/aisotkhody/ с HTTP клиентом к AIS API. DataFetcher
+      интерфейс с методом FetchMissedPickups(ctx, date) ([]PickupEvent, error). Конфиг:
+      AIS_API_URL, AIS_API_KEY из env. Mock-реализация для тестов (записанные реальные
+      ответы в testdata/).
 
-      - id: "3.6"
-        done: false
-        intent: >
-          Обнови internal/app/ wiring: если DATABASE_URL задан —
-          используются Postgres репозитории, иначе in-memory.
-          Добавь health check endpoint /health который проверяет DB connectivity.
-          Обнови README с инструкцией запуска с postgres (docker-compose пример).
+      '
+  - done: false
+    id: '4.2'
+    intent: 'Создай AisEventMapper который конвертирует AIS PickupEvent в доменный
+      Event. Маппинг живёт в internal/integrations/aisotkhody/mapper.go — не в demo/.
+      Тесты с реальными форматами данных из testdata/. Mapper не должен знать ничего
+      про HTTP или БД.
 
-  # ─────────────────────────────────────────────
-  - id: 4
-    name: "AIS Otkhody — real data integration"
-    milestone: true
-    goal: >
-      Подключить реальные операционные данные из AIS Otkhody.
-      Domain runtime не меняется — только адаптер на входе.
+      '
+  - done: false
+    id: '4.3'
+    intent: 'Создай AisIngestionService который по расписанию (или по запросу) тянет
+      события из AIS, маппирует и инжектирует в Event Core. Endpoint POST /api/integrations/ais/ingest
+      для ручного триггера. Идемпотентность: повторный ingest одних данных не создаёт
+      дубли. Логирование каждого инжектированного события.
 
-    tasks:
-
-      - id: "4.1"
-        done: false
-        intent: >
-          Создай internal/integrations/aisotkhody/ с HTTP клиентом к AIS API.
-          DataFetcher интерфейс с методом FetchMissedPickups(ctx, date) ([]PickupEvent, error).
-          Конфиг: AIS_API_URL, AIS_API_KEY из env.
-          Mock-реализация для тестов (записанные реальные ответы в testdata/).
-
-      - id: "4.2"
-        done: false
-        intent: >
-          Создай AisEventMapper который конвертирует AIS PickupEvent в доменный Event.
-          Маппинг живёт в internal/integrations/aisotkhody/mapper.go — не в demo/.
-          Тесты с реальными форматами данных из testdata/.
-          Mapper не должен знать ничего про HTTP или БД.
-
-      - id: "4.3"
-        done: false
-        intent: >
-          Создай AisIngestionService который по расписанию (или по запросу)
-          тянет события из AIS, маппирует и инжектирует в Event Core.
-          Endpoint POST /api/integrations/ais/ingest для ручного триггера.
-          Идемпотентность: повторный ingest одних данных не создаёт дубли.
-          Логирование каждого инжектированного события.
+      '
