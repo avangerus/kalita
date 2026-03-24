@@ -1,16 +1,6 @@
 {
   "summaries": [
     {
-      "task_id": "M1-integration-partial",
-      "done_at": "2026-03-24T00:00:00",
-      "what_was_done": "Интеграционный ingest реализован через /api/integration/incidents с идемпотентностью (external_id). Файлы: internal/http/integration.go, internal/integration/service.go. Это общий endpoint, не AIS-специфичный.",
-      "problems": "Нет AIS-специфичного клиента, маппера и инжестора из плана спринта 4.",
-      "files_changed": [
-        "internal/http/integration.go",
-        "internal/integration/service.go"
-      ]
-    },
-    {
       "task_id": "2.1",
       "done_at": "2026-03-24T10:45:41.629177",
       "what_was_done": "error: unexpected argument '--quiet' found\n\n  tip: to pass '--quiet' as a value, use '-- --quiet'\n\nUsage: codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]\n\nFor more information, try '--help'.\n",
@@ -70,6 +60,13 @@
       "task_id": "3.3",
       "done_at": "2026-03-24T12:56:27.026618",
       "what_was_done": "Изменены файлы:\ninternal/caseruntime/repository.go\ninternal/caseruntime/repository_test.go\ninternal/caseruntime/types.go\ninternal/persistence/adapters.go\ninternal/storage/postgres/case_repository.go\ninternal/storage/postgres/case_repository_integration_test.go\nplans/context.json\nplans/sprints.yaml",
+      "problems": "none",
+      "files_changed": []
+    },
+    {
+      "task_id": "3.4",
+      "done_at": "2026-03-24T13:00:59.929401",
+      "what_was_done": "Изменены файлы:\ngo.mod\ninternal/storage/postgres/migrations/0002_create_work_items.sql\ninternal/storage/postgres/work_item_repository.go\ninternal/storage/postgres/work_item_repository_integration_test.go\ninternal/storage/postgres/work_item_repository_test.go\ninternal/workplan/repository.go\ninternal/workplan/repository_test.go\ninternal/workplan/types.go\nplans/context.json\nplans/sprints.yaml",
       "problems": "none",
       "files_changed": []
     }

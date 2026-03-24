@@ -98,7 +98,7 @@ sprints:
       postgres для тестов).
 
       '
-  - done: false
+  - done: true
     id: '3.4'
     intent: 'Реализуй PostgresWorkItemRepository имплементирующий WorkItemRepository.
       Таблица work_items с foreign key на cases. Методы: Save, FindByID, FindByCaseID,
