@@ -129,7 +129,7 @@ sprints:
   milestone: true
   name: AIS Otkhody — real data integration
   tasks:
-  - done: false
+  - done: true
     id: '4.1'
     intent: 'Создай internal/integrations/aisotkhody/ с HTTP клиентом к AIS API. DataFetcher
       интерфейс с методом FetchMissedPickups(ctx, date) ([]PickupEvent, error). Конфиг:
