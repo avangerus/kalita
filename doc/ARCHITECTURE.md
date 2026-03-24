@@ -179,6 +179,9 @@ parse input → call service → return response
 No logic. No domain decisions. No direct repo access.
 Routes: CRUD, actions, metadata, file uploads, bulk ops, integration, operator endpoints.
 
+> **Status note (reviewed March 24, 2026):** current implementation does not fully match this target.  
+> `handlers.go` and `actions.go` still contain orchestration/domain logic, record mutation, and storage access directly in handlers.
+
 ---
 
 ## Application Bootstrap (`internal/app/`)
@@ -230,6 +233,40 @@ type CaseRepository interface {
 6. No duplication of runtime decisions
 7. Deterministic ordering everywhere
 8. Demo layer is isolated — no domain imports from demo/
+
+---
+
+## Architecture Review Findings (March 24, 2026)
+
+### ✅ What is aligned
+
+- Proposal and execution remain separated by dedicated packages (`proposal`, `actionplan`, `executionruntime`).
+- Execution runtime still keeps explicit WAL concepts and compensation separation.
+- Demo layer remains isolated from domain packages by dependency direction.
+
+### ⚠️ Invariant drift and architectural issues
+
+1. **HTTP handlers are not thin (Rule 1 violation).**  
+   `internal/http/handlers.go` and `internal/http/actions.go` perform validation, business orchestration, policy/error branching, direct storage mutation, and execution triggering inside transport handlers.
+
+2. **Control plane is not read-only (Rule 2 + Rule 8 drift).**  
+   `internal/controlplane/service.go` resolves approval requests, persists state, appends events, and can trigger re-coordination. This is domain write behavior, not read-model aggregation.
+
+3. **Determinism gap in repository/read paths (Rule 6 drift).**  
+   Some code paths iterate maps when returning ordered results or picking the “first” match (`caseruntime.InMemoryCaseRepository.List`, `runtime.Storage.FindIncomingRefs`), producing non-deterministic outcomes across process runs.
+
+4. **Runtime decisions are split across multiple layers (Rule 5 drift risk).**  
+   Coordination/policy/execution decisions are partly in domain services and partly inside HTTP action handlers, increasing risk of duplicated or diverging decision logic.
+
+### Recommended refactor direction
+
+1. Extract an `internal/orchestration` (or similar) application service that owns end-to-end action flow:
+   `command -> case -> work -> coordination -> policy -> constraints -> plan -> execution`.
+2. Reduce handlers to strict adapter shape: decode/validate request envelope, call one service method, map result to HTTP.
+3. Split control plane into:
+   - **read service** (queries only), and
+   - **approval command service** (state changes/events), outside `controlplane`.
+4. Make deterministic ordering explicit in all repository/query methods that return slices or first-match semantics (sort keys or use insertion-order indexes consistently).
 
 ---
 
