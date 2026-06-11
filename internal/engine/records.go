@@ -201,7 +201,7 @@ func (e *Engine) Get(ctx context.Context, actor eventstore.Actor, entity, id str
 	if d := e.can(actor.Role, "read", entity, "", rec.Values, actor.ID); !d.allowed {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
-	full := e.withComputed(decl, rec.Values)
+	full := e.withComputed(decl, rec.ID, rec.Values)
 	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, full, actor.ID)}, nil
 }
 
@@ -227,7 +227,7 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 		if d := e.can(actor.Role, "read", entity, "", rec.Values, actor.ID); !d.allowed {
 			continue
 		}
-		full := e.withComputed(decl, rec.Values)
+		full := e.withComputed(decl, rec.ID, rec.Values)
 		match := true
 		for k, want := range opts.Filter {
 			if full[k] != want {

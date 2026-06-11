@@ -34,7 +34,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 			decl := e.model.Entities[rule.Entity]
 			for _, id := range sortedIDs(e.records[rule.Entity]) {
 				rec := e.records[rule.Entity][id]
-				full := e.withComputed(decl, rec.Values)
+				full := e.withComputed(decl, rec.ID, rec.Values)
 				if rule.When != "" && !evalWhere(rule.When, evalCtx{values: full, actorID: ""}) {
 					continue
 				}
@@ -77,7 +77,7 @@ func (e *Engine) runEventTriggers(ctx context.Context, trigger, entity, id strin
 		if !ok {
 			return
 		}
-		full := e.withComputed(decl, rec.Values)
+		full := e.withComputed(decl, rec.ID, rec.Values)
 		if rule.When != "" && !evalWhere(rule.When, evalCtx{values: full, actorID: ""}) {
 			continue
 		}

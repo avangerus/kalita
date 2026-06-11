@@ -104,7 +104,7 @@ func (e *Engine) Act(ctx context.Context, actor eventstore.Actor, entity, id, ac
 			FixHint: "check the workflow: the action may not exist or the record is in another state"}
 	}
 	if tr.When != "" {
-		full := e.withComputed(decl, rec.Values)
+		full := e.withComputed(decl, rec.ID, rec.Values)
 		if !evalWhere(tr.When, evalCtx{values: full, actorID: actor.ID}) {
 			return nil, &Err{Code: CodeGuardFailed,
 				Message: fmt.Sprintf("guard `%s` is false for %s %s", tr.When, entity, id),
@@ -278,7 +278,7 @@ func (e *Engine) runAutoTransitions(ctx context.Context, entity, id string) {
 			if !tr.Auto || (tr.From != current && tr.From != "any") || tr.To == current {
 				continue
 			}
-			full := e.withComputed(decl, rec.Values)
+			full := e.withComputed(decl, rec.ID, rec.Values)
 			if tr.When != "" && !evalWhere(tr.When, evalCtx{values: full, actorID: ""}) {
 				continue
 			}

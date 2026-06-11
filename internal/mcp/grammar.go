@@ -47,6 +47,8 @@ UI:          ui Entity:
                      section "Title": [f1, f2]
                  board: by enum_field
 EXPR:        field cmp literal | field in [a, b] | clauses joined by and; cmp: = != > < >= <=; literals: 42, "str", true, $me; days_since(path)
+COMPUTED:    computed = <path> | days_since(path) | count(Entity where reffield = $self)
+             | sum|avg|min|max(Entity.field where reffield = $self)   # roll-up over related records
 RULES:       agent role without deny does not compile; workflow state field cannot be written directly; mutations require basis; only additive migrations.`
 
 const grammarExample = `pack example
