@@ -1,12 +1,15 @@
 package eventstore
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
 	"time"
 )
+
+var ctx = context.Background()
 
 func testClock() func() time.Time {
 	t := time.Date(2026, 6, 12, 9, 0, 0, 0, time.UTC)
@@ -20,7 +23,7 @@ func appendN(t *testing.T, s *MemStore, n int) {
 	t.Helper()
 	for i := 0; i < n; i++ {
 		payload, _ := json.Marshal(map[string]any{"field": "debt", "old": i, "new": i + 1})
-		_, err := s.Append(AppendInput{
+		_, err := s.Append(ctx, AppendInput{
 			Actor:      Actor{Type: ActorAgent, ID: "collector-1", Role: "Collector"},
 			Kind:       RecordUpdated,
 			Subject:    Subject{Entity: "Debtor", RecordID: fmt.Sprintf("d-%d", i%7)},
@@ -34,14 +37,23 @@ func appendN(t *testing.T, s *MemStore, n int) {
 	}
 }
 
+func mustAll(t *testing.T, s Store) []*Event {
+	t.Helper()
+	events, err := s.All(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return events
+}
+
 // EVENT-STORE-v0 §7.1: the chain over a long mixed journal verifies clean.
 func TestChainAppendAndVerify(t *testing.T) {
 	s := NewMemStore(testClock())
 	appendN(t, s, 1000)
-	if err := s.Verify(); err != nil {
+	if err := s.Verify(ctx); err != nil {
 		t.Fatalf("chain must verify: %v", err)
 	}
-	events := s.All()
+	events := mustAll(t, s)
 	if events[0].Seq != 1 || events[999].Seq != 1000 {
 		t.Fatalf("seq must be gapless 1..1000, got %d..%d", events[0].Seq, events[999].Seq)
 	}
@@ -52,7 +64,7 @@ func TestChainAppendAndVerify(t *testing.T) {
 func TestTamperDetection(t *testing.T) {
 	s := NewMemStore(testClock())
 	appendN(t, s, 100)
-	events := s.All()
+	events := mustAll(t, s)
 
 	events[41].Payload = json.RawMessage(`{"field":"debt","old":0,"new":999999}`)
 
@@ -73,7 +85,7 @@ func TestTamperDetection(t *testing.T) {
 func TestDeletionDetection(t *testing.T) {
 	s := NewMemStore(testClock())
 	appendN(t, s, 10)
-	events := s.All()
+	events := mustAll(t, s)
 	cut := append(events[:4:4], events[5:]...) // drop seq 5
 
 	if err := VerifyChain(cut); err == nil {
@@ -94,21 +106,21 @@ func TestIdempotency(t *testing.T) {
 		DefVersion:     1,
 		IdempotencyKey: "create-d-1",
 	}
-	first, err := s.Append(in)
+	first, err := s.Append(ctx, in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := s.Append(in)
+	second, err := s.Append(ctx, in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.EventID != second.EventID {
 		t.Fatal("same idempotency key must return the original event")
 	}
-	if got := len(s.All()); got != 1 {
+	if got := len(mustAll(t, s)); got != 1 {
 		t.Fatalf("journal must contain exactly 1 event, got %d", got)
 	}
-	if err := s.Verify(); err != nil {
+	if err := s.Verify(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -116,7 +128,7 @@ func TestIdempotency(t *testing.T) {
 // Anonymous actors do not exist (MCP-CONTRACT-v0 §0.1).
 func TestEmptyActorRejected(t *testing.T) {
 	s := NewMemStore(testClock())
-	_, err := s.Append(AppendInput{Kind: NodeStarted})
+	_, err := s.Append(ctx, AppendInput{Kind: NodeStarted})
 	if !errors.Is(err, ErrEmptyActorID) {
 		t.Fatalf("want ErrEmptyActorID, got %v", err)
 	}

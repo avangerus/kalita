@@ -26,6 +26,8 @@ type PGStore struct {
 	now  func() time.Time
 }
 
+var _ Store = (*PGStore)(nil)
+
 // appendLockKey serializes appends on a single node (advisory xact lock).
 const appendLockKey = 0x4B414C4954410001 // "KALITA" + 01
 
@@ -215,6 +217,20 @@ func scanEvent(row pgx.Row) (*Event, error) {
 	}
 	e.TS = e.TS.UTC()
 	return &e, nil
+}
+
+// Head returns the seq and hash of the last event (0, nil on empty journal).
+func (s *PGStore) Head(ctx context.Context) (uint64, []byte, error) {
+	var seq uint64
+	var hash []byte
+	err := s.pool.QueryRow(ctx, `SELECT seq, hash FROM events ORDER BY seq DESC LIMIT 1`).Scan(&seq, &hash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil, nil
+	}
+	if err != nil {
+		return 0, nil, err
+	}
+	return seq, hash, nil
 }
 
 // All returns the full journal ordered by seq.
