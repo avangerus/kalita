@@ -424,6 +424,47 @@ function Thread({ ent, id }) {
   </div>`;
 }
 
+// Dashboards: table-wide aggregate tiles (count/sum/avg/min/max), some grouped.
+// Each tile already respects the viewer's row permissions server-side.
+function Tile({ t }) {
+  const grouped = t.groups && t.groups.length;
+  const max = grouped ? Math.max(...t.groups.map(g => g.value), 1) : 0;
+  return html`<div class="card" style=${grouped ? 'flex:1 1 320px' : 'flex:0 0 200px'}>
+    <div class="muted" style="font-size:12px;margin-bottom:6px">${t.label}</div>
+    ${grouped
+      ? html`<div>${t.groups.map(g => html`<div style="display:flex;align-items:center;gap:8px;margin:4px 0">
+          <span style="width:96px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g.key}</span>
+          <span style="flex:1;background:#1f2630;border-radius:4px;height:14px;position:relative">
+            <span style="position:absolute;inset:0 auto 0 0;width:${Math.round(g.value / max * 100)}%;background:var(--acc);border-radius:4px"></span></span>
+          <b style="width:32px;text-align:right">${g.value}</b></div>`)}</div>`
+      : html`<div style="font-size:30px;font-weight:600">${t.value}</div>`}
+  </div>`;
+}
+
+function Dashboards() {
+  const [list, setList] = useState(null);
+  const [active, setActive] = useState(null);
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => { api('/api/dashboards').then(r => {
+    const ds = r.dashboards || []; setList(ds);
+    if (ds.length) setActive(ds[0].name);
+  }).catch(setErr); }, []);
+  useEffect(() => { if (active) { setData(null); api(`/api/dashboards/${active}`).then(setData).catch(setErr); } }, [active]);
+  if (err) return html`<div class="err">${err.message}</div>`;
+  if (!list) return html`<div class="muted">загрузка…</div>`;
+  if (!list.length) return html`<div class="muted">в этом паке нет дашбордов</div>`;
+  return html`<div>
+    <h2>Дашборды</h2>
+    <div class="tabs" style="margin-bottom:16px">
+      ${list.map(d => html`<a class=${active === d.name ? 'on' : ''} onClick=${() => setActive(d.name)}>${d.title || d.name}</a>`)}
+    </div>
+    ${!data ? html`<div class="muted">загрузка…</div>`
+      : html`<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start">
+          ${data.tiles.map(t => html`<${Tile} t=${t} />`)}</div>`}
+  </div>`;
+}
+
 // --- shell ----------------------------------------------------------------------
 
 function App() {
@@ -446,6 +487,7 @@ function App() {
   const ent = parts[0] === 'e' || parts[0] === 'board' ? meta.entities.find(x => x.name === parts[1]) : null;
   let view = html`<${Inbox} meta=${meta} refresh=${refresh} />`;
   if (parts[0] === 'search') view = html`<${SearchView} />`;
+  else if (parts[0] === 'dashboards') view = html`<${Dashboards} />`;
   else if (parts[0] === 'agents') view = html`<${AgentsView} />`;
   else if (parts[0] === 'e' && ent && parts[2]) view = html`<${RecordView} ent=${ent} id=${parts[2]} refresh=${refresh} />`;
   else if (parts[0] === 'e' && ent && ent.singleton) view = html`<${SingletonView} ent=${ent} refresh=${refresh} />`;
@@ -460,6 +502,7 @@ function App() {
       <div class="nav">
         ${meta.search && html`<a class=${route === '/search' ? 'on' : ''} onClick=${() => nav('/search')}>🔍 Поиск</a>`}
         <a class=${route === '/inbox' ? 'on' : ''} onClick=${() => nav('/inbox')}>Inbox ${inboxCount > 0 && html`<span class="badge">${inboxCount}</span>`}</a>
+        <a class=${route === '/dashboards' ? 'on' : ''} onClick=${() => nav('/dashboards')}>📊 Дашборды</a>
         ${meta.entities.map(e => html`<a class=${parts[1] === e.name ? 'on' : ''} onClick=${() => nav(`/e/${e.name}`)}>${e.name}</a>`)}
         <a class=${route === '/agents' ? 'on' : ''} onClick=${() => nav('/agents')} style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">Agents</a>
       </div>
