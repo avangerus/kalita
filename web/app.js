@@ -381,6 +381,46 @@ function RecordView({ ent, id, refresh }) {
       })}
       ${Object.keys(edit).length > 0 && html`<button class="btn green" onClick=${save}>Save changes</button>`}
     </div>`}
+    <${Thread} ent=${ent} id=${id} />
+  </div>`;
+}
+
+// Thread: the comment conversation on a record. Staff (anyone who can update
+// the record) may post internal notes the customer never sees.
+function Thread({ ent, id }) {
+  const [items, setItems] = useState(null);
+  const [body, setBody] = useState(''); const [internal, setInternal] = useState(false);
+  const [err, setErr] = useState(null);
+  const load = () => api(`/api/records/${ent.name}/${id}/comments`).then(r => setItems(r.comments || [])).catch(() => setItems([]));
+  useEffect(load, [ent.name, id]);
+  const post = async () => {
+    if (!body.trim()) return;
+    setErr(null);
+    try {
+      await api(`/api/records/${ent.name}/${id}/comments`, { method: 'POST',
+        body: JSON.stringify({ body, internal, basis: basis() }) });
+      setBody(''); setInternal(false); load();
+    } catch (e) { setErr(e); }
+  };
+  const canInternal = ent.can_update;
+  return html`<div class="card" style="margin-top:12px">
+    <h3 style="margin-top:0">Обсуждение</h3>
+    ${(items || []).map(c => html`<div style="padding:6px 0;border-bottom:1px solid var(--line)">
+      <b>${c.author.id}</b> ${c.internal && html`<span class="pill" style="background:#33201c">внутр.</span>`}
+      <span class="muted" style="font-size:11px"> · ${(c.ts || '').slice(0, 16).replace('T', ' ')}</span>
+      <div style="white-space:pre-wrap">${c.body}</div>
+    </div>`)}
+    ${(items && items.length === 0) && html`<div class="muted">пока нет сообщений</div>`}
+    ${err && html`<div class="err">${err.message}</div>`}
+    <div style="margin-top:8px">
+      <textarea rows="2" placeholder="написать сообщение…" value=${body} onInput=${e => setBody(e.target.value)} />
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="btn green" onClick=${post}>Отправить</button>
+        ${canInternal && html`<label class="muted" style="cursor:pointer">
+          <input type="checkbox" style="width:auto;margin-right:5px" checked=${internal}
+            onChange=${e => setInternal(e.target.checked)} /> внутренняя заметка</label>`}
+      </div>
+    </div>
   </div>`;
 }
 

@@ -62,6 +62,8 @@ const (
 	LinkAdded   Kind = "link.added"
 	LinkRemoved Kind = "link.removed"
 
+	CommentPosted Kind = "comment.posted"
+
 	NodeStarted        Kind = "node.started"
 	ProjectionRebuilt  Kind = "projection.rebuilt"
 	CheckpointSealed   Kind = "checkpoint.sealed"

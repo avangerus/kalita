@@ -69,6 +69,12 @@ export class KalitaClient {
   }
   journal(entity, id) { return this._req('GET', `/api/records/${entity}/${id}/journal`); }
 
+  // --- comments (the conversation thread on any record) ------------------------
+  comments(entity, id) { return this._req('GET', `/api/records/${entity}/${id}/comments`); }
+  comment(entity, id, body, basis, internal = false) {
+    return this._req('POST', `/api/records/${entity}/${id}/comments`, { body, internal, basis });
+  }
+
   // --- files -------------------------------------------------------------------
   /** Upload a File/Blob, returns a FileRef { hash, name, size, mime } to put
    *  into a `file` field. */

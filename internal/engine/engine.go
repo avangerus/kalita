@@ -26,6 +26,7 @@ type Engine struct {
 	proposals  map[string]*Proposal
 	stateSince map[string]map[string]time.Time // entity → id → entered current state
 	links      map[string]linkPayload          // canonical link key → fact
+	comments   map[string][]*Comment           // entity|id → thread
 	taskTTL    time.Duration
 	defApprover string // role whose human signature applies definitions
 	blobs      BlobStore
@@ -86,6 +87,7 @@ func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...
 		proposals:  map[string]*Proposal{},
 		stateSince: map[string]map[string]time.Time{},
 		links:      map[string]linkPayload{},
+		comments:   map[string][]*Comment{},
 		taskTTL:    time.Hour,
 		defApprover: "Owner",
 		now:        time.Now,
@@ -214,6 +216,8 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		if json.Unmarshal(ev.Payload, &lp) == nil {
 			delete(e.links, lp.Link+"|"+lp.From+"|"+lp.To)
 		}
+	case eventstore.CommentPosted:
+		e.applyCommentEvent(ev)
 	case eventstore.DefinitionApplied:
 		// definitions replay from the journal: the pack directory is only the
 		// genesis seed

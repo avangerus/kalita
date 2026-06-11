@@ -20,6 +20,9 @@ CONSTRAINTS: constraints:            # immediately after its entity
                  unique(field1, field2)
 LINK:        link FromEntity -> ToEntity as forward_name / inverse_name
              # named bidirectional relation (Jira issue links); both sides kept in sync
+COMMENTS:    every record has a comment thread (no declaration needed) — the
+             conversation surface: talk to a human in a task, reply to a customer.
+             tools: comment / read_comments. internal=true = staff-only note.
 WORKFLOW:    workflow Entity on enum_field:
                  From -> To: action [when <expr>] [assignee=agent(Role)|Role] [requires approval(Role)]
                  From -> To: auto when <expr>

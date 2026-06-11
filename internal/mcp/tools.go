@@ -48,6 +48,8 @@ var toolDefs = []map[string]any{
 	{"name": "report_progress", "description": "Attach a progress note. The journal cross-checks it against your actual events on the record.", "inputSchema": schema(map[string]any{"task_id": str, "note": str}, "task_id", "note")},
 	{"name": "complete_task", "description": "Finish a taken task with a result.", "inputSchema": schema(map[string]any{"task_id": str, "result": str}, "task_id", "result")},
 	{"name": "fail_task", "description": "Honestly fail a task with a reason. Cheaper than silently hanging until the lease expires.", "inputSchema": schema(map[string]any{"task_id": str, "reason": str}, "task_id", "reason")},
+	{"name": "comment", "description": "Post a comment on a record — the conversation thread (talk to a human in a task, reply to a customer). internal=true is a staff-only note the external customer cannot see.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "body": str, "internal": map[string]any{"type": "boolean"}, "basis": basisSchema}, "entity", "id", "body", "basis")},
+	{"name": "read_comments", "description": "Read the comment thread on a record (only what you may see — customers do not see internal notes).", "inputSchema": schema(map[string]any{"entity": str, "id": str}, "entity", "id")},
 	{"name": "read_journal", "description": "Event history of a record you can read.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "limit": num}, "entity", "id")},
 	{"name": "validate_dsl", "description": "Dry-run compile of .kal sources. Returns structured errors with fix hints; loop until ok.", "inputSchema": schema(map[string]any{"files": obj}, "files")},
 	{"name": "propose_change", "description": "Propose new/changed pack sources. Validated, then parked for a human signature; base_def_version must match the live system (describe_system).", "inputSchema": schema(map[string]any{"files": obj, "base_def_version": num, "description": str, "basis": basisSchema}, "files", "base_def_version", "description", "basis")},
@@ -173,6 +175,27 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		}
 		_ = json.Unmarshal(args, &a)
 		return map[string]any{"ok": true}, toolErr(s.eng.FailTask(ctx, actor, a.TaskID, a.Reason))
+
+	case "comment":
+		var a struct {
+			Entity   string            `json:"entity"`
+			ID       string            `json:"id"`
+			Body     string            `json:"body"`
+			Internal bool              `json:"internal"`
+			Basis    *eventstore.Basis `json:"basis"`
+		}
+		_ = json.Unmarshal(args, &a)
+		c, err := s.eng.Comment(ctx, actor, a.Entity, a.ID, a.Body, a.Internal, a.Basis)
+		return c, toolErr(err)
+
+	case "read_comments":
+		var a struct {
+			Entity string `json:"entity"`
+			ID     string `json:"id"`
+		}
+		_ = json.Unmarshal(args, &a)
+		comments, err := s.eng.CommentsOf(actor, a.Entity, a.ID)
+		return map[string]any{"comments": comments}, toolErr(err)
 
 	case "read_journal":
 		var a struct {
