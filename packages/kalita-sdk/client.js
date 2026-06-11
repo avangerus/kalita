@@ -64,6 +64,22 @@ export class KalitaClient {
   }
   journal(entity, id) { return this._req('GET', `/api/records/${entity}/${id}/journal`); }
 
+  // --- files -------------------------------------------------------------------
+  /** Upload a File/Blob, returns a FileRef { hash, name, size, mime } to put
+   *  into a `file` field. */
+  async uploadFile(file) {
+    const form = new FormData();
+    form.append('file', file);
+    const headers = {};
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    const resp = await this._fetch(this.baseUrl + '/api/files', { method: 'POST', headers, body: form });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new KalitaError(data, resp.status);
+    return data;
+  }
+  /** URL to download a stored file (permission-gated server-side). */
+  fileUrl(hash) { return `${this.baseUrl}/api/files/${hash}`; }
+
   // --- inbox / human work ------------------------------------------------------
   approvals() { return this._req('GET', '/api/approvals'); }
   decideApproval(id, grant, basis, signature) {

@@ -20,8 +20,9 @@ entity Workspace:
 
 entity Source:
     workspace: ref[Workspace] on_delete=restrict
-    kind: enum[Files, Mail, Repo, Database, Chat]
+    kind: enum[Files, Mail, Repo, Database, Chat, Upload]
     path: string required
+    document: file
     status: enum[New, Indexing, Indexed, Failed, Paused] default=New
     last_indexed: datetime
     documents: int

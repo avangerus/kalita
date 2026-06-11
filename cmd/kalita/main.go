@@ -212,6 +212,7 @@ func serve(args []string) {
 	tlsKey := fs.String("tls-key", "", "TLS key file")
 	dataDir := fs.String("data-dir", "kalita-data", "node key directory (node.key/node.pub)")
 	uiDir := fs.String("ui-dir", "", "serve a UI directory from disk (e.g. ./web); empty = embedded if built with -tags embedui, else API-only")
+	filesDir := fs.String("files-dir", "", "directory for uploaded files (content-addressed); empty = uploads disabled")
 	devHeaders := fs.Bool("insecure-dev-auth", false, "enable X-Actor-* header identity (local development ONLY)")
 	insecureHTTP := fs.Bool("insecure-http", false, "allow plaintext HTTP on non-loopback addresses (NOT recommended)")
 	demo := fs.Bool("demo", false, "seed demo users and data on an empty journal, print ready tokens")
@@ -290,6 +291,15 @@ func serve(args []string) {
 	}
 	mux.Handle("/", ui)
 	handler := api.Secure(mux)
+
+	if *filesDir != "" {
+		bs, err := engine.NewDiskBlobStore(*filesDir)
+		if err != nil {
+			log.Fatalf("files-dir: %v", err)
+		}
+		eng.SetBlobStore(bs)
+		log.Printf("file uploads enabled: %s", *filesDir)
+	}
 
 	if *demo {
 		seedDemo(ctx, eng, reg, store)

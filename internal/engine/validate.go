@@ -90,9 +90,19 @@ func checkScalar(f *dsl.FieldDecl, v any) *Err {
 			"pass a JSON "+jsonKind(want))
 	}
 	switch want {
-	case "string", "text", "file":
+	case "string", "text":
 		if _, ok := v.(string); !ok {
 			return bad()
+		}
+	case "file":
+		// a file field carries a FileRef object {hash, name, size}
+		m, ok := v.(map[string]any)
+		if !ok {
+			return invalid(name, name+" must be an uploaded file reference",
+				"upload via POST /api/files, then put the returned ref in this field")
+		}
+		if h, _ := m["hash"].(string); h == "" {
+			return invalid(name, name+" file reference has no hash", "re-upload the file")
 		}
 	case "bool":
 		if _, ok := v.(bool); !ok {

@@ -27,6 +27,7 @@ type Engine struct {
 	stateSince map[string]map[string]time.Time // entity → id → entered current state
 	taskTTL    time.Duration
 	defApprover string // role whose human signature applies definitions
+	blobs      BlobStore
 	now        func() time.Time
 	// verify checks an actor's signature (wired to identity.Registry by the
 	// node). When set, approval decisions REQUIRE a valid signature.

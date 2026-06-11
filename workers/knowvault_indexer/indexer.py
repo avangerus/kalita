@@ -45,6 +45,13 @@ def http(url, body=None, headers=None, method=None):
         return json.load(resp)
 
 
+def http_bytes(url):
+    """Download raw bytes (uploaded document) with the worker's bearer token."""
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        return resp.read()
+
+
 def tool(name, args=None):
     rpc = http(NODE + "/mcp", {
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -111,39 +118,45 @@ def index_source(task):
         tool("complete_task", {"task_id": tid, "result": f"stale: source is {status}"})
         return
 
-    path = src["values"].get("path", "")
     workspace = src["values"].get("workspace", "")
     collection = f"kv_{workspace}"
     model, chunk_size = settings()
 
-    try:
-        docs, chunks_total = 0, 0
-        for root, _dirs, files in os.walk(path):
+    # an indexable unit is (filename, text): either a single uploaded document
+    # or every text file under a crawled path
+    def units():
+        doc = src["values"].get("document")
+        if src["values"].get("kind") == "Upload" and doc:
+            raw = http_bytes(f"{NODE}/api/files/{doc['hash']}")
+            yield doc.get("name", "document"), raw.decode("utf-8", "ignore")
+            return
+        for root, _dirs, files in os.walk(src["values"].get("path", "")):
             for name in files:
-                ext = os.path.splitext(name)[1].lower()
-                if ext not in TEXT_EXT:
+                if os.path.splitext(name)[1].lower() not in TEXT_EXT:
                     continue
-                fp = os.path.join(root, name)
                 try:
-                    with open(fp, encoding="utf-8", errors="ignore") as f:
-                        text = f.read()
+                    with open(os.path.join(root, name), encoding="utf-8", errors="ignore") as f:
+                        yield name, f.read()
                 except OSError:
                     continue
-                pieces = chunk(text, chunk_size)
-                if not pieces:
-                    continue
-                vectors = embed(model, pieces)
-                ensure_collection(collection, len(vectors[0]))
-                points = [{
-                    # stable ids: re-indexing overwrites instead of duplicating
-                    "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}|{fp}|{i}")),
-                    "vector": vec,
-                    "payload": {"source": sid, "file": name, "path": fp, "text": piece},
-                } for i, (piece, vec) in enumerate(zip(pieces, vectors))]
-                http(f"{QDRANT}/collections/{collection}/points?wait=true", method="PUT",
-                     body={"points": points})
-                docs += 1
-                chunks_total += len(points)
+
+    try:
+        docs, chunks_total = 0, 0
+        for fname, text in units():
+            pieces = chunk(text, chunk_size)
+            if not pieces:
+                continue
+            vectors = embed(model, pieces)
+            ensure_collection(collection, len(vectors[0]))
+            points = [{
+                "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}|{fname}|{i}")),
+                "vector": vec,
+                "payload": {"source": sid, "file": fname, "text": piece},
+            } for i, (piece, vec) in enumerate(zip(pieces, vectors))]
+            http(f"{QDRANT}/collections/{collection}/points?wait=true", method="PUT",
+                 body={"points": points})
+            docs += 1
+            chunks_total += len(points)
 
         tool("report_progress", {"task_id": tid,
              "note": f"{docs} docs -> {chunks_total} chunks -> {collection} (model {model})"})

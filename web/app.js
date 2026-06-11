@@ -63,7 +63,39 @@ function RefInput({ field, value, onChange }) {
     <option value="">—</option>${opts.map(r => html`<option value=${r.id}>${label(r)}</option>`)}</select>`;
 }
 
+// FileInput: drag-drop or pick a document, upload it, hold the returned ref.
+function FileInput({ value, onChange }) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState(null);
+  const upload = async (file) => {
+    if (!file) return;
+    setBusy(true); setErr(null);
+    try {
+      const s = session.get();
+      const form = new FormData(); form.append('file', file);
+      const resp = await fetch('/api/files', { method: 'POST',
+        headers: s?.token ? { Authorization: `Bearer ${s.token}` } : {}, body: form });
+      const ref = await resp.json();
+      if (!resp.ok) throw ref;
+      onChange(ref);
+    } catch (e) { setErr(e.message || 'upload failed'); }
+    setBusy(false);
+  };
+  const inputId = 'fi-' + (value?.hash || 'new');
+  return html`<div
+      onDragOver=${e => e.preventDefault()}
+      onDrop=${e => { e.preventDefault(); upload(e.dataTransfer.files[0]); }}
+      onClick=${() => document.getElementById(inputId)?.click()}
+      style="border:1px dashed var(--line);border-radius:6px;padding:12px;text-align:center;margin:3px 0 10px;cursor:pointer">
+    ${busy ? html`<span class="muted">загрузка…</span>`
+      : value?.name ? html`<span>📄 ${value.name} <span class="muted">(${Math.round((value.size || 0) / 1024)} КБ)</span></span>`
+      : html`<span class="muted">перетащите файл сюда или нажмите, чтобы выбрать</span>`}
+    <input id=${inputId} type="file" style="display:none" onChange=${e => upload(e.target.files[0])} />
+    ${err && html`<div class="err">${err}</div>`}
+  </div>`;
+}
+
 function FieldInput({ field, value, onChange }) {
+  if (field.type === 'file') return html`<${FileInput} value=${value} onChange=${onChange} />`;
   if (field.type === 'ref') return html`<${RefInput} field=${field} value=${value} onChange=${onChange} />`;
   if (field.type === 'enum') return html`<select value=${value || ''} onChange=${e => onChange(e.target.value)}>
     <option value="">—</option>${field.values.map(v => html`<option value=${v}>${v}</option>`)}</select>`;
