@@ -12,7 +12,7 @@ Why: LLM agents silently corrupt what they are trusted with when the artifact is
 - **Runtime**: CRUD with validation, workflow transitions with guards and auto-moves, approval queue (a transition behind `requires approval` does not exist until a human signs — Ed25519, offline-verifiable), task pool with TTL leases, automation triggers (schedule/events/stuck), fact-checked progress reports.
 - **Event store**: append-only journal in PostgreSQL with a SHA-256 hash chain, DB-level immutability, node-key checkpoints. Definitions replay from the journal — the pack directory is only the genesis seed.
 - **MCP gateway** at `/mcp`: 17 tools; an agent can start from an empty node, iterate DSL to green via `validate_dsl`, `propose_change` a pack, and work inside it after a human signs — that loop is the acceptance test.
-- **REST + Meta API** for the generated UI (universal client in progress).
+- **Generated UI**: a universal client embedded in the binary (no build step) renders any pack from per-actor metadata — lists, forms, kanban boards, the approval inbox, the agents directory. Customer portal: invite-based self-registration with row-level visibility.
 
 ## Quick start
 
