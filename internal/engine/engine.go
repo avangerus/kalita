@@ -29,6 +29,7 @@ type Engine struct {
 	comments   map[string][]*Comment           // entity|id → thread
 	taskTTL    time.Duration
 	defApprover string // role whose human signature applies definitions
+	requireSig  bool   // enforce signatures on HITL decisions (WebAuthn era)
 	blobs      BlobStore
 	now        func() time.Time
 	// verify checks an actor's signature (wired to identity.Registry by the
@@ -53,6 +54,11 @@ func WithTaskTTL(d time.Duration) Option { return func(e *Engine) { e.taskTTL = 
 // WithDefinitionApprover sets the role whose human signature applies
 // definition changes (default Owner).
 func WithDefinitionApprover(role string) Option { return func(e *Engine) { e.defApprover = role } }
+
+// WithRequireSignatures enforces a verified signature on every HITL decision
+// (the WebAuthn era). Off by default: token-authenticated decisions are
+// allowed until passkeys are deployed.
+func WithRequireSignatures() Option { return func(e *Engine) { e.requireSig = true } }
 
 // Record is the projected current state of one row.
 type Record struct {

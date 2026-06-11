@@ -42,7 +42,7 @@ func collectionsEngine(t *testing.T) (*Engine, eventstore.Store, *identity.Regis
 	clock := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
 	e, err := New(ctx, model, store,
 		WithClock(func() time.Time { return clock }),
-		WithVerifier(reg.VerifySignature))
+		WithVerifier(reg.VerifySignature), WithRequireSignatures())
 	if err != nil {
 		t.Fatal(err)
 	}

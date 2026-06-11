@@ -136,12 +136,16 @@ func (e *Engine) DecideProposal(ctx context.Context, actor eventstore.Actor, pro
 		decision = "rejected"
 		kind = eventstore.DefinitionRejected
 	}
-	if e.verify != nil {
+	if signature != nil && e.verify != nil {
 		if err := e.verify(ctx, actor.ID, DefinitionMessage(proposalID, decision), signature); err != nil {
 			return nil, &Err{Code: CodePermissionDenied,
-				Message: "definition decision requires a valid signature: " + err.Error(),
-				Rule:    "signatures are mandatory on definition decisions"}
+				Message: "definition signature is invalid: " + err.Error(),
+				Rule:    "a provided signature must verify"}
 		}
+	} else if e.requireSig {
+		return nil, &Err{Code: CodePermissionDenied,
+			Message: "this node requires a signed decision (passkey)",
+			Rule:    "signatures are mandatory on definition decisions"}
 	}
 	payload, _ := json.Marshal(proposalPayload{ProposalID: proposalID})
 	if _, err := e.store.Append(ctx, eventstore.AppendInput{

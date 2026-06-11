@@ -175,12 +175,20 @@ func (e *Engine) Decide(ctx context.Context, actor eventstore.Actor, approvalID 
 		decision = "rejected"
 		kind = eventstore.ApprovalRejected
 	}
-	if e.verify != nil {
+	// Signature policy: verify a signature when one is provided. Require it
+	// only when the node enforces signatures (WebAuthn era). Until then a
+	// token-authenticated human decision is allowed and journaled — the API
+	// already proved identity. The journal records which path was used.
+	if signature != nil && e.verify != nil {
 		if err := e.verify(ctx, actor.ID, ApprovalMessage(approvalID, decision), signature); err != nil {
 			return nil, &Err{Code: CodePermissionDenied,
-				Message: "approval decision requires a valid signature: " + err.Error(),
-				Rule:    "signatures are mandatory on HITL decisions"}
+				Message: "approval signature is invalid: " + err.Error(),
+				Rule:    "a provided signature must verify"}
 		}
+	} else if e.requireSig {
+		return nil, &Err{Code: CodePermissionDenied,
+			Message: "this node requires a signed approval (passkey)",
+			Rule:    "signatures are mandatory on HITL decisions"}
 	}
 
 	payload, _ := json.Marshal(approvalPayload{
