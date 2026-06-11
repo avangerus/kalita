@@ -132,6 +132,36 @@ function CreateForm({ ent, onDone }) {
   </div>`;
 }
 
+// Agents screen: the actor directory — who acts on this node, which model
+// stands behind each agent, and the revoke switch. Humans only (server-side).
+function AgentsView() {
+  const [actors, setActors] = useState(null); const [err, setErr] = useState(null);
+  const load = () => api('/api/actors').then(r => setActors(r.actors || [])).catch(setErr);
+  useEffect(load, []);
+  const disable = async (id) => {
+    setErr(null);
+    try { await api(`/api/actors/${id}/disable`, { method: 'POST', body: '{}' }); load(); }
+    catch (e) { setErr(e); }
+  };
+  if (err) return html`<div class="err">${err.message || 'humans only'}</div>`;
+  if (!actors) return html`<div class="muted">loading…</div>`;
+  return html`<div>
+    <h2>Agents & users</h2>
+    <div class="muted" style="margin-bottom:10px">Registered actors of this node. Revoking kills the token and signatures immediately.</div>
+    <table><thead><tr><th>id</th><th>type</th><th>role</th><th>model</th><th>owner</th><th>status</th><th></th></tr></thead>
+    <tbody>${actors.map(a => html`<tr style="cursor:default">
+      <td><b>${a.id}</b></td>
+      <td><span class="pill">${a.type}</span></td>
+      <td>${a.role}</td>
+      <td>${a.meta?.model || html`<span class="muted">—</span>`}</td>
+      <td>${a.meta?.owner || html`<span class="muted">—</span>`}</td>
+      <td>${a.disabled ? html`<span class="pill" style="background:#33201c">revoked</span>` : html`<span class="pill" style="background:#15301f">active</span>`}</td>
+      <td>${!a.disabled && html`<button class="btn red" onClick=${() => disable(a.id)}>Revoke</button>`}</td>
+    </tr>`)}</tbody></table>
+    <div class="muted" style="margin-top:8px">New actors: <code>kalita user|agent add --id … --role … [--model …]</code> on the node.</div>
+  </div>`;
+}
+
 // Singletons (settings-style entities) skip the list: straight to the one
 // record, or its creation form.
 function SingletonView({ ent, refresh }) {
@@ -248,7 +278,8 @@ function App() {
   const parts = route.split('/').filter(Boolean); // e.g. ["e","Card","id"]
   const ent = parts[0] === 'e' || parts[0] === 'board' ? meta.entities.find(x => x.name === parts[1]) : null;
   let view = html`<${Inbox} meta=${meta} refresh=${refresh} />`;
-  if (parts[0] === 'e' && ent && parts[2]) view = html`<${RecordView} ent=${ent} id=${parts[2]} refresh=${refresh} />`;
+  if (parts[0] === 'agents') view = html`<${AgentsView} />`;
+  else if (parts[0] === 'e' && ent && parts[2]) view = html`<${RecordView} ent=${ent} id=${parts[2]} refresh=${refresh} />`;
   else if (parts[0] === 'e' && ent && ent.singleton) view = html`<${SingletonView} ent=${ent} refresh=${refresh} />`;
   else if (parts[0] === 'e' && ent) view = html`<${EntityList} ent=${ent} />`;
   else if (parts[0] === 'board' && ent) view = html`<${Board} ent=${ent} />`;
@@ -261,6 +292,7 @@ function App() {
       <div class="nav">
         <a class=${route === '/inbox' ? 'on' : ''} onClick=${() => nav('/inbox')}>Inbox ${inboxCount > 0 && html`<span class="badge">${inboxCount}</span>`}</a>
         ${meta.entities.map(e => html`<a class=${parts[1] === e.name ? 'on' : ''} onClick=${() => nav(`/e/${e.name}`)}>${e.name}</a>`)}
+        <a class=${route === '/agents' ? 'on' : ''} onClick=${() => nav('/agents')} style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">Agents</a>
       </div>
     </div>
     <div class="main">${view}</div>
