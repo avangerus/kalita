@@ -165,6 +165,25 @@ type LinkDecl struct {
 	Line    int
 }
 
+// DashboardTile is one metric on a dashboard: an aggregate over an entity,
+// optionally grouped by a field (a breakdown like "deals by stage").
+type DashboardTile struct {
+	Label   string
+	Func    string // count | sum
+	Entity  string
+	Field   string // for sum
+	GroupBy string // "" = single number; else a per-value breakdown
+	Line    int
+}
+
+type DashboardDecl struct {
+	Name  string
+	Title string
+	Tiles []DashboardTile
+	File  string
+	Line  int
+}
+
 type AST struct {
 	Manifest    *Manifest
 	Entities    []*EntityDecl
@@ -174,4 +193,5 @@ type AST struct {
 	Automations []*AutomationRule
 	UIs         []*UIDecl
 	Links       []*LinkDecl
+	Dashboards  []*DashboardDecl
 }
