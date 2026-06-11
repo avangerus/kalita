@@ -77,6 +77,7 @@ func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("GET /api/system", s.describe)
 	s.mux.HandleFunc("GET /api/meta", s.meta)
 	s.mux.HandleFunc("GET /api/records/{entity}", s.query)
+	s.mux.HandleFunc("POST /api/query/{entity}", s.queryV2)
 	s.mux.HandleFunc("GET /api/records/{entity}/{id}", s.get)
 	s.mux.HandleFunc("POST /api/records/{entity}", s.create)
 	s.mux.HandleFunc("PATCH /api/records/{entity}/{id}", s.update)

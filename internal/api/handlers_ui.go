@@ -218,6 +218,38 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
+// queryV2 is the rich query endpoint: a JSON body with the full condition
+// language (where), multi-field sort, full-text search and pagination.
+func (s *Server) queryV2(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.actor(r)
+	if !ok {
+		writeAuthRequired(w)
+		return
+	}
+	var req struct {
+		Where  string         `json:"where"`
+		Filter map[string]any `json:"filter"`
+		Sort   []string       `json:"sort"`
+		Search string         `json:"search"`
+		Limit  int            `json:"limit"`
+		Offset int            `json:"offset"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR",
+			"message": "bad json", "fix_hint": `{"where": "...", "sort": ["-created_at"], "search": "...", "limit": 25}`})
+		return
+	}
+	rows, err := s.eng.Query(r.Context(), actor, r.PathValue("entity"), engine.QueryOpts{
+		Where: req.Where, Filter: req.Filter, Sort: req.Sort, Search: req.Search,
+		Limit: req.Limit, Offset: req.Offset,
+	})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"records": rows})
+}
+
 func (s *Server) proposals(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.actor(r); !ok {
 		writeAuthRequired(w)

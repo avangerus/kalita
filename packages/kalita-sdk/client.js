@@ -52,6 +52,11 @@ export class KalitaClient {
     const qs = p.toString();
     return this._req('GET', `/api/records/${entity}${qs ? '?' + qs : ''}`);
   }
+  /** Rich query: where (full condition language), sort ["-field"], full-text
+   *  search, pagination. */
+  queryWhere(entity, { where, filter, sort, search, limit, offset } = {}) {
+    return this._req('POST', `/api/query/${entity}`, { where, filter, sort, search, limit, offset });
+  }
   get(entity, id) { return this._req('GET', `/api/records/${entity}/${id}`); }
   create(entity, values, basis, idempotencyKey) {
     return this._req('POST', `/api/records/${entity}`, { values, basis, idempotency_key: idempotencyKey });

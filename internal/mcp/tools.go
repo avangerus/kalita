@@ -37,7 +37,7 @@ var toolDefs = []map[string]any{
 	{"name": "describe_system", "description": "Packs, entities, workflows, roles and your permissions. Call this first.", "inputSchema": schema(map[string]any{})},
 	{"name": "describe_entity", "description": "Full schema of one entity: fields, workflow, your access.", "inputSchema": schema(map[string]any{"entity": str}, "entity")},
 	{"name": "get_grammar", "description": "The kalita DSL grammar with a canonical example, for generating packs.", "inputSchema": schema(map[string]any{})},
-	{"name": "query", "description": "List records of an entity within your permissions. Filters are field=value equality.", "inputSchema": schema(map[string]any{"entity": str, "filter": obj, "limit": num, "offset": num}, "entity")},
+	{"name": "query", "description": "List records within your permissions. 'where' is the full condition language (and/or/not/(), =,!=,>,<,>=,<=, in [..], ref-paths like project.owner, $me/$self/$now); 'sort' is a list of fields (prefix - for descending); 'search' is full-text over text/string fields.", "inputSchema": schema(map[string]any{"entity": str, "filter": obj, "where": str, "sort": map[string]any{"type": "array", "items": str}, "search": str, "limit": num, "offset": num}, "entity")},
 	{"name": "get_record", "description": "One record by id (fields you may not read are absent).", "inputSchema": schema(map[string]any{"entity": str, "id": str}, "entity", "id")},
 	{"name": "create_record", "description": "Create a record. Requires basis.", "inputSchema": schema(map[string]any{"entity": str, "values": obj, "basis": basisSchema, "idempotency_key": str}, "entity", "values", "basis")},
 	{"name": "update_record", "description": "Partially update a record. Requires basis. The workflow state field cannot be written — use act.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "values": obj, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "values", "basis")},
@@ -72,11 +72,15 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		var a struct {
 			Entity string         `json:"entity"`
 			Filter map[string]any `json:"filter"`
+			Where  string         `json:"where"`
+			Sort   []string       `json:"sort"`
+			Search string         `json:"search"`
 			Limit  int            `json:"limit"`
 			Offset int            `json:"offset"`
 		}
 		_ = json.Unmarshal(args, &a)
-		rows, err := s.eng.Query(ctx, actor, a.Entity, engine.QueryOpts{Filter: a.Filter, Limit: a.Limit, Offset: a.Offset})
+		rows, err := s.eng.Query(ctx, actor, a.Entity, engine.QueryOpts{
+			Filter: a.Filter, Where: a.Where, Sort: a.Sort, Search: a.Search, Limit: a.Limit, Offset: a.Offset})
 		return map[string]any{"records": rows, "def_version": s.eng.DefVersion()}, toolErr(err)
 
 	case "get_record":

@@ -3,9 +3,12 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 
+	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/eventstore"
 )
 
@@ -206,14 +209,21 @@ func (e *Engine) Get(ctx context.Context, actor eventstore.Actor, entity, id str
 	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, full, actor.ID)}, nil
 }
 
-// QueryOpts are v0 query parameters: equality filters, limit, offset cursor.
+// QueryOpts are query parameters. Filter (equality map) is the simple form;
+// Where is the full condition language (or/ranges/ref-paths); Sort orders by
+// fields (prefix "-" = descending); Search is a full-text match over text and
+// string fields.
 type QueryOpts struct {
 	Filter map[string]any
+	Where  string
+	Sort   []string
+	Search string
 	Limit  int
 	Offset int
 }
 
-// Query lists records the role can see, fields masked, deterministic order.
+// Query lists records the role can see, fields masked. Applies permissions,
+// then Filter/Where/Search, then Sort, then Offset/Limit.
 func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity string, opts QueryOpts) ([]*Record, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -222,6 +232,8 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 	if errr != nil {
 		return nil, errr
 	}
+	search := strings.ToLower(strings.TrimSpace(opts.Search))
+
 	var out []*Record
 	for _, id := range sortedIDs(e.records[entity]) {
 		rec := e.records[entity][id]
@@ -229,23 +241,21 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 			continue
 		}
 		full := e.withComputed(decl, rec.ID, rec.Values)
-		match := true
-		for k, want := range opts.Filter {
-			if full[k] != want {
-				match = false
-				break
-			}
+
+		if !matchesFilter(full, opts.Filter) {
+			continue
 		}
-		if !match {
+		if opts.Where != "" && !evalWhere(opts.Where, e.ctxFor(rec.ID, actor.ID, full)) {
+			continue
+		}
+		if search != "" && !matchesSearch(decl, full, search) {
 			continue
 		}
 		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, full, actor.ID)})
-		// deterministic id order makes early exit safe: collected enough for
-		// the page plus the has-next probe — stop scanning
-		if opts.Limit > 0 && len(out) > opts.Offset+opts.Limit {
-			break
-		}
 	}
+
+	sortRecords(out, opts.Sort)
+
 	if opts.Offset > 0 {
 		if opts.Offset >= len(out) {
 			return nil, nil
@@ -256,4 +266,78 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 		out = out[:opts.Limit]
 	}
 	return out, nil
+}
+
+func matchesFilter(full map[string]any, filter map[string]any) bool {
+	for k, want := range filter {
+		if full[k] != want {
+			return false
+		}
+	}
+	return true
+}
+
+// matchesSearch tests whether any text/string field contains the term.
+func matchesSearch(decl *dsl.EntityDecl, full map[string]any, term string) bool {
+	for _, f := range decl.Fields {
+		if f.Type.Kind != dsl.TyScalar {
+			continue
+		}
+		if f.Type.Scalar == "string" || f.Type.Scalar == "text" {
+			if s, ok := full[f.Name].(string); ok && strings.Contains(strings.ToLower(s), term) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// sortRecords orders by the given fields; "-field" = descending. Stable.
+func sortRecords(recs []*Record, sortBy []string) {
+	if len(sortBy) == 0 {
+		return
+	}
+	sort.SliceStable(recs, func(i, j int) bool {
+		for _, key := range sortBy {
+			desc := strings.HasPrefix(key, "-")
+			field := strings.TrimPrefix(key, "-")
+			c := compareValues(recs[i].Values[field], recs[j].Values[field])
+			if c == 0 {
+				continue
+			}
+			if desc {
+				return c > 0
+			}
+			return c < 0
+		}
+		return false
+	})
+}
+
+// compareValues orders two field values: numbers numerically, else by string.
+func compareValues(a, b any) int {
+	if af, ok := toFloat(a); ok {
+		if bf, ok := toFloat(b); ok {
+			switch {
+			case af < bf:
+				return -1
+			case af > bf:
+				return 1
+			default:
+				return 0
+			}
+		}
+	}
+	as, bs := toStr(a), toStr(b)
+	return strings.Compare(as, bs)
+}
+
+func toStr(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
