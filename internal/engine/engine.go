@@ -21,6 +21,9 @@ type Engine struct {
 	defVersion uint64
 	records    map[string]map[string]*Record // entity → id → record
 	approvals  map[string]*Approval
+	tasks      map[string]*Task
+	stateSince map[string]map[string]time.Time // entity → id → entered current state
+	taskTTL    time.Duration
 	now        func() time.Time
 	// verify checks an actor's signature (wired to identity.Registry by the
 	// node). When set, approval decisions REQUIRE a valid signature.
@@ -37,6 +40,9 @@ func WithClock(now func() time.Time) Option { return func(e *Engine) { e.now = n
 func WithVerifier(v func(ctx context.Context, actorID string, msg, sig []byte) error) Option {
 	return func(e *Engine) { e.verify = v }
 }
+
+// WithTaskTTL sets the task lease duration (default 1h).
+func WithTaskTTL(d time.Duration) Option { return func(e *Engine) { e.taskTTL = d } }
 
 // Record is the projected current state of one row.
 type Record struct {
@@ -67,6 +73,9 @@ func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...
 		defVersion: 1,
 		records:    map[string]map[string]*Record{},
 		approvals:  map[string]*Approval{},
+		tasks:      map[string]*Task{},
+		stateSince: map[string]map[string]time.Time{},
+		taskTTL:    time.Hour,
 		now:        time.Now,
 	}
 	for _, opt := range opts {
@@ -96,6 +105,7 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		e.records[ev.Subject.Entity][ev.Subject.RecordID] = &Record{
 			ID: ev.Subject.RecordID, Entity: ev.Subject.Entity, Values: p.Values,
 		}
+		e.setStateSince(ev.Subject.Entity, ev.Subject.RecordID, ev.TS)
 	case eventstore.RecordUpdated:
 		var p updatedPayload
 		if json.Unmarshal(ev.Payload, &p) != nil {
@@ -116,6 +126,7 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 				rec.Values[wf.Field] = p.To
 			}
 		}
+		e.setStateSince(ev.Subject.Entity, ev.Subject.RecordID, ev.TS)
 	case eventstore.ApprovalRequested:
 		var p approvalPayload
 		if json.Unmarshal(ev.Payload, &p) != nil {
@@ -134,9 +145,46 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		if a, ok := e.approvals[ev.Subject.ApprovalID]; ok {
 			a.Status = ApprovalRejectedStatus
 		}
+	case eventstore.TaskCreated:
+		var p taskPayload
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			return
+		}
+		e.tasks[ev.Subject.TaskID] = &Task{
+			ID: ev.Subject.TaskID, Kind: p.Kind, Role: p.Role, Entity: p.Entity,
+			RecordID: p.RecordID, Action: p.Action, Args: p.Args, Status: TaskOpen,
+		}
+	case eventstore.TaskTaken:
+		var p taskPayload
+		_ = json.Unmarshal(ev.Payload, &p)
+		if t, ok := e.tasks[ev.Subject.TaskID]; ok {
+			t.Status, t.TakenBy = TaskTaken, ev.Actor.ID
+			if lease, err := time.Parse(time.RFC3339, p.Lease); err == nil {
+				t.LeaseUntil = lease
+			}
+		}
+	case eventstore.TaskCompleted:
+		if t, ok := e.tasks[ev.Subject.TaskID]; ok {
+			t.Status = TaskCompleted
+		}
+	case eventstore.TaskFailed:
+		if t, ok := e.tasks[ev.Subject.TaskID]; ok {
+			t.Status = TaskFailed
+		}
+	case eventstore.TaskExpired:
+		if t, ok := e.tasks[ev.Subject.TaskID]; ok {
+			t.Status, t.TakenBy = TaskOpen, ""
+		}
 	case eventstore.DefinitionApplied:
 		e.defVersion++
 	}
+}
+
+func (e *Engine) setStateSince(entity, id string, ts time.Time) {
+	if e.stateSince[entity] == nil {
+		e.stateSince[entity] = map[string]time.Time{}
+	}
+	e.stateSince[entity][id] = ts
 }
 
 // ApplyAdditive swaps in a new model after verifying the change is purely

@@ -86,7 +86,9 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 		e.records[entity] = map[string]*Record{}
 	}
 	e.records[entity][rec.ID] = rec
+	e.setStateSince(entity, rec.ID, ev.TS)
 	e.runAutoTransitions(ctx, entity, rec.ID)
+	e.runEventTriggers(ctx, "create", entity, rec.ID)
 	return rec, nil
 }
 
@@ -172,6 +174,7 @@ func (e *Engine) Update(ctx context.Context, actor eventstore.Actor, entity, id 
 		rec.Values[ch.Field] = ch.New
 	}
 	e.runAutoTransitions(ctx, entity, id)
+	e.runEventTriggers(ctx, "update", entity, id)
 	return rec, nil
 }
 

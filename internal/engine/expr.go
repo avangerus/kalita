@@ -31,6 +31,21 @@ func evalWhere(expr string, c evalCtx) bool {
 }
 
 func evalClause(clause string, c evalCtx) bool {
+	// membership: `field in [a, b, c]`
+	if f, list, ok := strings.Cut(clause, " in "); ok {
+		field := strings.TrimSpace(f)
+		got, present := c.values[field]
+		if !present {
+			return false
+		}
+		list = strings.Trim(strings.TrimSpace(list), "[]")
+		for _, item := range strings.Split(list, ",") {
+			if literalEquals(strings.TrimSpace(item), got, c) {
+				return true
+			}
+		}
+		return false
+	}
 	for _, op := range []string{">=", "<=", "!=", ">", "<", "="} {
 		i := strings.Index(clause, op)
 		if i <= 0 {

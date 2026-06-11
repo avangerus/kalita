@@ -239,7 +239,7 @@ func (e *Engine) PendingApprovals(role string) []*Approval {
 // applyTransition appends record.action and moves the projection.
 func (e *Engine) applyTransition(ctx context.Context, actor eventstore.Actor, entity, id string, tr *dsl.TransitionDecl, from string, basis *eventstore.Basis, idemKey string) error {
 	payload, _ := json.Marshal(actionPayload{Action: tr.Action, From: from, To: tr.To, Guard: tr.When})
-	if _, err := e.store.Append(ctx, eventstore.AppendInput{
+	ev, err := e.store.Append(ctx, eventstore.AppendInput{
 		Actor:          actor,
 		Kind:           eventstore.RecordAction,
 		Subject:        eventstore.Subject{Entity: entity, RecordID: id},
@@ -247,10 +247,12 @@ func (e *Engine) applyTransition(ctx context.Context, actor eventstore.Actor, en
 		Basis:          basis,
 		DefVersion:     e.defVersion,
 		IdempotencyKey: idemKey,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 	e.records[entity][id].Values[e.model.Workflows[entity].Field] = tr.To
+	e.setStateSince(entity, id, ev.TS)
 	return nil
 }
 
@@ -286,9 +288,12 @@ func (e *Engine) runAutoTransitions(ctx context.Context, entity, id string) {
 			break
 		}
 		if !fired {
-			return
+			break
 		}
 	}
+	// the record settled in a state: queue work for assignees of the
+	// transitions now available from it
+	e.ensureWorkflowTasks(ctx, entity, id)
 }
 
 func findTransition(wf *dsl.WorkflowDecl, action, current string) *dsl.TransitionDecl {
