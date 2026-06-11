@@ -16,6 +16,7 @@ import (
 	"github.com/avangerus/kalita/internal/eventstore"
 	"github.com/avangerus/kalita/internal/identity"
 	"github.com/avangerus/kalita/internal/mcp"
+	"github.com/avangerus/kalita/internal/webui"
 )
 
 var version = "0.1.0-dev"
@@ -169,7 +170,8 @@ func serve(args []string) {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.New(eng, reg))
-	mux.Handle("/", api.New(eng))
+	mux.Handle("/api/", api.New(eng))
+	mux.Handle("/", webui.Handler())
 	packName := "(genesis)"
 	if m := eng.Model().Manifest; m != nil {
 		packName = m.Name
