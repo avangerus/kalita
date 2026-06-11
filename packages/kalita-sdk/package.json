@@ -5,9 +5,10 @@
   "type": "module",
   "exports": {
     ".": "./client.js",
-    "./react": "./react.js"
+    "./react": "./react.js",
+    "./components": "./components.js"
   },
-  "files": ["client.js", "react.js", "README.md"],
+  "files": ["client.js", "react.js", "components.js", "README.md"],
   "peerDependencies": {
     "react": ">=18"
   },

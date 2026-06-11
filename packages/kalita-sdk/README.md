@@ -48,6 +48,31 @@ export default function App({ token }) {
 }
 ```
 
+## Notation-driven components — drop into your own design
+
+The fastest path: components that read `/api/meta` and render themselves —
+columns, types, permissions, workflow buttons, view config all come from the
+backend notation. You supply the look via `classes` and render-props; the
+component carries zero business logic. "The theme paints, the kernel + notation
+fill in."
+
+```jsx
+import { KalitaProvider } from '@kalita/sdk/react';
+import { KList, KDetail, KBoard, KInbox } from '@kalita/sdk/components';
+
+<KalitaProvider token={token}>
+  {/* a permission-aware Deals table, styled with YOUR classes */}
+  <KList entity="Deal" classes={{ table: 'my-table', th: 'my-th' }}
+         onRowClick={(r) => open(r.id)} />
+  <KBoard entity="Deal" classes={{ board: 'flex gap-4' }} />
+  <KDetail entity="Deal" id={id} onAct={(action) => act(action)} />
+</KalitaProvider>
+```
+
+Unstyled by default — pass `classes` to match your design, or `render` to take
+over rows entirely. The component set mirrors the kernel's view types:
+KList · KBoard · KDetail · KForm · KInbox (report/calendar coming).
+
 ## Hooks
 
 `useMeta()` · `useRecords(entity, opts)` · `useRecord(entity, id)` ·
