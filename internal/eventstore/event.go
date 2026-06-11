@@ -56,6 +56,9 @@ const (
 	ActorKeyRotated  Kind = "actor.key_rotated"
 	ActorDisabled    Kind = "actor.disabled"
 
+	InviteCreated  Kind = "invite.created"
+	InviteRedeemed Kind = "invite.redeemed"
+
 	NodeStarted        Kind = "node.started"
 	ProjectionRebuilt  Kind = "projection.rebuilt"
 	CheckpointSealed   Kind = "checkpoint.sealed"

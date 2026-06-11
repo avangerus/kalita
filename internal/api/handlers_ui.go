@@ -151,6 +151,67 @@ func (s *Server) disableActor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+type inviteRequest struct {
+	Role      string `json:"role"`
+	Entity    string `json:"entity,omitempty"`
+	RecordID  string `json:"record_id,omitempty"`
+	BindField string `json:"bind_field,omitempty"`
+}
+
+// createInvite issues a one-time registration code (humans only).
+func (s *Server) createInvite(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.actor(r)
+	if !ok || actor.Type != eventstore.ActorHuman {
+		writeAuthRequired(w)
+		return
+	}
+	var req inviteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Role == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR",
+			"message": "role is required", "fix_hint": `send {"role": "Customer", "entity": "Customer", "record_id": "..."}`})
+		return
+	}
+	code, err := s.reg.CreateInvite(r.Context(), actor, req.Role, req.Entity, req.RecordID, req.BindField,
+		&eventstore.Basis{Type: "human", ID: actor.ID})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"invite_code": code})
+}
+
+// register is the only PUBLIC endpoint: redeem an invite, become an actor.
+func (s *Server) register(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Invite string `json:"invite"`
+		ID     string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Invite == "" || req.ID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR",
+			"message": "invite and id are required", "fix_hint": `send {"invite": "<code>", "id": "you@example.com"}`})
+		return
+	}
+	token, inv, err := s.reg.Redeem(r.Context(), req.ID, req.Invite)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"code": "INVITE_INVALID", "message": err.Error()})
+		return
+	}
+	resp := map[string]any{"token": token, "role": inv.Role}
+	// bind the record to the new actor (convention: a field holding the actor
+	// id powers `where <field> = $me` row-level visibility in the pack)
+	if inv.Entity != "" && inv.RecordID != "" {
+		_, err := s.eng.Update(r.Context(), inv.CreatedBy, inv.Entity, inv.RecordID,
+			map[string]any{inv.BindField: req.ID},
+			&eventstore.Basis{Type: "human", ID: inv.CreatedBy.ID}, "")
+		if err != nil {
+			resp["bind_warning"] = err.Error() // registered, but the pack must bind manually
+		} else {
+			resp["bound"] = inv.Entity + "/" + inv.RecordID
+		}
+	}
+	writeJSON(w, http.StatusCreated, resp)
+}
+
 func (s *Server) proposals(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.actor(r); !ok {
 		writeAuthRequired(w)
