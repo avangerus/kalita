@@ -1,0 +1,29 @@
+# Kalita node in one command: docker compose up
+# The journal lives in postgres; the node starts as genesis (empty definition)
+# unless KALITA_PACK points at a pack directory.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kalita}
+      POSTGRES_DB: kalita
+    volumes:
+      - journal:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+
+  kalita:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KALITA_PG_DSN: postgres://postgres:${POSTGRES_PASSWORD:-kalita}@postgres:5432/kalita
+    command: ["serve", "--listen", ":8080", "--pack", "${KALITA_PACK:-/opt/kalita/examples/collections}"]
+    ports:
+      - "8080:8080"
+
+volumes:
+  journal:

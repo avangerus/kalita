@@ -68,9 +68,10 @@ permissions:
         full    [Ticket]
         approve [close]
     Helper:
-        read [Ticket]
-        act  [take_ticket]
-        deny [delete *, update Ticket.priority]
+        read   [Ticket]
+        create [Ticket]
+        act    [take_ticket, close]
+        deny   [delete *, update Ticket.priority]
 
 ui Ticket:
     list: [title, priority, status]

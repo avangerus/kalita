@@ -125,19 +125,24 @@ func check(args []string) {
 
 func serve(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	pack := fs.String("pack", "", "pack directory")
+	pack := fs.String("pack", "", "genesis pack directory (optional: empty node accepts its first pack via propose_change)")
 	listen := fs.String("listen", ":8080", "listen address")
+	approver := fs.String("approver", "Owner", "role whose human signature applies definition changes")
 	_ = fs.Parse(args)
-	if *pack == "" {
-		log.Fatal("--pack is required")
-	}
 
-	model, errs := loadPack(*pack)
-	if len(errs) > 0 {
-		for _, e := range errs {
-			fmt.Println(e.Error())
+	var model *dsl.Model
+	if *pack != "" {
+		var errs []*dsl.Error
+		model, errs = loadPack(*pack)
+		if len(errs) > 0 {
+			for _, e := range errs {
+				fmt.Println(e.Error())
+			}
+			os.Exit(1)
 		}
-		os.Exit(1)
+	} else {
+		model, _ = dsl.Compile(map[string]string{})
+		log.Print("genesis: empty definition — the first pack arrives via propose_change + signature")
 	}
 
 	ctx := context.Background()
@@ -156,15 +161,20 @@ func serve(args []string) {
 	}
 
 	reg := identity.NewRegistry(store)
-	eng, err := engine.New(ctx, model, store, engine.WithVerifier(reg.VerifySignature))
+	eng, err := engine.New(ctx, model, store,
+		engine.WithVerifier(reg.VerifySignature),
+		engine.WithDefinitionApprover(*approver))
 	if err != nil {
 		log.Fatalf("engine: %v", err)
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.New(eng, reg))
 	mux.Handle("/", api.New(eng))
-	log.Printf("pack %s: %d entities, %d roles, def_version %d",
-		model.Manifest.Name, len(model.Entities), len(model.Roles), eng.DefVersion())
+	packName := "(genesis)"
+	if m := eng.Model().Manifest; m != nil {
+		packName = m.Name
+	}
+	log.Printf("pack %s: %d entities, def_version %d", packName, len(eng.Model().Entities), eng.DefVersion())
 	log.Printf("listening on %s — REST (dev headers) + MCP at /mcp (agent bearer tokens)", *listen)
 	log.Fatal(http.ListenAndServe(*listen, mux))
 }

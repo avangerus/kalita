@@ -115,3 +115,30 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 		"tasks": s.eng.Tasks(actor.Role, engine.TaskStatus(status)),
 	})
 }
+
+func (s *Server) proposals(w http.ResponseWriter, r *http.Request) {
+	if _, ok := actorFrom(r); !ok {
+		writeAuthRequired(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"proposals": s.eng.PendingProposals()})
+}
+
+func (s *Server) decideProposal(w http.ResponseWriter, r *http.Request) {
+	actor, ok := actorFrom(r)
+	if !ok {
+		writeAuthRequired(w)
+		return
+	}
+	var req decideRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR", "message": "bad json"})
+		return
+	}
+	p, err := s.eng.DecideProposal(r.Context(), actor, r.PathValue("id"), req.Grant, req.Signature, req.Basis)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}

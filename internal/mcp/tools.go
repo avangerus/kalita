@@ -49,6 +49,8 @@ var toolDefs = []map[string]any{
 	{"name": "fail_task", "description": "Honestly fail a task with a reason. Cheaper than silently hanging until the lease expires.", "inputSchema": schema(map[string]any{"task_id": str, "reason": str}, "task_id", "reason")},
 	{"name": "read_journal", "description": "Event history of a record you can read.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "limit": num}, "entity", "id")},
 	{"name": "validate_dsl", "description": "Dry-run compile of .kal sources. Returns structured errors with fix hints; loop until ok.", "inputSchema": schema(map[string]any{"files": obj}, "files")},
+	{"name": "propose_change", "description": "Propose new/changed pack sources. Validated, then parked for a human signature; base_def_version must match the live system (describe_system).", "inputSchema": schema(map[string]any{"files": obj, "base_def_version": num, "description": str, "basis": basisSchema}, "files", "base_def_version", "description", "basis")},
+	{"name": "get_proposal", "description": "Status of a proposal: pending, applied or rejected with reason.", "inputSchema": schema(map[string]any{"proposal_id": str}, "proposal_id")},
 }
 
 func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, args json.RawMessage) (any, any) {
@@ -189,10 +191,36 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		}
 		return map[string]any{"ok": false, "errors": errs}, nil
 
-	case "propose_change", "get_proposal":
-		return nil, map[string]any{"code": "NOT_IMPLEMENTED",
-			"message": name + " lands with the change pipeline (week 8)",
-			"fix_hint": "use validate_dsl to iterate on the pack; proposing applies it via human signature soon"}
+	case "propose_change":
+		var a struct {
+			Files          map[string]string `json:"files"`
+			BaseDefVersion uint64            `json:"base_def_version"`
+			Description    string            `json:"description"`
+			Basis          *eventstore.Basis `json:"basis"`
+		}
+		_ = json.Unmarshal(args, &a)
+		p, dslErrs, err := s.eng.ProposeChange(ctx, actor, a.Files, a.BaseDefVersion, a.Description, a.Basis)
+		if err != nil {
+			return nil, toolErr(err)
+		}
+		if len(dslErrs) > 0 {
+			return map[string]any{"ok": false, "errors": dslErrs}, nil
+		}
+		return map[string]any{"ok": true, "proposal_id": p.ID, "status": p.Status,
+			"migration_plan": p.Plan,
+			"note":           "parked for a human signature; poll get_proposal — you cannot rush it"}, nil
+
+	case "get_proposal":
+		var a struct {
+			ProposalID string `json:"proposal_id"`
+		}
+		_ = json.Unmarshal(args, &a)
+		p, err := s.eng.GetProposal(a.ProposalID)
+		if err != nil {
+			return nil, toolErr(err)
+		}
+		return map[string]any{"proposal_id": p.ID, "status": p.Status, "reason": p.Reason,
+			"def_version": s.eng.DefVersion()}, nil
 
 	default:
 		return nil, map[string]any{"code": "VALIDATION_ERROR", "message": "unknown tool " + name,

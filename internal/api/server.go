@@ -35,6 +35,8 @@ func New(eng *engine.Engine) *Server {
 	s.mux.HandleFunc("GET /api/approvals", s.approvals)
 	s.mux.HandleFunc("POST /api/approvals/{id}/decide", s.decide)
 	s.mux.HandleFunc("GET /api/tasks", s.tasks)
+	s.mux.HandleFunc("GET /api/proposals", s.proposals)
+	s.mux.HandleFunc("POST /api/proposals/{id}/decide", s.decideProposal)
 	return s
 }
 
