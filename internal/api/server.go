@@ -20,10 +20,11 @@ import (
 // rule #1). Dev headers (X-Actor-Id/Role) exist ONLY behind an explicit
 // opt-in for local development and tests.
 type Server struct {
-	eng      *engine.Engine
-	reg      *identity.Registry
-	mux      *http.ServeMux
-	devAuth  bool
+	eng     *engine.Engine
+	reg     *identity.Registry
+	mux     *http.ServeMux
+	devAuth bool
+	rag     *ragConfig
 }
 
 // Option configures the server.
@@ -31,6 +32,14 @@ type Option func(*Server)
 
 // WithDevHeaders enables X-Actor-Id/X-Actor-Role identity. NEVER in production.
 func WithDevHeaders() Option { return func(s *Server) { s.devAuth = true } }
+
+// WithRAGSearch mounts POST /api/search, proxying to a search worker while the
+// node keeps the permission boundary and journaling.
+func WithRAGSearch(backend, scope, logEntity, role string) Option {
+	return func(s *Server) {
+		s.enableRAG(ragConfig{Backend: backend, Scope: scope, LogEntity: logEntity, Role: role})
+	}
+}
 
 func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	s := &Server{eng: eng, reg: reg, mux: http.NewServeMux()}

@@ -18,7 +18,13 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 		writeAuthRequired(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.eng.MetaFor(actor.ID, actor.Role))
+	m := s.eng.MetaFor(actor.ID, actor.Role)
+	// surface optional node capabilities the UI keys off (e.g. the search tab)
+	out, _ := json.Marshal(m)
+	var withCaps map[string]any
+	_ = json.Unmarshal(out, &withCaps)
+	withCaps["search"] = s.rag != nil
+	writeJSON(w, http.StatusOK, withCaps)
 }
 
 type actRequest struct {

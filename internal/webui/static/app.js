@@ -153,6 +153,37 @@ function CreateForm({ ent, onDone }) {
   </div>`;
 }
 
+// Search: the product face of KnowVault — ask a question over the documents,
+// get an answer with sources. Backed by POST /api/search (node proxies a
+// search worker; the node already enforced what this actor may see).
+function SearchView() {
+  const [q, setQ] = useState(''); const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null); const [err, setErr] = useState(null);
+  const ask = async () => {
+    if (!q.trim()) return;
+    setBusy(true); setErr(null); setRes(null);
+    try { setRes(await api('/api/search', { method: 'POST', body: JSON.stringify({ question: q }) })); }
+    catch (e) { setErr(e); }
+    setBusy(false);
+  };
+  return html`<div>
+    <h2>Поиск по документам</h2>
+    <div style="display:flex;gap:8px;align-items:flex-start;max-width:720px">
+      <input style="margin:0" placeholder="Спросите что-нибудь о ваших документах…"
+        value=${q} onInput=${e => setQ(e.target.value)}
+        onKeyDown=${e => e.key === 'Enter' && ask()} />
+      <button class="btn green" onClick=${ask} disabled=${busy}>${busy ? '…' : 'Спросить'}</button>
+    </div>
+    ${err && html`<div class="err">${err.message || JSON.stringify(err)}</div>`}
+    ${res && html`<div class="card" style="max-width:720px;margin-top:14px">
+      <div style="white-space:pre-wrap;line-height:1.55">${res.answer}</div>
+      ${res.sources?.length > 0 && html`<div class="muted" style="margin-top:12px">
+        Источники: ${res.sources.map(s => html`<span class="pill" style="margin-right:6px">${s}</span>`)}</div>`}
+    </div>`}
+    ${busy && html`<div class="muted" style="margin-top:12px">ищу по документам и формулирую ответ…</div>`}
+  </div>`;
+}
+
 // Agents screen: the actor directory — who acts on this node, which model
 // stands behind each agent, and the revoke switch. Humans only (server-side).
 function AgentsView() {
@@ -313,7 +344,8 @@ function App() {
   const parts = route.split('/').filter(Boolean); // e.g. ["e","Card","id"]
   const ent = parts[0] === 'e' || parts[0] === 'board' ? meta.entities.find(x => x.name === parts[1]) : null;
   let view = html`<${Inbox} meta=${meta} refresh=${refresh} />`;
-  if (parts[0] === 'agents') view = html`<${AgentsView} />`;
+  if (parts[0] === 'search') view = html`<${SearchView} />`;
+  else if (parts[0] === 'agents') view = html`<${AgentsView} />`;
   else if (parts[0] === 'e' && ent && parts[2]) view = html`<${RecordView} ent=${ent} id=${parts[2]} refresh=${refresh} />`;
   else if (parts[0] === 'e' && ent && ent.singleton) view = html`<${SingletonView} ent=${ent} refresh=${refresh} />`;
   else if (parts[0] === 'e' && ent) view = html`<${EntityList} ent=${ent} />`;
@@ -325,6 +357,7 @@ function App() {
       <div class="who">${meta.pack || '(genesis)'} · v${meta.def_version}<br/>${meta.actor_id} — ${meta.role}
         <a style="display:block" onClick=${() => { session.clear(); location.reload(); }}>sign out</a></div>
       <div class="nav">
+        ${meta.search && html`<a class=${route === '/search' ? 'on' : ''} onClick=${() => nav('/search')}>🔍 Поиск</a>`}
         <a class=${route === '/inbox' ? 'on' : ''} onClick=${() => nav('/inbox')}>Inbox ${inboxCount > 0 && html`<span class="badge">${inboxCount}</span>`}</a>
         ${meta.entities.map(e => html`<a class=${parts[1] === e.name ? 'on' : ''} onClick=${() => nav(`/e/${e.name}`)}>${e.name}</a>`)}
         <a class=${route === '/agents' ? 'on' : ''} onClick=${() => nav('/agents')} style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">Agents</a>

@@ -214,6 +214,9 @@ func serve(args []string) {
 	devHeaders := fs.Bool("insecure-dev-auth", false, "enable X-Actor-* header identity (local development ONLY)")
 	insecureHTTP := fs.Bool("insecure-http", false, "allow plaintext HTTP on non-loopback addresses (NOT recommended)")
 	demo := fs.Bool("demo", false, "seed demo users and data on an empty journal, print ready tokens")
+	searchBackend := fs.String("search-backend", "", "RAG search worker URL — mounts /api/search (e.g. http://127.0.0.1:8200)")
+	searchScope := fs.String("search-scope", "Workspace", "entity whose visible records bound a search")
+	searchLog := fs.String("search-log", "SearchQuery", "entity to journal each query into")
 	_ = fs.Parse(args)
 
 	tls := *tlsCert != "" && *tlsKey != ""
@@ -263,6 +266,10 @@ func serve(args []string) {
 	if *devHeaders {
 		log.Print("WARNING: --insecure-dev-auth is on — X-Actor headers grant any identity. Local development only.")
 		apiOpts = append(apiOpts, api.WithDevHeaders())
+	}
+	if *searchBackend != "" {
+		apiOpts = append(apiOpts, api.WithRAGSearch(*searchBackend, *searchScope, *searchLog, "Searcher"))
+		log.Printf("RAG search enabled: /api/search -> %s (scope %s)", *searchBackend, *searchScope)
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.New(eng, reg))

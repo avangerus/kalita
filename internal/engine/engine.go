@@ -316,6 +316,21 @@ func findFieldDecl(decl *dsl.EntityDecl, name string) *dsl.FieldDecl {
 	return nil
 }
 
+// VisibleRecordIDs returns the ids of an entity's records the role can read —
+// the permission boundary the search layer maps onto vector collections.
+// Generic over entity so it is not knowvault-specific.
+func (e *Engine) VisibleRecordIDs(ctx context.Context, actor eventstore.Actor, entity string) ([]string, error) {
+	rows, err := e.Query(ctx, actor, entity, QueryOpts{})
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	return ids, nil
+}
+
 // Model returns the active definition. Callers must not mutate it.
 func (e *Engine) Model() *dsl.Model {
 	e.mu.RLock()
