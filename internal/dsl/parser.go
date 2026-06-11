@@ -208,6 +208,14 @@ func parseType(toks []Tok, ty *TypeRef, ln *Line, errs *Errors) (int, bool) {
 			}
 			ty.Kind = TyTags
 			return 4, true
+		case "file":
+			// array[file] — multiple attachments
+			if len(toks) < 4 || toks[3].Text != "]" {
+				errs.add(EBadTypeSyntax, ln.File, ln.Num, "unclosed array[file]", "close with ]")
+				return 0, false
+			}
+			ty.Kind = TyArrayFile
+			return 4, true
 		case "enum":
 			vals, n, ok := bracketIdents(toks[3:], ln, errs, "enum")
 			if !ok {
@@ -221,13 +229,13 @@ func parseType(toks []Tok, ty *TypeRef, ln *Line, errs *Errors) (int, bool) {
 			ty.Kind, ty.EnumValues = TyMultiEnum, vals
 			return idx + 1, true
 		default:
-			errs.add(EBadTypeSyntax, ln.File, ln.Num, "array supports ref, string or enum",
-				"write array[ref[Entity]], array[string] or array[enum[A, B]]")
+			errs.add(EBadTypeSyntax, ln.File, ln.Num, "array supports ref, string, enum or file",
+				"write array[ref[Entity]], array[string], array[enum[A, B]] or array[file]")
 			return 0, false
 		}
 	default:
 		errs.add(EUnknownType, ln.File, ln.Num, "unknown type "+base,
-			"allowed: string text int float money bool date datetime file email url phone duration percent color decimal json enum[..] ref[..] array[ref[..]] array[string] array[enum[..]]")
+			"allowed: string text int float money bool date datetime file email url phone duration percent color decimal json enum[..] ref[..] array[ref[..]] array[string] array[enum[..]] array[file]")
 		return 0, false
 	}
 }

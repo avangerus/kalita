@@ -15,7 +15,7 @@ TYPES:       string text int float money bool date datetime file
              serial(auto document number; modifier format="INV-{year}-{seq:5}")
              money(bare number, or {amount, currency} for multi-currency)
              enum[A, B] ref[Entity] ref[core.User]
-             array[ref[Entity]] array[string](tags) array[enum[A, B]](multiselect)
+             array[ref[Entity]] array[string](tags) array[enum[A, B]](multiselect) array[file](attachments)
 CONSTRAINTS: constraints:            # immediately after its entity
                  unique(field1, field2)
 LINK:        link FromEntity -> ToEntity as forward_name / inverse_name

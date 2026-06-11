@@ -51,7 +51,7 @@ var toolDefs = []map[string]any{
 	{"name": "comment", "description": "Post a comment on a record — the conversation thread (talk to a human in a task, reply to a customer). internal=true is a staff-only note the external customer cannot see.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "body": str, "internal": map[string]any{"type": "boolean"}, "basis": basisSchema}, "entity", "id", "body", "basis")},
 	{"name": "read_comments", "description": "Read the comment thread on a record (only what you may see — customers do not see internal notes).", "inputSchema": schema(map[string]any{"entity": str, "id": str}, "entity", "id")},
 	{"name": "read_journal", "description": "Event history of a record you can read.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "limit": num}, "entity", "id")},
-	{"name": "compose_pack", "description": "Author a pack from STRUCTURED JSON instead of raw DSL — you do not need the grammar. Pass entities with typed fields, workflows, roles and permission rules; the node renders and validates the DSL. Field types: string,text,int,float,money,bool,date,datetime,file,email,url,phone,duration,percent,color,decimal,json,serial,enum(+values),ref(+ref),array_ref(+ref),tags,multiselect(+values).", "inputSchema": map[string]any{
+	{"name": "compose_pack", "description": "Author a pack from STRUCTURED JSON instead of raw DSL — you do not need the grammar. Pass entities with typed fields, workflows, roles and permission rules; the node renders and validates the DSL. Field types: string,text,int,float,money,bool,date,datetime,file,email,url,phone,duration,percent,color,decimal,json,serial,enum(+values),ref(+ref),array_ref(+ref),tags,multiselect(+values),array_file.", "inputSchema": map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"pack":    str,
@@ -389,6 +389,12 @@ func (s *Server) describeEntity(actor eventstore.Actor, entity string) (any, any
 			fd["type"], fd["ref"] = "ref", f.Type.RefTarget
 		case dsl.TyArrayRef:
 			fd["type"], fd["ref"] = "array[ref]", f.Type.RefTarget
+		case dsl.TyTags:
+			fd["type"] = "array[string]"
+		case dsl.TyMultiEnum:
+			fd["type"], fd["values"] = "array[enum]", f.Type.EnumValues
+		case dsl.TyArrayFile:
+			fd["type"] = "array[file]"
 		}
 		fields = append(fields, fd)
 	}

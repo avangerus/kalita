@@ -14,6 +14,7 @@ const (
 	TyArrayRef
 	TyTags       // array[string] — free labels
 	TyMultiEnum  // array[enum[...]] — components/multiselect
+	TyArrayFile  // array[file] — multiple attachments
 )
 
 // scalarTypes is the closed list of scalar field types. The rich ones

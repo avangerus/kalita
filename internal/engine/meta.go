@@ -110,6 +110,8 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 				mf.Type = "tags"
 			case dsl.TyMultiEnum:
 				mf.Type, mf.Values = "multiselect", f.Type.EnumValues
+			case dsl.TyArrayFile:
+				mf.Type = "array_file"
 			}
 			// the workflow field is never directly writable
 			if wf, ok := e.model.Workflows[name]; ok && wf.Field == f.Name {

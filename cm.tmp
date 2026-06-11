@@ -1,20 +1,13 @@
-hours_since/minutes_since; live SLA in Service Desk; two computed fixes
+array[file] — multiple attachments (closes gap Б3)
 
-Closes gap Б7. hours_since(path)/minutes_since(path) join days_since over a
-shared elapsed-time helper — the sub-day granularity an SLA timer needs.
+A new TyArrayFile kind wired through the whole pipeline: the type parser
+(array[file]), value validation (an array of {hash,...} file refs, each hash
+required), UI metadata (array_file), MCP describe_entity, structured authoring
+(compose_pack / FieldTypes), and the grammar.
 
-The Service Desk pack now has a live SLA: Incident.sla_left is
-`sla_policy.resolution_minutes - minutes_since(opened)`, and the operator board
-gains a "Просрочка SLA" tile (`where sla_left < 0`). Driven end-to-end by the
-dogfood test (a 30-min policy + an incident opened in 2020 → breached → counted).
+Incident now has `attachments: array[file]` (screenshots + logs). The dogfood
+proves it: an incident round-trips two attachments, and a malformed one (no
+hash) is rejected with a validation error.
 
-Two engine bugs surfaced by that dogfood:
-- $now defaults landed at the zero time: validateValues built the default
-  context without the engine clock, so `default=$now` wrote 0001-01-01 and every
-  elapsed-time computed was wrong from creation. The clock now reaches defaults.
-- ref-path computed broke on the dot-spacing the DSL tokenizer leaves
-  ("sla_policy . resolution_minutes"): the arithmetic evaluator, unlike
-  evalWhere, did not collapse it, so a two-hop deref dropped the whole computed.
-  evalComputed now normalizes dot-spaces the same way.
-
-Grammar updated with hours_since/minutes_since.
+This was the last of blockers Б1–Б7 from APPS-GAP-PLAN — the functional cores of
+the HR / CRM / Service Desk apps now build on the kernel without kernel gaps.

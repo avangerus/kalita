@@ -84,7 +84,11 @@ dogfood: kalita, управляющая своей разработкой аге
 
 ## Порядок исполнения (автопилот)
 Comment✅ → арифметика в computed✅ → null✅ → report/dashboard✅ → hours_since✅ →
-**array[file]** → calendar-view → бизнес-календарь → datetime-триггер → core.User+i18n.
+array[file]✅ → **(все блокеры Б1–Б7 закрыты)** → calendar-view → бизнес-календарь →
+datetime-триггер → core.User+i18n.
+array[file] (этот коммит, Б3): новый вид TyArrayFile во всём конвейере (parser,
+validate, meta-UI, MCP describe, compose, грамматика); Incident.attachments
+проверен dogfood (несколько вложений round-trip, элемент без hash отклонён).
 Сделано (0e94f74): null-присутствие; dashboard-блок (count/sum/avg/min/max,
 group by, where) с построчным ABAC; MCP/REST; грамматика вернулась в MCP вместо
 панграммы. Сделано (02f6d75): пак Service Desk (ITSM СТП ПУИТ) как dogfood —

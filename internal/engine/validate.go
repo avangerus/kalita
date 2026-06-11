@@ -105,6 +105,21 @@ func checkType(f *dsl.FieldDecl, v any) *Err {
 					"allowed: "+strings.Join(f.Type.EnumValues, ", "))
 			}
 		}
+	case dsl.TyArrayFile:
+		xs, ok := v.([]any)
+		if !ok {
+			return invalid(f.Name, f.Name+" must be an array of uploaded file references",
+				"upload each via POST /api/files, then pass [{...ref}, {...ref}]")
+		}
+		for _, x := range xs {
+			m, ok := x.(map[string]any)
+			if !ok {
+				return invalid(f.Name, f.Name+" must contain file references", "each item is the ref returned by POST /api/files")
+			}
+			if h, _ := m["hash"].(string); h == "" {
+				return invalid(f.Name, f.Name+" has a file reference without a hash", "re-upload the file")
+			}
+		}
 	}
 	return nil
 }

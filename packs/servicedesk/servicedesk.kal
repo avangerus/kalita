@@ -91,6 +91,7 @@ entity Incident:
     source: enum[Manual, Tivoli, Email, Portal] default=Manual
     ci: ref[ConfigItem]
     problem: ref[Problem]
+    attachments: array[file]            # скриншоты + логи (несколько вложений)
     reporter: ref[core.User] default=$me
     assignee: ref[core.User]
     sla_policy: ref[SLAPolicy]

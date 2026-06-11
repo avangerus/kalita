@@ -172,4 +172,27 @@ func TestDogfoodServiceDeskPack(t *testing.T) {
 	if got := tileValue(t, sdash, "Просрочка SLA"); got != 1 {
 		t.Errorf("Просрочка SLA = %v, want 1 (only the breaching incident has a policy)", got)
 	}
+
+	// (8) array[file]: an incident carries several attachments (screenshots+logs)
+	withFiles, e2 := call(t, srv.URL, l1, "create_record", map[string]any{
+		"entity": "Incident", "basis": basis,
+		"values": map[string]any{"title": "С логами", "source": "Manual", "attachments": []any{
+			map[string]any{"hash": "abc123", "name": "screenshot.png", "size": 4096},
+			map[string]any{"hash": "def456", "name": "app.log", "size": 8192},
+		}}})
+	if e2 {
+		t.Fatalf("create incident with attachments: %v", withFiles)
+	}
+	att, _ := withFiles["values"].(map[string]any)["attachments"].([]any)
+	if len(att) != 2 {
+		t.Errorf("attachments round-trip = %v, want 2 files", att)
+	}
+	// a malformed attachment (no hash) is rejected
+	bad, isErr2 := call(t, srv.URL, l1, "create_record", map[string]any{
+		"entity": "Incident", "basis": basis,
+		"values": map[string]any{"title": "Битое вложение", "source": "Manual",
+			"attachments": []any{map[string]any{"name": "no-hash.txt"}}}})
+	if !isErr2 || bad["code"] != "VALIDATION_ERROR" {
+		t.Errorf("attachment without a hash must be rejected, got %v", bad)
+	}
 }

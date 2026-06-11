@@ -142,6 +142,8 @@ func renderField(f FieldSpec) string {
 		t = "array[enum[" + strings.Join(f.Values, ", ") + "]]"
 	case "tags":
 		t = "array[string]"
+	case "array_file":
+		t = "array[file]"
 	case "ref":
 		t = "ref[" + f.Ref + "]"
 	case "array_ref":
@@ -196,7 +198,7 @@ func FieldTypes() []string {
 	for t := range scalarTypes {
 		out = append(out, t)
 	}
-	out = append(out, "enum", "ref", "array_ref", "tags", "multiselect")
+	out = append(out, "enum", "ref", "array_ref", "tags", "multiselect", "array_file")
 	sort.Strings(out)
 	return out
 }
