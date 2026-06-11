@@ -8,15 +8,23 @@ package dsl
 type TypeKind int
 
 const (
-	TyScalar TypeKind = iota // string text int float money bool date datetime file
+	TyScalar TypeKind = iota // string text int float money bool date datetime file + the rich scalars below
 	TyEnum
 	TyRef
 	TyArrayRef
+	TyTags       // array[string] — free labels
+	TyMultiEnum  // array[enum[...]] — components/multiselect
 )
 
+// scalarTypes is the closed list of scalar field types. The rich ones
+// (email/url/.../decimal/duration/percent/color) are validated by the kernel;
+// the grammar stays closed so an agent cannot invent a type.
 var scalarTypes = map[string]bool{
 	"string": true, "text": true, "int": true, "float": true, "money": true,
 	"bool": true, "date": true, "datetime": true, "file": true,
+	// rich scalars (v1):
+	"email": true, "url": true, "phone": true, "duration": true,
+	"percent": true, "color": true, "decimal": true, "json": true,
 }
 
 type TypeRef struct {

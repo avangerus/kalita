@@ -10,7 +10,10 @@ Indentation: 4 spaces, no tabs. Comments: # to end of line. One pack = pack.kal 
 MANIFEST:    pack <name> / version <semver> / requires kalita >= 0.1 / depends core >= 0.1
 ENTITY:      entity Name:            # or: entity Name singleton:  (at most one record — settings)
                  field: type [required] [unique] [default=<expr>] [computed=<expr>] [on_delete=restrict|set_null|cascade]
-TYPES:       string text int float money bool date datetime file enum[A, B] ref[Entity] ref[core.User] array[ref[Entity]]
+TYPES:       string text int float money bool date datetime file
+             email url phone duration(2d4h) percent(0-100) color(#RRGGBB) decimal json
+             enum[A, B] ref[Entity] ref[core.User]
+             array[ref[Entity]] array[string](tags) array[enum[A, B]](multiselect)
 CONSTRAINTS: constraints:            # immediately after its entity
                  unique(field1, field2)
 WORKFLOW:    workflow Entity on enum_field:

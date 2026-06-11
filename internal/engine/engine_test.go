@@ -179,6 +179,67 @@ func TestValidation(t *testing.T) {
 	}
 }
 
+func TestRichTypes(t *testing.T) {
+	src := `
+entity Card:
+    title: string required
+    contact: email
+    site: url
+    eta: duration
+    progress: percent
+    labels: array[string]
+    components: array[enum[Backend, Frontend, Infra]]
+
+roles:
+    Owner
+
+permissions:
+    Owner:
+        full [Card]
+`
+	model, errs := dsl.Compile(map[string]string{"t.kal": src})
+	if len(errs) > 0 {
+		t.Fatalf("rich types must compile: %v", errs[0])
+	}
+	e, err := New(ctx, model, eventstore.NewMemStore(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
+
+	// valid record across all rich types
+	ok, err := e.Create(ctx, owner, "Card", map[string]any{
+		"title": "x", "contact": "a@b.co", "site": "https://k.io", "eta": "2d4h",
+		"progress": 75.0, "labels": []any{"urgent", "vip"},
+		"components": []any{"Backend", "Infra"},
+	}, basis, "")
+	if err != nil {
+		t.Fatalf("valid rich record must pass: %v", err)
+	}
+	if ls, _ := ok.Values["labels"].([]any); len(ls) != 2 {
+		t.Fatalf("labels not stored: %v", ok.Values["labels"])
+	}
+
+	bad := []struct {
+		name   string
+		values map[string]any
+	}{
+		{"bad email", map[string]any{"title": "x", "contact": "not-an-email"}},
+		{"bad url", map[string]any{"title": "x", "site": "ftp://x"}},
+		{"bad duration", map[string]any{"title": "x", "eta": "soon"}},
+		{"percent over 100", map[string]any{"title": "x", "progress": 150.0}},
+		{"unknown component", map[string]any{"title": "x", "components": []any{"Mobile"}}},
+		{"label not string", map[string]any{"title": "x", "labels": []any{42.0}}},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := e.Create(ctx, owner, "Card", tc.values, basis, ""); err == nil {
+				t.Fatalf("%s must be rejected", tc.name)
+			}
+		})
+	}
+}
+
 func TestUniqueConstraints(t *testing.T) {
 	e, _ := newEngine(t)
 	if _, err := e.Create(ctx, admin, "Doc", map[string]any{"title": "a", "code": "X1"}, basis, ""); err != nil {

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -79,6 +80,28 @@ func checkType(f *dsl.FieldDecl, v any) *Err {
 				return invalid(f.Name, f.Name+" must contain string ids", "pass [\"id1\", \"id2\"]")
 			}
 		}
+	case dsl.TyTags:
+		xs, ok := v.([]any)
+		if !ok {
+			return invalid(f.Name, f.Name+" must be an array of labels", "pass [\"urgent\", \"backend\"]")
+		}
+		for _, x := range xs {
+			if _, ok := x.(string); !ok {
+				return invalid(f.Name, f.Name+" labels must be strings", "pass [\"urgent\", \"backend\"]")
+			}
+		}
+	case dsl.TyMultiEnum:
+		xs, ok := v.([]any)
+		if !ok {
+			return invalid(f.Name, f.Name+" must be an array of values", "pass a subset of the declared options")
+		}
+		for _, x := range xs {
+			s, ok := x.(string)
+			if !ok || !containsStr(f.Type.EnumValues, s) {
+				return invalid(f.Name, fmt.Sprintf("%v is not a valid option for %s", x, f.Name),
+					"allowed: "+strings.Join(f.Type.EnumValues, ", "))
+			}
+		}
 	}
 	return nil
 }
@@ -133,9 +156,52 @@ func checkScalar(f *dsl.FieldDecl, v any) *Err {
 		if _, err := time.Parse(time.RFC3339, s); err != nil {
 			return invalid(name, s+" is not a datetime", "use RFC3339, e.g. 2026-06-12T09:00:00Z")
 		}
+	case "email":
+		s, ok := v.(string)
+		if !ok || !reEmail.MatchString(s) {
+			return invalid(name, fmt.Sprintf("%v is not an email", v), "use name@example.com")
+		}
+	case "url":
+		s, ok := v.(string)
+		if !ok || !(strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")) {
+			return invalid(name, fmt.Sprintf("%v is not a URL", v), "use http(s)://…")
+		}
+	case "phone":
+		s, ok := v.(string)
+		if !ok || !rePhone.MatchString(s) {
+			return invalid(name, fmt.Sprintf("%v is not a phone number", v), "digits, optional leading +")
+		}
+	case "color":
+		s, ok := v.(string)
+		if !ok || !reColor.MatchString(s) {
+			return invalid(name, fmt.Sprintf("%v is not a color", v), "use #RRGGBB")
+		}
+	case "duration":
+		s, ok := v.(string)
+		if !ok || s == "" || !reDuration.MatchString(s) {
+			return invalid(name, fmt.Sprintf("%v is not a duration", v), "use forms like 2d, 4h, 90m, 1d6h")
+		}
+	case "percent":
+		n, ok := toFloat(v)
+		if !ok || n < 0 || n > 100 {
+			return invalid(name, fmt.Sprintf("%v is not a percent", v), "a number between 0 and 100")
+		}
+	case "decimal":
+		if _, ok := toFloat(v); !ok {
+			return bad()
+		}
+	case "json":
+		// free-form object/array; any JSON value is accepted
 	}
 	return nil
 }
+
+var (
+	reEmail    = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+	rePhone    = regexp.MustCompile(`^\+?[0-9][0-9\s\-()]{4,}$`)
+	reColor    = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+	reDuration = regexp.MustCompile(`^(\d+d)?(\d+h)?(\d+m)?$`)
+)
 
 // checkRefsExist verifies referenced records exist. core.* refs are accepted
 // as opaque ids in v0 (the core pack lands with the identity UI, week 7).

@@ -176,26 +176,53 @@ func parseType(toks []Tok, ty *TypeRef, ln *Line, errs *Errors) (int, bool) {
 		ty.Kind, ty.RefTarget = TyRef, target
 		return 1 + n, true
 	case base == "array":
-		// array[ref[X]]
-		if len(toks) < 6 || toks[1].Text != "[" || toks[2].Text != "ref" {
-			errs.add(EBadTypeSyntax, ln.File, ln.Num, "array supports only array[ref[Entity]] in v0",
-				"write e.g. `members: array[ref[core.User]]`")
+		// array[ref[X]] | array[string] (tags) | array[enum[A, B]] (multiselect)
+		if len(toks) < 3 || toks[1].Text != "[" {
+			errs.add(EBadTypeSyntax, ln.File, ln.Num, "array requires array[...]",
+				"write array[ref[Entity]], array[string] or array[enum[A, B]]")
 			return 0, false
 		}
-		target, n, ok := bracketDotted(toks[3:], ln, errs, "ref")
-		if !ok {
+		switch toks[2].Text {
+		case "ref":
+			target, n, ok := bracketDotted(toks[3:], ln, errs, "ref")
+			if !ok {
+				return 0, false
+			}
+			idx := 3 + n
+			if idx >= len(toks) || toks[idx].Text != "]" {
+				errs.add(EBadTypeSyntax, ln.File, ln.Num, "unclosed array[...]", "close with ]")
+				return 0, false
+			}
+			ty.Kind, ty.RefTarget = TyArrayRef, target
+			return idx + 1, true
+		case "string":
+			// array[string] — tags
+			if len(toks) < 4 || toks[3].Text != "]" {
+				errs.add(EBadTypeSyntax, ln.File, ln.Num, "unclosed array[string]", "close with ]")
+				return 0, false
+			}
+			ty.Kind = TyTags
+			return 4, true
+		case "enum":
+			vals, n, ok := bracketIdents(toks[3:], ln, errs, "enum")
+			if !ok {
+				return 0, false
+			}
+			idx := 3 + n
+			if idx >= len(toks) || toks[idx].Text != "]" {
+				errs.add(EBadTypeSyntax, ln.File, ln.Num, "unclosed array[enum[...]]", "close with ]")
+				return 0, false
+			}
+			ty.Kind, ty.EnumValues = TyMultiEnum, vals
+			return idx + 1, true
+		default:
+			errs.add(EBadTypeSyntax, ln.File, ln.Num, "array supports ref, string or enum",
+				"write array[ref[Entity]], array[string] or array[enum[A, B]]")
 			return 0, false
 		}
-		idx := 3 + n
-		if idx >= len(toks) || toks[idx].Text != "]" {
-			errs.add(EBadTypeSyntax, ln.File, ln.Num, "unclosed array[...]", "close with ]")
-			return 0, false
-		}
-		ty.Kind, ty.RefTarget = TyArrayRef, target
-		return idx + 1, true
 	default:
 		errs.add(EUnknownType, ln.File, ln.Num, "unknown type "+base,
-			"allowed types: string text int float money bool date datetime file enum[..] ref[..] array[ref[..]]")
+			"allowed: string text int float money bool date datetime file email url phone duration percent color decimal json enum[..] ref[..] array[ref[..]] array[string] array[enum[..]]")
 		return 0, false
 	}
 }

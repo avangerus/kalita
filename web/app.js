@@ -94,9 +94,27 @@ function FileInput({ value, onChange }) {
   </div>`;
 }
 
+// TagsInput: free labels (array[string]) as add/remove chips.
+function TagsInput({ value, onChange, options }) {
+  const list = Array.isArray(value) ? value : [];
+  const [draft, setDraft] = useState('');
+  const add = (t) => { t = t.trim(); if (t && !list.includes(t)) onChange([...list, t]); setDraft(''); };
+  return html`<div style="margin:3px 0 10px">
+    <div>${list.map(t => html`<span class="pill" style="margin:0 6px 4px 0;display:inline-block">${t}
+      <span style="cursor:pointer;color:var(--dim)" onClick=${() => onChange(list.filter(x => x !== t))}> ✕</span></span>`)}</div>
+    ${options
+      ? html`<select value="" onChange=${e => e.target.value && add(e.target.value)}>
+          <option value="">+ добавить…</option>${options.filter(o => !list.includes(o)).map(o => html`<option value=${o}>${o}</option>`)}</select>`
+      : html`<input style="margin:0" placeholder="добавить метку, Enter" value=${draft}
+          onInput=${e => setDraft(e.target.value)} onKeyDown=${e => e.key === 'Enter' && (e.preventDefault(), add(draft))} />`}
+  </div>`;
+}
+
 function FieldInput({ field, value, onChange }) {
   if (field.type === 'file') return html`<${FileInput} value=${value} onChange=${onChange} />`;
   if (field.type === 'ref') return html`<${RefInput} field=${field} value=${value} onChange=${onChange} />`;
+  if (field.type === 'tags') return html`<${TagsInput} value=${value} onChange=${onChange} />`;
+  if (field.type === 'multiselect') return html`<${TagsInput} value=${value} onChange=${onChange} options=${field.values} />`;
   if (field.type === 'enum') return html`<select value=${value || ''} onChange=${e => onChange(e.target.value)}>
     <option value="">—</option>${field.values.map(v => html`<option value=${v}>${v}</option>`)}</select>`;
   if (field.type === 'bool') return html`<select value=${String(value ?? '')} onChange=${e => onChange(e.target.value === 'true')}>
