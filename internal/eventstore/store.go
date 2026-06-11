@@ -9,6 +9,9 @@ type Store interface {
 	Append(ctx context.Context, in AppendInput) (*Event, error)
 	// All returns the full journal ordered by seq.
 	All(ctx context.Context) ([]*Event, error)
+	// Since returns events with seq > afterSeq, ordered. The incremental-read
+	// primitive: projections keep a watermark instead of rescanning history.
+	Since(ctx context.Context, afterSeq uint64) ([]*Event, error)
 	// Head returns the seq and hash of the last event (0, nil on empty journal).
 	Head(ctx context.Context) (uint64, []byte, error)
 	// ByIdemKey returns the event stored under the idempotency key, or nil.

@@ -245,6 +245,24 @@ func (s *PGStore) Head(ctx context.Context) (uint64, []byte, error) {
 	return seq, hash, nil
 }
 
+// Since returns events with seq > afterSeq.
+func (s *PGStore) Since(ctx context.Context, afterSeq uint64) ([]*Event, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+columns+` FROM events WHERE seq > $1 ORDER BY seq`, afterSeq)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Event
+	for rows.Next() {
+		e, err := scanEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // All returns the full journal ordered by seq.
 func (s *PGStore) All(ctx context.Context) ([]*Event, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+columns+` FROM events ORDER BY seq`)

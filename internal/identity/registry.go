@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/avangerus/kalita/internal/eventstore"
 )
@@ -18,12 +19,20 @@ import (
 // Registry is the actor directory: a projection over actor.* events in the
 // journal. Registration, key rotation and disabling are themselves journal
 // events — who created which agent with which key is part of the audit trail.
+//
+// The projection is incremental: a seq watermark + cache, refreshed via
+// Store.Since. Authentication is on the hot path of every request — it must
+// not rescan history (the event storm the platform itself generates).
 type Registry struct {
 	store eventstore.Store
+
+	mu        sync.Mutex
+	watermark uint64
+	cache     map[string]*ActorInfo
 }
 
 func NewRegistry(store eventstore.Store) *Registry {
-	return &Registry{store: store}
+	return &Registry{store: store, cache: map[string]*ActorInfo{}}
 }
 
 // ActorMeta describes what stands behind an actor — for agents: which model,
@@ -144,14 +153,16 @@ func (r *Registry) Authenticate(ctx context.Context, token string) (*ActorInfo, 
 	return nil, ErrActorUnknown
 }
 
-// all replays actor.* events into the full directory.
+// all returns the directory, folding only events newer than the watermark.
 func (r *Registry) all(ctx context.Context) (map[string]*ActorInfo, error) {
-	events, err := r.store.All(ctx)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	events, err := r.store.Since(ctx, r.watermark)
 	if err != nil {
 		return nil, err
 	}
-	infos := map[string]*ActorInfo{}
 	for _, e := range events {
+		r.watermark = e.Seq
 		id := e.Subject.ActorID
 		if id == "" {
 			continue
@@ -162,10 +173,10 @@ func (r *Registry) all(ctx context.Context) (map[string]*ActorInfo, error) {
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				continue
 			}
-			info := infos[id]
+			info := r.cache[id]
 			if info == nil {
 				info = &ActorInfo{ID: id}
-				infos[id] = info
+				r.cache[id] = info
 			}
 			info.Type, info.Role, info.PublicKey = p.ActorType, p.Role, p.PublicKey
 			if p.TokenHash != nil {
@@ -175,12 +186,18 @@ func (r *Registry) all(ctx context.Context) (map[string]*ActorInfo, error) {
 				info.Meta = p.Meta
 			}
 		case eventstore.ActorDisabled:
-			if info, ok := infos[id]; ok {
+			if info, ok := r.cache[id]; ok {
 				info.Disabled = true
 			}
 		}
 	}
-	return infos, nil
+	// snapshot copy: callers iterate without holding the registry lock
+	out := make(map[string]*ActorInfo, len(r.cache))
+	for k, v := range r.cache {
+		cp := *v
+		out[k] = &cp
+	}
+	return out, nil
 }
 
 // RotateKey appends actor.key_rotated with the new public key.
@@ -252,35 +269,11 @@ func (r *Registry) VerifySignature(ctx context.Context, id string, msg, sig []by
 	return nil
 }
 
-// lookup replays actor.* events. Linear scan is fine at week-1 scale; this
-// becomes a cached projection with the projection subsystem (week 3).
+// lookup resolves one actor through the incremental cache.
 func (r *Registry) lookup(ctx context.Context, id string) (*ActorInfo, error) {
-	events, err := r.store.All(ctx)
+	infos, err := r.all(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var info *ActorInfo
-	for _, e := range events {
-		if e.Subject.ActorID != id {
-			continue
-		}
-		switch e.Kind {
-		case eventstore.ActorRegistered, eventstore.ActorKeyRotated:
-			var p actorPayload
-			if err := json.Unmarshal(e.Payload, &p); err != nil {
-				return nil, fmt.Errorf("identity: corrupt payload at seq %d: %w", e.Seq, err)
-			}
-			if info == nil {
-				info = &ActorInfo{ID: id}
-			}
-			info.Type = p.ActorType
-			info.Role = p.Role
-			info.PublicKey = p.PublicKey
-		case eventstore.ActorDisabled:
-			if info != nil {
-				info.Disabled = true
-			}
-		}
-	}
-	return info, nil
+	return infos[id], nil
 }

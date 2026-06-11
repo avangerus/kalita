@@ -99,6 +99,18 @@ func (s *MemStore) ByIdemKey(_ context.Context, key string) (*Event, error) {
 	return nil, nil
 }
 
+// Since returns events with seq > afterSeq.
+func (s *MemStore) Since(_ context.Context, afterSeq uint64) ([]*Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if afterSeq >= uint64(len(s.events)) {
+		return nil, nil
+	}
+	out := make([]*Event, len(s.events)-int(afterSeq))
+	copy(out, s.events[afterSeq:])
+	return out, nil
+}
+
 // Head returns the seq and hash of the last event.
 func (s *MemStore) Head(_ context.Context) (uint64, []byte, error) {
 	s.mu.Lock()
