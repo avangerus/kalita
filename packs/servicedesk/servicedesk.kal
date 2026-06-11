@@ -220,7 +220,7 @@ permissions:
     # Руководитель/диспетчер: полный контроль очереди, согласование запросов
     Supervisor:
         full    [Incident, ServiceRequest, WorkOrder]
-        read    [Problem, Change, ConfigItem, Service, KBArticle]
+        read    [Problem, Change, ConfigItem, Service, KBArticle, SLAPolicy]
         approve [approve_request, reject_request]
         act     [require_approval, auto_approve, approve_request, reject_request, start_fulfillment, fulfill, close_request, investigate, identify, resolve_incident, close_incident, reopen_incident]
     # Менеджер проблем

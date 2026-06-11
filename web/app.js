@@ -45,27 +45,64 @@ const nav = (r) => { location.hash = r; };
 const elab = (e) => e.label || e.name;
 const flab = (f) => f.label || f.name;
 const colLabel = (ent, c) => { const f = ent.fields.find(x => x.name === c); return f ? flab(f) : c; };
+// humanize a workflow action identifier for a button: close_incident → Close incident
+const humanize = (s) => s.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+
+// reclabel: a short human label for one record — its first non-uuid string value.
+const reclabel = (values) => {
+  for (const k in values) { const v = values[k]; if (typeof v === 'string' && v && !v.match(/^[0-9a-f-]{36}$/)) return v; }
+  return (values.id || '').slice(0, 8) || '—';
+};
+
+// fieldSpan: how many of the 3 form columns a control should occupy. Big inputs
+// (long text, json, attachments, multi-pickers) take the full row; a ref picker
+// half; short scalars a third. Keeps dense forms readable instead of a 1-wide column.
+function fieldSpan(f) {
+  if (['text', 'json', 'array_file', 'array_ref'].includes(f.type)) return 3;
+  if (['ref', 'tags', 'multiselect', 'url'].includes(f.type)) return 2;
+  return 1;
+}
 
 // --- field rendering -------------------------------------------------------------
 
-// RefInput: a dropdown of the target entity's records, labeled by their first
-// string-ish field. core.* targets fall back to a text input (no core pack yet).
+// RefInput: an async search picker for the target entity. It NEVER loads the
+// whole table — it queries by typed term (limit 20), so it scales to millions of
+// rows (users, config items). core.* targets fall back to a raw id input until
+// the core pack exists.
 function RefInput({ field, value, onChange }) {
+  const isCore = field.ref.startsWith('core.');
+  const [term, setTerm] = useState('');
   const [opts, setOpts] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState(null);
   useEffect(() => {
-    if (field.ref.startsWith('core.')) { setOpts(false); return; }
-    api(`/api/records/${field.ref}?limit=200`)
-      .then(r => setOpts(r.records || []))
-      .catch(() => setOpts(false));
-  }, [field.ref]);
-  if (opts === false) return html`<input value=${value ?? ''} onInput=${e => onChange(e.target.value)} placeholder=${field.ref} />`;
-  if (opts === null) return html`<select disabled><option>loading ${field.ref}…</option></select>`;
-  const label = (r) => {
-    for (const k in r.values) { const v = r.values[k]; if (typeof v === 'string' && v && !v.match(/^[0-9a-f-]{36}$/)) return v; }
-    return r.id.slice(0, 8);
-  };
-  return html`<select value=${value || ''} onChange=${e => onChange(e.target.value)}>
-    <option value="">—</option>${opts.map(r => html`<option value=${r.id}>${label(r)}</option>`)}</select>`;
+    if (!value || isCore) { setCurrent(null); return; }
+    api(`/api/records/${field.ref}/${value}`).then(r => setCurrent(reclabel(r.values)))
+      .catch(() => setCurrent(String(value).slice(0, 8)));
+  }, [value, field.ref]);
+  useEffect(() => {
+    if (!open || isCore) return;
+    const t = setTimeout(() => {
+      api(`/api/query/${field.ref}`, { method: 'POST', body: JSON.stringify({ search: term, limit: 20 }) })
+        .then(r => setOpts(r.records || [])).catch(() => setOpts([]));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [term, open, field.ref]);
+  if (isCore) return html`<input value=${value ?? ''} onInput=${e => onChange(e.target.value)} placeholder=${field.ref + ' (id)'} />`;
+  const pick = (id) => { onChange(id); setOpen(false); };
+  return html`<div style="position:relative">
+    <input placeholder=${current ? '' : 'поиск…'} value=${open ? term : (current || '')}
+      onFocus=${() => { setOpen(true); setTerm(''); setOpts(null); }}
+      onBlur=${() => setTimeout(() => setOpen(false), 160)}
+      onInput=${e => setTerm(e.target.value)} />
+    ${open && html`<div style="position:absolute;z-index:9;left:0;right:0;top:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;max-height:240px;overflow:auto;box-shadow:0 6px 20px #0008">
+      ${value && html`<div style="padding:7px 10px;cursor:pointer;color:var(--dim)" onMouseDown=${() => pick('')}>— очистить —</div>`}
+      ${opts === null ? html`<div style="padding:7px 10px" class="muted">начните вводить…</div>`
+        : opts.length === 0 ? html`<div style="padding:7px 10px" class="muted">ничего не найдено</div>`
+        : opts.map(r => html`<div style="padding:7px 10px;cursor:pointer;border-top:1px solid var(--line)"
+            onMouseDown=${() => pick(r.id)} onMouseEnter=${e => e.target.style.background='#1c232c'} onMouseLeave=${e => e.target.style.background=''}>${reclabel(r.values)}</div>`)}
+    </div>`}
+  </div>`;
 }
 
 // FileInput: drag-drop or pick a document, upload it, hold the returned ref.
@@ -212,10 +249,14 @@ function CreateForm({ ent, onDone }) {
   };
   return html`<div class="card">
     <h3>Новый · ${elab(ent)}</h3>
-    ${writable.map(f => html`<label>${flab(f)}${f.required ? ' *' : ''}</label>
-      <${FieldInput} field=${f} value=${vals[f.name]} onChange=${v => setVals({ ...vals, [f.name]: v })} />`)}
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 18px">
+      ${writable.map(f => html`<div style=${'grid-column:span ' + fieldSpan(f)}>
+        <label>${flab(f)}${f.required ? ' *' : ''}</label>
+        <${FieldInput} field=${f} value=${vals[f.name]} onChange=${v => setVals({ ...vals, [f.name]: v })} />
+      </div>`)}
+    </div>
     ${err && html`<div class="err">${err.message} ${err.fix_hint ? `— ${err.fix_hint}` : ''}</div>`}
-    <button class="btn green" onClick=${submit}>Create</button>
+    <button class="btn green" onClick=${submit}>Создать</button>
   </div>`;
 }
 
@@ -336,14 +377,26 @@ function Board({ ent }) {
   </div>`;
 }
 
+// RefValue: render a ref field in READ mode as the target's label, not its uuid.
+function RefValue({ field, value }) {
+  const [text, setText] = useState(null);
+  useEffect(() => {
+    if (!value || field.ref.startsWith('core.')) { setText(value || null); return; }
+    api(`/api/records/${field.ref}/${value}`).then(r => setText(reclabel(r.values)))
+      .catch(() => setText(String(value).slice(0, 8)));
+  }, [value, field.ref]);
+  return html`${text || html`<span class="muted">—</span>`}`;
+}
+
 function RecordView({ ent, id, refresh }) {
   const [rec, setRec] = useState(null); const [journal, setJournal] = useState(null);
-  const [edit, setEdit] = useState({}); const [err, setErr] = useState(null); const [note, setNote] = useState(null);
+  const [edit, setEdit] = useState({}); const [editing, setEditing] = useState(false);
+  const [err, setErr] = useState(null); const [note, setNote] = useState(null);
   const load = () => api(`/api/records/${ent.name}/${id}`).then(setRec).catch(setErr);
-  useEffect(() => { load(); setJournal(null); setEdit({}); }, [ent.name, id]);
+  useEffect(() => { load(); setJournal(null); setEdit({}); setEditing(false); }, [ent.name, id]);
 
-  if (err) return html`<div class="err">${err.message}</div>`;
-  if (!rec) return html`<div class="muted">loading…</div>`;
+  if (err && !rec) return html`<div class="err">${err.message}</div>`;
+  if (!rec) return html`<div class="muted">загрузка…</div>`;
   const state = rec.values[ent.workflow_field];
   const actions = (ent.actions || []).filter(a => a.can_act && (a.from === state || a.from === 'any'));
 
@@ -351,22 +404,24 @@ function RecordView({ ent, id, refresh }) {
     setErr(null); setNote(null);
     try {
       const res = await api(`/api/records/${ent.name}/${id}/act`, { method: 'POST', body: JSON.stringify({ action, basis: basis() }) });
-      if (res.status === 'pending_approval') setNote('parked for signature — see the approver’s inbox');
+      if (res.status === 'pending_approval') setNote('Действие отправлено на подпись — см. инбокс согласующего.');
       load(); refresh();
     } catch (e) { setErr(e); }
   };
   const save = async () => {
     setErr(null);
-    try { await api(`/api/records/${ent.name}/${id}`, { method: 'PATCH', body: JSON.stringify({ values: edit, basis: basis() }) }); setEdit({}); load(); }
+    try { await api(`/api/records/${ent.name}/${id}`, { method: 'PATCH', body: JSON.stringify({ values: edit, basis: basis() }) }); setEdit({}); setEditing(false); load(); }
     catch (e) { setErr(e); }
   };
+  const cancel = () => { setEdit({}); setEditing(false); setErr(null); };
   const showJournal = () => api(`/api/records/${ent.name}/${id}/journal`).then(j => setJournal(j.events));
 
   return html`<div>
-    <h2>${elab(ent)} <span class="muted">${id.slice(0, 8)}…</span> ${state && html`<span class="pill">${state}</span>`}</h2>
-    <div style="margin-bottom:10px">
-      ${actions.map(a => html`<button class="btn" onClick=${() => act(a.action)}>${a.action}${a.requires_approval ? ' ✍' : ''}</button>`)}
-      <button class="btn" onClick=${journal ? () => setJournal(null) : showJournal}>${journal ? 'hide journal' : 'journal'}</button>
+    <h2>${elab(ent)} <span class="muted">${reclabel(rec.values)}</span> ${state && html`<span class="pill">${state}</span>`}</h2>
+    <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
+      ${!editing && actions.map(a => html`<button class="btn ${a.requires_approval ? '' : 'green'}" onClick=${() => act(a.action)}>${humanize(a.action)}${a.requires_approval ? ' ✍' : ''}</button>`)}
+      ${!editing && ent.can_update && html`<button class="btn" onClick=${() => setEditing(true)}>✎ Редактировать</button>`}
+      <button class="btn" onClick=${journal ? () => setJournal(null) : showJournal}>${journal ? 'скрыть журнал' : 'журнал'}</button>
     </div>
     ${note && html`<div class="muted" style="margin:8px 0">${note}</div>`}
     ${err && html`<div class="err">${err.message} ${err.rule ? `(${err.rule})` : ''} ${err.fix_hint || ''}</div>`}
@@ -377,14 +432,24 @@ function RecordView({ ent, id, refresh }) {
           <pre style="margin:4px 0 0">${JSON.stringify(e.payload)}</pre>
         </div>`)}</div>`
       : html`<div class="card">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 18px">
       ${ent.fields.filter(f => f.readable).map(f => {
-        const editable = f.writable && f.name !== ent.workflow_field;
-        return html`<label>${flab(f)}${f.computed ? ' (вычисляемое)' : ''}</label>
+        const editable = editing && f.writable && f.name !== ent.workflow_field;
+        const val = f.name in edit ? edit[f.name] : rec.values[f.name];
+        return html`<div style=${'grid-column:span ' + fieldSpan(f)}>
+          <label>${flab(f)}${f.computed ? ' (вычисляемое)' : ''}</label>
           ${editable
-            ? html`<${FieldInput} field=${f} value=${f.name in edit ? edit[f.name] : rec.values[f.name]} onChange=${v => setEdit({ ...edit, [f.name]: v })} />`
-            : html`<div style="padding:4px 0 10px">${fmt(rec.values[f.name]) || html`<span class="muted">—</span>`}</div>`}`;
+            ? html`<${FieldInput} field=${f} value=${val} onChange=${v => setEdit({ ...edit, [f.name]: v })} />`
+            : html`<div style="padding:4px 0 10px;min-height:20px">${
+                f.type === 'ref' ? html`<${RefValue} field=${f} value=${rec.values[f.name]} />`
+                  : (fmt(rec.values[f.name]) || html`<span class="muted">—</span>`)}</div>`}
+        </div>`;
       })}
-      ${Object.keys(edit).length > 0 && html`<button class="btn green" onClick=${save}>Save changes</button>`}
+      </div>
+      ${editing && html`<div style="margin-top:10px">
+        <button class="btn green" onClick=${save}>Сохранить</button>
+        <button class="btn" onClick=${cancel}>Отмена</button>
+      </div>`}
     </div>`}
     <${Thread} ent=${ent} id=${id} />
   </div>`;

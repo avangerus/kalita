@@ -1,11 +1,17 @@
-i18n labels: entity and field human labels (gap «Important»)
+Web UI: scalable ref picker, read-first records, 3-column forms
 
-Entities take an optional label — `entity Incident "Инцидент":` — and fields a
-`label="…"` modifier. Both flow through the DSL (parser, AST, model), the
-per-actor /api/meta, and the web UI, which now shows the label everywhere an
-identifier used to appear (nav, list headers, forms, record view) and falls
-back to the raw name when no label is declared. Grammar documents both.
+Reworked the generic UI from live-demo feedback:
 
-The Service Desk pack is fully Russian-labelled (10 entities + every Incident
-field), so the operator UI reads in the user's language instead of English
-identifiers — verified live in the browser against seeded Russian data.
+- Ref fields are now an async search picker (queries the target entity by typed
+  term, limit 20) instead of a combobox that loaded the whole table — it scales
+  to 150k users / 1M config items. In read mode a ref shows the target's label,
+  not its uuid.
+- Records open in READ mode; editing is opt-in via a button, with Save/Cancel,
+  and workflow actions are hidden while editing. No more falling straight into a
+  form on click.
+- Forms are a 3-column grid; each control spans 1/2/3 columns by type (long
+  text/json/attachments full width, pickers half, short scalars a third).
+- Workflow action buttons are humanized (close_incident → "Close incident")
+  and primary-styled.
+
+Pack: Supervisor can read SLAPolicy (so the SLA picker/label resolves).
