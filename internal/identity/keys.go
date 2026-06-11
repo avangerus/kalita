@@ -6,6 +6,7 @@ package identity
 import (
 	"crypto/ed25519"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -52,18 +53,47 @@ func LoadKey(path string) (ed25519.PrivateKey, error) {
 }
 
 // LoadOrCreateNodeKey returns the node key, generating it on first start.
-// The node key signs journal checkpoints (EVENT-STORE-v0 §4).
+// The node key signs journal checkpoints (EVENT-STORE-v0 §4). The public key
+// lands next to it as node.pub — hand it to the client: with it and a journal
+// dump they verify offline that history was never rewritten.
 func LoadOrCreateNodeKey(dir string) (ed25519.PrivateKey, error) {
 	path := filepath.Join(dir, "node.key")
 	if _, err := os.Stat(path); err == nil {
 		return LoadKey(path)
 	}
-	_, priv, err := GenerateKey()
+	pub, priv, err := GenerateKey()
 	if err != nil {
 		return nil, err
 	}
 	if err := SaveKey(path, priv); err != nil {
 		return nil, err
 	}
+	if err := os.WriteFile(filepath.Join(dir, "node.pub"),
+		[]byte(base64.StdEncoding.EncodeToString(pub)+"\n"), 0o644); err != nil {
+		return nil, err
+	}
 	return priv, nil
+}
+
+// LoadPub reads a base64 node.pub file.
+func LoadPub(path string) (ed25519.PublicKey, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	der, err := base64.StdEncoding.DecodeString(string(bytesTrim(raw)))
+	if err != nil {
+		return nil, err
+	}
+	if len(der) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("identity: %s is not an Ed25519 public key", path)
+	}
+	return ed25519.PublicKey(der), nil
+}
+
+func bytesTrim(b []byte) []byte {
+	for len(b) > 0 && (b[len(b)-1] == '\n' || b[len(b)-1] == '\r' || b[len(b)-1] == ' ') {
+		b = b[:len(b)-1]
+	}
+	return b
 }

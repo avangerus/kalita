@@ -239,6 +239,11 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 			continue
 		}
 		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, full, actor.ID)})
+		// deterministic id order makes early exit safe: collected enough for
+		// the page plus the has-next probe — stop scanning
+		if opts.Limit > 0 && len(out) > opts.Offset+opts.Limit {
+			break
+		}
 	}
 	if opts.Offset > 0 {
 		if opts.Offset >= len(out) {

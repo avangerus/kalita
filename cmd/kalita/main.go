@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/avangerus/kalita/internal/api"
 	"github.com/avangerus/kalita/internal/dsl"
@@ -38,8 +39,49 @@ func main() {
 		agentCmd(os.Args[2:])
 	case "user":
 		userCmd(os.Args[2:])
+	case "verify":
+		verifyCmd(os.Args[2:])
 	default:
 		usage()
+	}
+}
+
+// verifyCmd proves journal integrity offline: hash chain + (with node.pub)
+// checkpoint signatures. This is the client's notary procedure and the heart
+// of the backup drill in OPERATIONS.md.
+func verifyCmd(args []string) {
+	fs := flag.NewFlagSet("verify", flag.ExitOnError)
+	pub := fs.String("pub", "", "node.pub file for checkpoint verification")
+	_ = fs.Parse(args)
+	dsn := os.Getenv("KALITA_PG_DSN")
+	if dsn == "" {
+		log.Fatal("KALITA_PG_DSN is required")
+	}
+	ctx := context.Background()
+	store, err := eventstore.NewPGStore(ctx, dsn, "", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.Close()
+	events, err := store.All(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := eventstore.VerifyChain(events); err != nil {
+		fmt.Printf("CHAIN BROKEN: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("chain ok: %d events, head seq %d\n", len(events), events[len(events)-1].Seq)
+	if *pub != "" {
+		key, err := identity.LoadPub(*pub)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := eventstore.VerifyCheckpoints(events, key); err != nil {
+			fmt.Printf("CHECKPOINTS BROKEN: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("checkpoints ok: history is provably unrewritten")
 	}
 }
 
@@ -164,6 +206,7 @@ func serve(args []string) {
 	approver := fs.String("approver", "Owner", "role whose human signature applies definition changes")
 	tlsCert := fs.String("tls-cert", "", "TLS certificate file")
 	tlsKey := fs.String("tls-key", "", "TLS key file")
+	dataDir := fs.String("data-dir", "kalita-data", "node key directory (node.key/node.pub)")
 	devHeaders := fs.Bool("insecure-dev-auth", false, "enable X-Actor-* header identity (local development ONLY)")
 	insecureHTTP := fs.Bool("insecure-http", false, "allow plaintext HTTP on non-loopback addresses (NOT recommended)")
 	demo := fs.Bool("demo", false, "seed demo users and data on an empty journal, print ready tokens")
@@ -226,6 +269,45 @@ func serve(args []string) {
 	if *demo {
 		seedDemo(ctx, eng, reg, store)
 	}
+
+	// node key + boot stamp: every start is a journaled, versioned event
+	nodeKey, err := identity.LoadOrCreateNodeKey(*dataDir)
+	if err != nil {
+		log.Fatalf("node key: %v", err)
+	}
+	_, _ = store.Append(ctx, eventstore.AppendInput{
+		Actor:   eventstore.Actor{Type: eventstore.ActorSystem, ID: "node"},
+		Kind:    eventstore.NodeStarted,
+		Payload: []byte(fmt.Sprintf(`{"version":%q}`, version)),
+		Basis:   &eventstore.Basis{Type: "rule", ID: "boot"},
+	})
+
+	// the heartbeat: automation rules (schedules, stuck escalations, lease
+	// sweeps) fire here — a node without Tick is a node where nothing happens
+	go func() {
+		tick := time.NewTicker(time.Minute)
+		defer tick.Stop()
+		for range tick.C {
+			if err := eng.Tick(context.Background()); err != nil {
+				log.Printf("tick: %v", err)
+			}
+		}
+	}()
+	// hourly checkpoint seals the head with the node key (plus one at boot)
+	go func() {
+		seal := func() {
+			if _, err := eventstore.Seal(context.Background(), store, "node", nodeKey); err != nil &&
+				err != eventstore.ErrNothingToSeal {
+				log.Printf("checkpoint: %v", err)
+			}
+		}
+		seal()
+		tick := time.NewTicker(time.Hour)
+		defer tick.Stop()
+		for range tick.C {
+			seal()
+		}
+	}()
 
 	packName := "(genesis)"
 	if m := eng.Model().Manifest; m != nil {
