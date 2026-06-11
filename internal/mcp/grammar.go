@@ -61,7 +61,8 @@ EXPR:        full boolean language for where/guards/filters:
              null is presence: field = null (empty) / field != null (filled)
              ABAC example: read Issue where (reporter = $me or project.owner = $me) and status != Closed
 COMPUTED:    computed = <arithmetic of fields: + - * / and ( ), e.g. amount - amount * discount / 100>
-             | <path> | days_since(path) | count(Entity where reffield = $self)
+             | <path> | days_since(path) | hours_since(path) | minutes_since(path)
+             | count(Entity where reffield = $self)
              | sum|avg|min|max(Entity.field where reffield = $self)   # roll-up over related records
 RULES:       agent role without deny does not compile; workflow state field cannot be written directly; mutations require basis; only additive migrations.`
 

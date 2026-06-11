@@ -97,6 +97,11 @@ entity Incident:
     opened: datetime default=$now
     resolved_at: datetime
     age_days: int computed = days_since(opened)
+    # живой SLA: прошло минут с открытия и сколько минут до нарушения порога
+    # из связанной политики (ref-путь sla_policy.resolution_minutes). Отрицательный
+    # sla_left = SLA просрочен.
+    minutes_open: int computed = minutes_since(opened)
+    sla_left:     int computed = sla_policy.resolution_minutes - minutes_since(opened)
     status: enum[New, Investigating, Identified, Resolved, Closed] default=New
 
 workflow Incident on status:
@@ -260,6 +265,7 @@ automation:
 dashboard OperatorBoard "Очередь оператора":
     tile "Открытые инциденты":       count Incident where status != Closed and status != Resolved
     tile "Не назначены":             count Incident where assignee = null
+    tile "Просрочка SLA":            count Incident where sla_left < 0
     tile "Инциденты по статусу":     count Incident group by status
     tile "Инциденты по приоритету":  count Incident group by priority
 

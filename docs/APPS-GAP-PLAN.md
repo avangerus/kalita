@@ -83,12 +83,16 @@ dogfood (kalita разрабатывает себя через себя) ✅.
 dogfood: kalita, управляющая своей разработкой агентами, как продукт.
 
 ## Порядок исполнения (автопилот)
-Comment✅ → арифметика в computed✅ → null✅ → report/dashboard✅ → **array[file]** →
-hours_since → calendar-view → бизнес-календарь → datetime-триггер → core.User+i18n.
-Сделано (коммит 0e94f74): null-присутствие в языке выражений; dashboard-блок
-(count/sum/avg/min/max, group by, where) с агрегатами по всей таблице и
-построчным ABAC; MCP/REST endpoints; dogfood CRM-воронки. Заодно: грамматика
-вернулась в MCP вместо панграммы (learn_by_example удалён). Следующий блокер —
-array[file] (несколько вложений), затем hours_since.
+Comment✅ → арифметика в computed✅ → null✅ → report/dashboard✅ → hours_since✅ →
+**array[file]** → calendar-view → бизнес-календарь → datetime-триггер → core.User+i18n.
+Сделано (0e94f74): null-присутствие; dashboard-блок (count/sum/avg/min/max,
+group by, where) с построчным ABAC; MCP/REST; грамматика вернулась в MCP вместо
+панграммы. Сделано (02f6d75): пак Service Desk (ITSM СТП ПУИТ) как dogfood —
+10 сущностей, state-машины, RBAC по 10 ролям, HITL на approve/CAB; фикс — Create
+возвращает обогащённую запись (serial+computed). Сделано (этот коммит, Б7):
+hours_since/minutes_since; живой SLA в паке (sla_left через ref-путь
+sla_policy.resolution_minutes − minutes_since(opened), плитка «Просрочка SLA»);
+фиксы — $now-дефолт берёт часы движка (был zero-time), ref-путь в computed
+нормализует точки (двуххоповый deref в арифметике). Следующий блокер — array[file].
 После каждых 2-3 — собрать соответствующий пак как dogfood и проверить вживую.
 Тест успеха: HR / CRM / Desk собираются паком и проходят реальный сценарий E2E.

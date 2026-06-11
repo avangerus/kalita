@@ -1,19 +1,20 @@
-Service Desk (ITSM) pack; Create returns the enriched record
+hours_since/minutes_since; live SLA in Service Desk; two computed fixes
 
-A real-spec dogfood: the СТП ПУИТ Service Desk (ITSM) functional core built as
-one pack — 10 entities (Incident, ServiceRequest, Change, Problem, WorkOrder,
-KnownError, Service catalog, ConfigItem/CMDB, SLAPolicy, KBArticle), their state
-machines as workflows with HITL on service-request approval and change CAB, the
-10 RBAC roles from the TZ as ABAC permissions, escalation automation, and three
-operator dashboards. Compiles; driven end-to-end through MCP by a dogfood test
-(open an incident, run its state machine, park an approval and a CAB sign-off
-behind human signatures, read the boards incl. group-by and `assignee = null`).
+Closes gap Б7. hours_since(path)/minutes_since(path) join days_since over a
+shared elapsed-time helper — the sub-day granularity an SLA timer needs.
 
-Engine fix surfaced by that dogfood: Create returned a bare echo of the input,
-so callers never saw the assigned serial number or any computed field until a
-follow-up read. Create now returns the same enriched shape as Get/Query —
-computed fields evaluated, unreadable fields masked.
+The Service Desk pack now has a live SLA: Incident.sla_left is
+`sla_policy.resolution_minutes - minutes_since(opened)`, and the operator board
+gains a "Просрочка SLA" tile (`where sla_left < 0`). Driven end-to-end by the
+dogfood test (a 30-min policy + an incident opened in 2020 → breached → counted).
 
-Modeling notes recorded in the pack: WorkOrder's polymorphic parent is faked
-with explicit refs + a discriminator (no polymorphic ref yet, gap Ж); minute-
-level SLA timers await hours_since/minutes_since (gap Б7).
+Two engine bugs surfaced by that dogfood:
+- $now defaults landed at the zero time: validateValues built the default
+  context without the engine clock, so `default=$now` wrote 0001-01-01 and every
+  elapsed-time computed was wrong from creation. The clock now reaches defaults.
+- ref-path computed broke on the dot-spacing the DSL tokenizer leaves
+  ("sla_policy . resolution_minutes"): the arithmetic evaluator, unlike
+  evalWhere, did not collapse it, so a two-hop deref dropped the whole computed.
+  evalComputed now normalizes dot-spaces the same way.
+
+Grammar updated with hours_since/minutes_since.

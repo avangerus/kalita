@@ -48,6 +48,7 @@ func TestDogfoodServiceDeskPack(t *testing.T) {
 	sup := tok("sup-1", "Supervisor")
 	chg := tok("chg-1", "ChangeManager")
 	lkp := tok("lkp-1", "LkpUser")
+	adm := tok("adm-1", "Admin")
 
 	eng, err := engine.New(ctx, model, store)
 	if err != nil {
@@ -145,5 +146,30 @@ func TestDogfoodServiceDeskPack(t *testing.T) {
 	cdash, _ := call(t, srv.URL, chg, "dashboard", map[string]any{"name": "ChangesBoard"})
 	if got := tileValue(t, cdash, "Ждут CAB"); got != 1 {
 		t.Errorf("Ждут CAB = %v, want 1", got)
+	}
+
+	// (7) live SLA: a P1 policy with a 30-min resolution, an incident opened long
+	// ago -> sla_left = 30 - minutes_since(opened) goes deeply negative -> breached.
+	// Proves minutes_since + a ref-path computed (sla_policy.resolution_minutes)
+	// feed a dashboard `where sla_left < 0`.
+	pol, e2 := call(t, srv.URL, adm, "create_record", map[string]any{
+		"entity": "SLAPolicy", "basis": basis,
+		"values": map[string]any{"name": "P1 24x7", "priority": "P1", "resolution_minutes": 30}})
+	if e2 {
+		t.Fatalf("create SLAPolicy: %v", pol)
+	}
+	br, e2 := call(t, srv.URL, adm, "create_record", map[string]any{
+		"entity": "Incident", "basis": basis,
+		"values": map[string]any{"title": "Старый инцидент", "source": "Manual",
+			"sla_policy": pol["id"], "opened": "2020-01-01T00:00:00Z"}})
+	if e2 {
+		t.Fatalf("create breaching incident: %v", br)
+	}
+	if left, _ := br["values"].(map[string]any)["sla_left"].(float64); left >= 0 {
+		t.Errorf("sla_left = %v, want negative (opened in 2020, 30-min SLA)", left)
+	}
+	sdash, _ := call(t, srv.URL, adm, "dashboard", map[string]any{"name": "OperatorBoard"})
+	if got := tileValue(t, sdash, "Просрочка SLA"); got != 1 {
+		t.Errorf("Просрочка SLA = %v, want 1 (only the breaching incident has a policy)", got)
 	}
 }

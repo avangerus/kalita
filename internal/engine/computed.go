@@ -47,7 +47,10 @@ var aggFuncs = map[string]bool{"count": true, "sum": true, "avg": true, "min": t
 // and the aggregates count/sum/avg/min/max(...). One closed, checkable grammar
 // — NOT arbitrary code.
 func (e *Engine) evalComputed(expr, selfID string, values map[string]any) (any, bool) {
-	p := &arith{s: strings.TrimSpace(expr), e: e, selfID: selfID, values: values}
+	// the DSL tokenizer spaces out ref paths ("sla_policy . resolution_minutes");
+	// collapse them so a dotted path is one atom (same fix as evalWhere).
+	expr = reDotSpace.ReplaceAllString(strings.TrimSpace(expr), ".")
+	p := &arith{s: expr, e: e, selfID: selfID, values: values}
 	v, ok := p.parseExpr()
 	p.skipSpace()
 	if !ok || p.pos != len(p.s) {
@@ -199,7 +202,11 @@ func (p *arith) parseAtom() (float64, bool) {
 		var ok bool
 		switch {
 		case name == "days_since":
-			v, ok = p.e.evalDaysSince(strings.TrimSpace(body), p.values)
+			v, ok = p.e.evalSince(strings.TrimSpace(body), p.values, 24*time.Hour)
+		case name == "hours_since":
+			v, ok = p.e.evalSince(strings.TrimSpace(body), p.values, time.Hour)
+		case name == "minutes_since":
+			v, ok = p.e.evalSince(strings.TrimSpace(body), p.values, time.Minute)
 		case aggFuncs[name]:
 			v, ok = p.e.evalAggregate(name, body+")", p.selfID)
 		default:
@@ -217,8 +224,10 @@ func (p *arith) parseAtom() (float64, bool) {
 	return f, fok
 }
 
-// evalDaysSince computes whole days from a date/datetime field to now.
-func (e *Engine) evalDaysSince(path string, values map[string]any) (any, bool) {
+// evalSince computes whole elapsed units (unit = 24h/1h/1m) from a date or
+// datetime field to now. days_since/hours_since/minutes_since share it; the
+// finer units are what sub-day SLA timers need (response/resolution minutes).
+func (e *Engine) evalSince(path string, values map[string]any, unit time.Duration) (any, bool) {
 	raw, ok := e.resolvePath(path, values)
 	if !ok {
 		return nil, false
@@ -230,7 +239,7 @@ func (e *Engine) evalDaysSince(path string, values map[string]any) (any, bool) {
 			return nil, false
 		}
 	}
-	return float64(int(e.now().UTC().Sub(t).Hours() / 24)), true
+	return float64(int(e.now().UTC().Sub(t) / unit)), true
 }
 
 // evalAggregate computes count/sum/avg/min/max over records of a target entity
