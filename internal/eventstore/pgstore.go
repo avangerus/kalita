@@ -219,6 +219,18 @@ func scanEvent(row pgx.Row) (*Event, error) {
 	return &e, nil
 }
 
+// ByIdemKey returns the event stored under the key, or nil.
+func (s *PGStore) ByIdemKey(ctx context.Context, key string) (*Event, error) {
+	e, err := s.queryOne(ctx, s.pool, `SELECT `+columns+` FROM events WHERE idempotency_key = $1`, key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
 // Head returns the seq and hash of the last event (0, nil on empty journal).
 func (s *PGStore) Head(ctx context.Context) (uint64, []byte, error) {
 	var seq uint64

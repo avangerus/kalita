@@ -85,29 +85,44 @@ func analyze(ast *AST, errs *Errors) *Model {
 		m.Roles[r.Name] = r
 	}
 
-	// permissions
+	// permissions: blocks for the same role merge (a pack may extend a role's
+	// rules across files)
 	for _, pb := range ast.Permissions {
-		role, ok := m.Roles[pb.Role]
-		if !ok {
+		if _, ok := m.Roles[pb.Role]; !ok {
 			errs.add(EUnknownRole, "", pb.Line, "permissions for undeclared role "+pb.Role,
 				"declare the role in the roles: block first")
 			continue
 		}
-		m.Perms[pb.Role] = pb
+		for _, rule := range pb.Rules {
+			for _, item := range rule.Items {
+				checkPermTarget(m, pb.Role, item, errs)
+			}
+		}
+		if existing, ok := m.Perms[pb.Role]; ok {
+			existing.Rules = append(existing.Rules, pb.Rules...)
+		} else {
+			cp := *pb
+			m.Perms[pb.Role] = &cp
+		}
+	}
+
+	// The defining constraint of the grammar: an agent role without explicit
+	// deny boundaries does not compile (DSL-SPEC-v0 §5) — checked over the
+	// merged rule set.
+	for name, pb := range m.Perms {
+		role := m.Roles[name]
+		if role == nil || !role.IsAgent {
+			continue
+		}
 		hasDeny := false
 		for _, rule := range pb.Rules {
 			if rule.Verb == "deny" {
 				hasDeny = true
 			}
-			for _, item := range rule.Items {
-				checkPermTarget(m, pb.Role, item, errs)
-			}
 		}
-		// The defining constraint of the grammar: an agent role without
-		// explicit deny boundaries does not compile (DSL-SPEC-v0 §5).
-		if role.IsAgent && !hasDeny {
+		if !hasDeny {
 			errs.add(EAgentNoDeny, "", pb.Line,
-				"agent role "+pb.Role+" has no deny block",
+				"agent role "+name+" has no deny block",
 				"agent roles must declare explicit boundaries, e.g. `deny [delete *, update "+firstEntity(m)+".*]`")
 		}
 	}

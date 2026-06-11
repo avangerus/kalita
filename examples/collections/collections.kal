@@ -34,8 +34,7 @@ permissions:
         act   [send_claim]
         deny  [update Debtor.debt, delete *, read Contract where classified = true]
     Accountant:
-        full  [Debtor]
-        read  [Contract]
+        full  [Debtor, Contract]
     FinDirector:
         approve [escalate]
         read    all

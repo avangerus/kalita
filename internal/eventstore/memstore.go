@@ -89,6 +89,16 @@ func (s *MemStore) All(_ context.Context) ([]*Event, error) {
 	return out, nil
 }
 
+// ByIdemKey returns the event stored under the key, or nil.
+func (s *MemStore) ByIdemKey(_ context.Context, key string) (*Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e, ok := s.byIdemKey[key]; ok {
+		return e, nil
+	}
+	return nil, nil
+}
+
 // Head returns the seq and hash of the last event.
 func (s *MemStore) Head(_ context.Context) (uint64, []byte, error) {
 	s.mu.Lock()

@@ -11,6 +11,10 @@ type Store interface {
 	All(ctx context.Context) ([]*Event, error)
 	// Head returns the seq and hash of the last event (0, nil on empty journal).
 	Head(ctx context.Context) (uint64, []byte, error)
+	// ByIdemKey returns the event stored under the idempotency key, or nil.
+	// Callers check it BEFORE validation: a retry must short-circuit ahead of
+	// any state-dependent checks (uniqueness would otherwise reject the retry).
+	ByIdemKey(ctx context.Context, key string) (*Event, error)
 	// Verify re-reads the journal and checks the hash chain.
 	Verify(ctx context.Context) error
 }
