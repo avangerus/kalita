@@ -91,8 +91,47 @@ func (e *Engine) createTask(ctx context.Context, actor eventstore.Actor, t Task,
 		t.Status = TaskOpen
 		cp := t
 		e.tasks[t.ID] = &cp
+		e.wakeTaskWaiters()
 	}
 	return t.ID, nil
+}
+
+// WaitForTask blocks until an open task exists for the role or the timeout
+// passes — the long-polling primitive: a thousand idle workers cost zero
+// instead of storming the node with list calls.
+func (e *Engine) WaitForTask(ctx context.Context, role string, timeout time.Duration) []*Task {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		if tasks := e.Tasks(role, TaskOpen); len(tasks) > 0 {
+			return tasks
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-deadline.C:
+			return nil
+		case <-e.taskSignal():
+		}
+	}
+}
+
+// taskSignal returns a channel closed on the next task-affecting change.
+func (e *Engine) taskSignal() <-chan struct{} {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.taskWake == nil {
+		e.taskWake = make(chan struct{})
+	}
+	return e.taskWake
+}
+
+// wakeTaskWaiters releases all current waiters (called after task creation).
+func (e *Engine) wakeTaskWaiters() {
+	if e.taskWake != nil {
+		close(e.taskWake)
+		e.taskWake = nil
+	}
 }
 
 // Tasks lists tasks for a role (open and taken-by-actor first; deterministic).

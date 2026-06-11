@@ -43,6 +43,7 @@ var toolDefs = []map[string]any{
 	{"name": "update_record", "description": "Partially update a record. Requires basis. The workflow state field cannot be written — use act.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "values": obj, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "values", "basis")},
 	{"name": "act", "description": "Execute a workflow transition by action name. May return pending_approval — then a human decides, you cannot rush it.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "action": str, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "action", "basis")},
 	{"name": "list_my_tasks", "description": "Tasks assigned to your role (open by default).", "inputSchema": schema(map[string]any{"status": str})},
+	{"name": "wait_for_task", "description": "Long-poll: blocks until an open task exists for your role or timeout_sec (default 25, max 55) passes. Use this instead of polling list_my_tasks in a loop.", "inputSchema": schema(map[string]any{"timeout_sec": num})},
 	{"name": "take_task", "description": "Take an open task: an exclusive lease with TTL. Losing the lease loses the task.", "inputSchema": schema(map[string]any{"task_id": str}, "task_id")},
 	{"name": "report_progress", "description": "Attach a progress note. The journal cross-checks it against your actual events on the record.", "inputSchema": schema(map[string]any{"task_id": str, "note": str}, "task_id", "note")},
 	{"name": "complete_task", "description": "Finish a taken task with a result.", "inputSchema": schema(map[string]any{"task_id": str, "result": str}, "task_id", "result")},
@@ -118,6 +119,17 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		_ = json.Unmarshal(args, &a)
 		res, err := s.eng.Act(ctx, actor, a.Entity, a.ID, a.Action, a.Basis, a.IdempotencyKey)
 		return res, toolErr(err)
+
+	case "wait_for_task":
+		var a struct {
+			TimeoutSec int `json:"timeout_sec"`
+		}
+		_ = json.Unmarshal(args, &a)
+		if a.TimeoutSec <= 0 || a.TimeoutSec > 55 {
+			a.TimeoutSec = 25
+		}
+		tasks := s.eng.WaitForTask(ctx, actor.Role, time.Duration(a.TimeoutSec)*time.Second)
+		return map[string]any{"tasks": tasks}, nil
 
 	case "list_my_tasks":
 		var a struct{ Status string }

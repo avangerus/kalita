@@ -22,6 +22,7 @@ type Engine struct {
 	records    map[string]map[string]*Record // entity → id → record
 	approvals  map[string]*Approval
 	tasks      map[string]*Task
+	taskWake   chan struct{} // long-polling waiters, closed on new tasks
 	proposals  map[string]*Proposal
 	stateSince map[string]map[string]time.Time // entity → id → entered current state
 	taskTTL    time.Duration
