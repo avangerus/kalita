@@ -1,13 +1,11 @@
-array[file] — multiple attachments (closes gap Б3)
+i18n labels: entity and field human labels (gap «Important»)
 
-A new TyArrayFile kind wired through the whole pipeline: the type parser
-(array[file]), value validation (an array of {hash,...} file refs, each hash
-required), UI metadata (array_file), MCP describe_entity, structured authoring
-(compose_pack / FieldTypes), and the grammar.
+Entities take an optional label — `entity Incident "Инцидент":` — and fields a
+`label="…"` modifier. Both flow through the DSL (parser, AST, model), the
+per-actor /api/meta, and the web UI, which now shows the label everywhere an
+identifier used to appear (nav, list headers, forms, record view) and falls
+back to the raw name when no label is declared. Grammar documents both.
 
-Incident now has `attachments: array[file]` (screenshots + logs). The dogfood
-proves it: an incident round-trips two attachments, and a malformed one (no
-hash) is rejected with a validation error.
-
-This was the last of blockers Б1–Б7 from APPS-GAP-PLAN — the functional cores of
-the HR / CRM / Service Desk apps now build on the kernel without kernel gaps.
+The Service Desk pack is fully Russian-labelled (10 entities + every Incident
+field), so the operator UI reads in the user's language instead of English
+identifiers — verified live in the browser against seeded Russian data.

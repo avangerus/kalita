@@ -10,6 +10,7 @@ import (
 
 type MetaField struct {
 	Name     string   `json:"name"`
+	Label    string   `json:"label,omitempty"`
 	Type     string   `json:"type"`
 	Values   []string `json:"values,omitempty"`
 	Ref      string   `json:"ref,omitempty"`
@@ -40,6 +41,7 @@ type MetaUI struct {
 
 type MetaEntity struct {
 	Name          string       `json:"name"`
+	Label         string       `json:"label,omitempty"`
 	Singleton     bool         `json:"singleton,omitempty"`
 	Fields        []MetaField  `json:"fields"`
 	CanCreate     bool         `json:"can_create"`
@@ -77,6 +79,7 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 		decl := e.model.Entities[name]
 		me := MetaEntity{
 			Name:      name,
+			Label:     decl.Label,
 			Singleton: decl.Singleton,
 			CanCreate: e.can(role, "create", name, "", nil, actorID).allowed,
 			CanRead:   e.can(role, "read", name, "", nil, actorID).allowed,
@@ -92,7 +95,7 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 		}
 		for _, f := range decl.Fields {
 			mf := MetaField{
-				Name: f.Name, Required: f.Required, Computed: f.Computed != "",
+				Name: f.Name, Label: f.Label, Required: f.Required, Computed: f.Computed != "",
 				Readable: e.can(role, "read", name, f.Name, nil, actorID).allowed ||
 					e.hasAnyRule(role, "read", name),
 				Writable: f.Computed == "" && e.can(role, "update", name, f.Name, nil, actorID).allowed,

@@ -114,15 +114,29 @@ func (p *parser) manifestLine(ln *Line) {
 func (p *parser) entity(ln *Line) {
 	p.pos++
 	t := ln.Toks
-	singleton := len(t) >= 4 && t[2].Text == "singleton" && t[3].Text == ":"
-	if !singleton && (len(t) < 3 || t[1].Kind != TIdent || t[2].Text != ":") {
+	// entity Name ["Метка"] [singleton]:
+	e := &EntityDecl{File: ln.File, Line: ln.Num}
+	ok := len(t) >= 3 && t[1].Kind == TIdent
+	if ok {
+		e.Name = t[1].Text
+		i := 2
+		if i < len(t) && t[i].Kind == TStr {
+			e.Label = t[i].Text
+			i++
+		}
+		if i < len(t) && t[i].Text == "singleton" {
+			e.Singleton = true
+			i++
+		}
+		ok = i < len(t) && t[i].Text == ":"
+	}
+	if !ok {
 		p.errs.add(EExpectedColon, ln.File, ln.Num,
-			"entity declaration must be `entity Name:` or `entity Name singleton:`",
+			`entity declaration must be `+"`entity Name:`"+`, `+"`entity Name \"Метка\":`"+` or `+"`entity Name singleton:`",
 			"write `entity Debtor:` with a PascalCase name and a trailing colon")
 		p.skipChildren(ln.Indent)
 		return
 	}
-	e := &EntityDecl{Name: t[1].Text, File: ln.File, Line: ln.Num, Singleton: singleton}
 	body := p.children(ln.Indent)
 	if len(body) == 0 {
 		p.errs.add(EEmptyBlock, ln.File, ln.Num, "entity "+e.Name+" has no fields",
@@ -305,7 +319,7 @@ func (p *parser) modifiers(toks []Tok, f *FieldDecl, ln *Line) {
 		case "unique":
 			f.Unique = true
 			i++
-		case "default", "computed", "on_delete", "format":
+		case "default", "computed", "on_delete", "format", "label":
 			if i+2 >= len(toks)+1 || i+1 >= len(toks) || toks[i+1].Text != "=" {
 				p.errs.add(EBadModifier, ln.File, ln.Num, t.Text+" requires =value",
 					fmt.Sprintf("write `%s=...`", t.Text))
@@ -319,6 +333,8 @@ func (p *parser) modifiers(toks []Tok, f *FieldDecl, ln *Line) {
 				f.Computed = val
 			case "format":
 				f.Format = strings.Trim(val, `"`)
+			case "label":
+				f.Label = strings.Trim(val, `"`)
 			case "on_delete":
 				if !onDeleteValues[val] {
 					p.errs.add(EBadModifier, ln.File, ln.Num, "on_delete must be restrict, set_null or cascade",
@@ -335,7 +351,7 @@ func (p *parser) modifiers(toks []Tok, f *FieldDecl, ln *Line) {
 	}
 }
 
-var modKeywords = map[string]bool{"required": true, "unique": true, "default": true, "computed": true, "on_delete": true, "format": true}
+var modKeywords = map[string]bool{"required": true, "unique": true, "default": true, "computed": true, "on_delete": true, "format": true, "label": true}
 
 // exprUntilKeyword joins tokens into a raw expression until the next modifier
 // keyword. Expressions stay raw text in week 2; the expression grammar is

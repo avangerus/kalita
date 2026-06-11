@@ -47,10 +47,12 @@ type FieldDecl struct {
 	Computed string // raw expression text, "" if absent
 	OnDelete string // restrict | set_null | cascade, "" if absent
 	Format   string // serial format, e.g. "INV-{year}-{seq:5}", "" if absent
+	Label    string // human label (i18n), "" = use the field name
 }
 
 type EntityDecl struct {
 	Name        string
+	Label       string // human label (i18n), "" = use the entity name
 	File        string
 	Line        int
 	Singleton   bool // at most one record (settings-style entities)

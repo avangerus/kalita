@@ -10,7 +10,7 @@
 
 # --- справочники / CMDB ------------------------------------------------------
 
-entity Service:
+entity Service "Услуга":
     code: string required unique
     name: string required
     description: text
@@ -18,7 +18,7 @@ entity Service:
     request_form_schema: json          # схема формы запроса (как в ТЗ JSONB)
     published: bool default=false
 
-entity ConfigItem:
+entity ConfigItem "Конфигурационная единица":
     external_id: string required unique # ID из 1С
     name: string required
     ci_type: enum[Software, Hardware, ServiceCI, License, Document, Other] default=Other
@@ -27,7 +27,7 @@ entity ConfigItem:
     owner: ref[core.User]
     source: enum[Sync1C, Manual] default=Manual
 
-entity SLAPolicy:
+entity SLAPolicy "Политика SLA":
     name: string required
     applies_to: enum[Incident, ServiceRequest, Change, Ticket] default=Incident
     priority: enum[P1, P2, P3, P4] default=P3
@@ -37,7 +37,7 @@ entity SLAPolicy:
 
 # --- проблемы и известные ошибки ---------------------------------------------
 
-entity Problem:
+entity Problem "Проблема":
     number: serial format="PRB-{year}-{seq:6}"
     title: string required
     description: text
@@ -55,7 +55,7 @@ workflow Problem on status:
     KnownErrorState     -> Resolved:            resolve_problem
     Resolved            -> Closed:              close_problem
 
-entity KnownError:
+entity KnownError "Известная ошибка":
     problem: ref[Problem] on_delete=cascade
     symptoms: text
     workaround: text
@@ -65,7 +65,7 @@ entity KnownError:
 
 # --- база знаний (FTS у kalita нативный — search по text/string) --------------
 
-entity KBArticle:
+entity KBArticle "Статья базы знаний":
     title: string required
     body: text
     category: string
@@ -81,29 +81,29 @@ workflow KBArticle on status:
 
 # --- инциденты ----------------------------------------------------------------
 
-entity Incident:
-    number: serial format="INC-{year}-{seq:6}"
-    title: string required
-    description: text
-    priority: enum[P1, P2, P3, P4] default=P3
-    impact: enum[High, Medium, Low] default=Medium
-    urgency: enum[High, Medium, Low] default=Medium
-    source: enum[Manual, Tivoli, Email, Portal] default=Manual
-    ci: ref[ConfigItem]
-    problem: ref[Problem]
-    attachments: array[file]            # скриншоты + логи (несколько вложений)
-    reporter: ref[core.User] default=$me
-    assignee: ref[core.User]
-    sla_policy: ref[SLAPolicy]
-    opened: datetime default=$now
-    resolved_at: datetime
-    age_days: int computed = days_since(opened)
+entity Incident "Инцидент":
+    number: serial format="INC-{year}-{seq:6}" label="Номер"
+    title: string required label="Тема"
+    description: text label="Описание"
+    priority: enum[P1, P2, P3, P4] default=P3 label="Приоритет"
+    impact: enum[High, Medium, Low] default=Medium label="Влияние"
+    urgency: enum[High, Medium, Low] default=Medium label="Срочность"
+    source: enum[Manual, Tivoli, Email, Portal] default=Manual label="Источник"
+    ci: ref[ConfigItem] label="Конфиг-единица"
+    problem: ref[Problem] label="Проблема"
+    attachments: array[file] label="Вложения"          # скриншоты + логи
+    reporter: ref[core.User] default=$me label="Заявитель"
+    assignee: ref[core.User] label="Исполнитель"
+    sla_policy: ref[SLAPolicy] label="Политика SLA"
+    opened: datetime default=$now label="Открыт"
+    resolved_at: datetime label="Решён"
+    age_days: int computed = days_since(opened) label="Возраст, дн."
     # живой SLA: прошло минут с открытия и сколько минут до нарушения порога
     # из связанной политики (ref-путь sla_policy.resolution_minutes). Отрицательный
     # sla_left = SLA просрочен.
-    minutes_open: int computed = minutes_since(opened)
-    sla_left:     int computed = sla_policy.resolution_minutes - minutes_since(opened)
-    status: enum[New, Investigating, Identified, Resolved, Closed] default=New
+    minutes_open: int computed = minutes_since(opened) label="В работе, мин."
+    sla_left:     int computed = sla_policy.resolution_minutes - minutes_since(opened) label="До SLA, мин."
+    status: enum[New, Investigating, Identified, Resolved, Closed] default=New label="Статус"
 
 workflow Incident on status:
     New           -> Investigating: investigate assignee=OperatorL2
@@ -118,7 +118,7 @@ link Incident -> Incident as duplicates / duplicated_by
 
 # --- запросы на обслуживание из каталога -------------------------------------
 
-entity ServiceRequest:
+entity ServiceRequest "Запрос на обслуживание":
     number: serial format="SR-{year}-{seq:6}"
     service: ref[Service] on_delete=restrict
     requester: ref[core.User] default=$me
@@ -138,7 +138,7 @@ workflow ServiceRequest on status:
 
 # --- запросы на изменение (RFC) с согласованием CAB --------------------------
 
-entity Change:
+entity Change "Запрос на изменение":
     number: serial format="CHG-{year}-{seq:6}"
     title: string required
     description: text
@@ -166,7 +166,7 @@ workflow Change on status:
 # ссылок (пробел Ж в APPS-GAP-PLAN), поэтому моделируем явными ссылками +
 # дискриминатором parent_type. Заполняется одна из ссылок по типу.
 
-entity WorkOrder:
+entity WorkOrder "Рабочее задание":
     number: serial format="WO-{year}-{seq:6}"
     parent_type: enum[Incident, ServiceRequest, Change, Problem] default=Incident
     incident: ref[Incident]

@@ -41,6 +41,11 @@ function useRoute() {
 }
 const nav = (r) => { location.hash = r; };
 
+// i18n: prefer the declared label, fall back to the raw name.
+const elab = (e) => e.label || e.name;
+const flab = (f) => f.label || f.name;
+const colLabel = (ent, c) => { const f = ent.fields.find(x => x.name === c); return f ? flab(f) : c; };
+
 // --- field rendering -------------------------------------------------------------
 
 // RefInput: a dropdown of the target entity's records, labeled by their first
@@ -206,8 +211,8 @@ function CreateForm({ ent, onDone }) {
     } catch (e) { setErr(e); }
   };
   return html`<div class="card">
-    <h3>New ${ent.name}</h3>
-    ${writable.map(f => html`<label>${f.name}${f.required ? ' *' : ''}</label>
+    <h3>Новый · ${elab(ent)}</h3>
+    ${writable.map(f => html`<label>${flab(f)}${f.required ? ' *' : ''}</label>
       <${FieldInput} field=${f} value=${vals[f.name]} onChange=${v => setVals({ ...vals, [f.name]: v })} />`)}
     ${err && html`<div class="err">${err.message} ${err.fix_hint ? `— ${err.fix_hint}` : ''}</div>`}
     <button class="btn green" onClick=${submit}>Create</button>
@@ -299,13 +304,13 @@ function EntityList({ ent }) {
   const visible = rows.slice(0, PAGE).filter(r => !q ||
     cols.some(c => String(r.values[c] ?? '').toLowerCase().includes(q.toLowerCase())));
   return html`<div>
-    <h2>${ent.name} ${ent.ui.board_by && html`<a class="muted" style="font-size:13px" onClick=${() => nav(`/board/${ent.name}`)}>board view</a>`}</h2>
+    <h2>${elab(ent)} ${ent.ui.board_by && html`<a class="muted" style="font-size:13px" onClick=${() => nav(`/board/${ent.name}`)}>доска</a>`}</h2>
     <div style="display:flex;gap:8px;align-items:flex-start">
-      ${ent.can_create && html`<button class="btn" onClick=${() => setCreating(!creating)}>${creating ? 'Cancel' : `+ New ${ent.name}`}</button>`}
-      <input style="max-width:240px;margin:0" placeholder="filter this page…" value=${q} onInput=${e => setQ(e.target.value)} />
+      ${ent.can_create && html`<button class="btn" onClick=${() => setCreating(!creating)}>${creating ? 'Отмена' : `+ ${elab(ent)}`}</button>`}
+      <input style="max-width:240px;margin:0" placeholder="фильтр по странице…" value=${q} onInput=${e => setQ(e.target.value)} />
     </div>
     ${creating && html`<${CreateForm} ent=${ent} onDone=${() => { setCreating(false); load(); }} />`}
-    <table style="margin-top:10px"><thead><tr>${cols.map(c => html`<th>${c}</th>`)}</tr></thead>
+    <table style="margin-top:10px"><thead><tr>${cols.map(c => html`<th>${colLabel(ent, c)}</th>`)}</tr></thead>
     <tbody>${visible.map(r => html`<tr onClick=${() => nav(`/e/${ent.name}/${r.id}`)}>
       ${cols.map(c => html`<td>${fmt(r.values[c])}</td>`)}</tr>`)}</tbody></table>
     ${visible.length === 0 && html`<div class="muted" style="margin-top:8px">no records visible to your role</div>`}
@@ -323,7 +328,7 @@ function Board({ ent }) {
   const field = ent.fields.find(f => f.name === ent.ui.board_by);
   const title = ent.ui.list_columns?.[0] || ent.fields[0]?.name;
   return html`<div>
-    <h2>${ent.name} <a class="muted" style="font-size:13px" onClick=${() => nav(`/e/${ent.name}`)}>list view</a></h2>
+    <h2>${elab(ent)} <a class="muted" style="font-size:13px" onClick=${() => nav(`/e/${ent.name}`)}>список</a></h2>
     <div class="cols">${(field?.values || []).map(v => html`<div class="col"><h4>${v} · ${rows.filter(r => r.values[ent.ui.board_by] === v).length}</h4>
       ${rows.filter(r => r.values[ent.ui.board_by] === v).map(r => html`
         <div class="kcard" onClick=${() => nav(`/e/${ent.name}/${r.id}`)}>${fmt(r.values[title])}</div>`)}
@@ -358,7 +363,7 @@ function RecordView({ ent, id, refresh }) {
   const showJournal = () => api(`/api/records/${ent.name}/${id}/journal`).then(j => setJournal(j.events));
 
   return html`<div>
-    <h2>${ent.name} <span class="muted">${id.slice(0, 8)}…</span> ${state && html`<span class="pill">${state}</span>`}</h2>
+    <h2>${elab(ent)} <span class="muted">${id.slice(0, 8)}…</span> ${state && html`<span class="pill">${state}</span>`}</h2>
     <div style="margin-bottom:10px">
       ${actions.map(a => html`<button class="btn" onClick=${() => act(a.action)}>${a.action}${a.requires_approval ? ' ✍' : ''}</button>`)}
       <button class="btn" onClick=${journal ? () => setJournal(null) : showJournal}>${journal ? 'hide journal' : 'journal'}</button>
@@ -374,7 +379,7 @@ function RecordView({ ent, id, refresh }) {
       : html`<div class="card">
       ${ent.fields.filter(f => f.readable).map(f => {
         const editable = f.writable && f.name !== ent.workflow_field;
-        return html`<label>${f.name}${f.computed ? ' (computed)' : ''}</label>
+        return html`<label>${flab(f)}${f.computed ? ' (вычисляемое)' : ''}</label>
           ${editable
             ? html`<${FieldInput} field=${f} value=${f.name in edit ? edit[f.name] : rec.values[f.name]} onChange=${v => setEdit({ ...edit, [f.name]: v })} />`
             : html`<div style="padding:4px 0 10px">${fmt(rec.values[f.name]) || html`<span class="muted">—</span>`}</div>`}`;
@@ -503,7 +508,7 @@ function App() {
         ${meta.search && html`<a class=${route === '/search' ? 'on' : ''} onClick=${() => nav('/search')}>🔍 Поиск</a>`}
         <a class=${route === '/inbox' ? 'on' : ''} onClick=${() => nav('/inbox')}>Inbox ${inboxCount > 0 && html`<span class="badge">${inboxCount}</span>`}</a>
         <a class=${route === '/dashboards' ? 'on' : ''} onClick=${() => nav('/dashboards')}>📊 Дашборды</a>
-        ${meta.entities.map(e => html`<a class=${parts[1] === e.name ? 'on' : ''} onClick=${() => nav(`/e/${e.name}`)}>${e.name}</a>`)}
+        ${meta.entities.map(e => html`<a class=${parts[1] === e.name ? 'on' : ''} onClick=${() => nav(`/e/${e.name}`)}>${elab(e)}</a>`)}
         <a class=${route === '/agents' ? 'on' : ''} onClick=${() => nav('/agents')} style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">Agents</a>
       </div>
     </div>
