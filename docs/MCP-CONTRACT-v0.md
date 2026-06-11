@@ -82,7 +82,7 @@
 
 ## 7. Чего нет в v0 (зарезервировано)
 
-`simulate_change` (слой 2), `subscribe` (push-события агентам — в v0 polling через `list_my_tasks`), межузловые вызовы (слой 3), управление identity через MCP (только человек-админ через UI).
+`simulate_change` (слой 2), `subscribe` (push-события агентам — в v0 polling через `list_my_tasks`), межузловые вызовы (слой 3), управление identity через MCP (только человек-админ через UI), `search_perimeter` (RAG-поиск по корпоративным данным через KnowVault — см. KNOWVAULT-INTEGRATION.md).
 
 ## 8. Приёмочный сценарий контракта
 
