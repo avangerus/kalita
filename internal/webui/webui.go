@@ -1,22 +1,33 @@
-// Package webui embeds the universal client. The UI is a pure projection of
-// /api/meta — it ships inside the binary so the on-prem delivery unit stays a
-// single file and the client can never drift from the kernel version.
+// Package webui serves the built-in renderer (a pure projection of /api/meta).
+// The renderer is decoupled from the binary (ADR-004): by default the node
+// serves a UI directory from disk (edit a file, refresh — no Go rebuild). The
+// embedded copy is opt-in behind the `embedui` build tag for a single-file
+// on-prem box.
 package webui
 
 import (
-	"embed"
-	"io/fs"
 	"net/http"
+	"os"
 )
 
-//go:embed static
-var files embed.FS
-
-// Handler serves the embedded client.
-func Handler() http.Handler {
-	sub, err := fs.Sub(files, "static")
-	if err != nil {
-		panic(err) // embed is broken at build time, not runtime
+// DirHandler serves a UI directory from disk. Returns nil if the directory
+// does not exist, so the node can fall back to embedded or API-only.
+func DirHandler(dir string) http.Handler {
+	if dir == "" {
+		return nil
 	}
-	return http.FileServer(http.FS(sub))
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return nil
+	}
+	return http.FileServer(http.Dir(dir))
+}
+
+// apiOnly is the fallback when there is no UI: a terse pointer, not a 404.
+func APIOnly() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("kalita node — API only. Mount a UI with --ui-dir, " +
+			"build with -tags embedui for the bundled renderer, or use @kalita/sdk.\n"))
+	})
 }

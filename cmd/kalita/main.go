@@ -211,6 +211,7 @@ func serve(args []string) {
 	tlsCert := fs.String("tls-cert", "", "TLS certificate file")
 	tlsKey := fs.String("tls-key", "", "TLS key file")
 	dataDir := fs.String("data-dir", "kalita-data", "node key directory (node.key/node.pub)")
+	uiDir := fs.String("ui-dir", "", "serve a UI directory from disk (e.g. ./web); empty = embedded if built with -tags embedui, else API-only")
 	devHeaders := fs.Bool("insecure-dev-auth", false, "enable X-Actor-* header identity (local development ONLY)")
 	insecureHTTP := fs.Bool("insecure-http", false, "allow plaintext HTTP on non-loopback addresses (NOT recommended)")
 	demo := fs.Bool("demo", false, "seed demo users and data on an empty journal, print ready tokens")
@@ -274,7 +275,20 @@ func serve(args []string) {
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.New(eng, reg))
 	mux.Handle("/api/", api.New(eng, reg, apiOpts...))
-	mux.Handle("/", webui.Handler())
+	// UI source, by ADR-004: --ui-dir (disk, no rebuild) > embedded (build tag) > API-only
+	var ui http.Handler
+	switch {
+	case webui.DirHandler(*uiDir) != nil:
+		ui = webui.DirHandler(*uiDir)
+		log.Printf("UI: serving %s from disk", *uiDir)
+	case webui.Embedded():
+		ui = webui.EmbeddedHandler()
+		log.Print("UI: embedded renderer")
+	default:
+		ui = webui.APIOnly()
+		log.Print("UI: none (API-only) — use --ui-dir, -tags embedui, or @kalita/sdk")
+	}
+	mux.Handle("/", ui)
 	handler := api.Secure(mux)
 
 	if *demo {

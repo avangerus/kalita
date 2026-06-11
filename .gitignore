@@ -9,3 +9,5 @@ node_modules/
 dist/
 /tmp-vault/
 /kalita-data/
+internal/webui/embedded/
+/internal/webui/embedded/
