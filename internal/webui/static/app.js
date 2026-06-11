@@ -132,6 +132,18 @@ function CreateForm({ ent, onDone }) {
   </div>`;
 }
 
+// Singletons (settings-style entities) skip the list: straight to the one
+// record, or its creation form.
+function SingletonView({ ent, refresh }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => { api(`/api/records/${ent.name}`).then(r => setRows(r.records || [])); }, [ent.name]);
+  if (rows === null) return html`<div class="muted">loading…</div>`;
+  if (rows.length === 0) return html`<div><h2>${ent.name}</h2>
+    ${ent.can_create ? html`<${CreateForm} ent=${ent} onDone=${() => location.reload()} />`
+      : html`<div class="muted">not configured yet — ask a role that can create it</div>`}</div>`;
+  return html`<${RecordView} ent=${ent} id=${rows[0].id} refresh=${refresh} />`;
+}
+
 function EntityList({ ent }) {
   const [rows, setRows] = useState([]); const [creating, setCreating] = useState(false);
   const cols = ent.ui.list_columns?.length ? ent.ui.list_columns : ent.fields.filter(f => f.readable).slice(0, 6).map(f => f.name);
@@ -237,6 +249,7 @@ function App() {
   const ent = parts[0] === 'e' || parts[0] === 'board' ? meta.entities.find(x => x.name === parts[1]) : null;
   let view = html`<${Inbox} meta=${meta} refresh=${refresh} />`;
   if (parts[0] === 'e' && ent && parts[2]) view = html`<${RecordView} ent=${ent} id=${parts[2]} refresh=${refresh} />`;
+  else if (parts[0] === 'e' && ent && ent.singleton) view = html`<${SingletonView} ent=${ent} refresh=${refresh} />`;
   else if (parts[0] === 'e' && ent) view = html`<${EntityList} ent=${ent} />`;
   else if (parts[0] === 'board' && ent) view = html`<${Board} ent=${ent} />`;
 

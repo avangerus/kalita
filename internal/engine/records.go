@@ -40,6 +40,11 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 	if d := e.can(actor.Role, "create", entity, "", nil, actor.ID); !d.allowed {
 		return nil, denied(actor.Role, "create", entity, d.rule)
 	}
+	if decl.Singleton && len(e.records[entity]) > 0 {
+		return nil, &Err{Code: CodeConflict,
+			Message: entity + " is a singleton and already exists",
+			FixHint: "update the existing record instead of creating another"}
+	}
 	if err := e.checkWorkflowField(entity, values); err != nil {
 		return nil, err
 	}

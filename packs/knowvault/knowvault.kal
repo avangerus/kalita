@@ -4,6 +4,16 @@
 # kalita entities. The heavy machinery (embeddings, Qdrant, connectors) runs
 # as worker AGENTS with roles, identities and deny-boundaries like any other.
 
+# Business settings live as a singleton entity: changed via the UI within
+# permissions, every change is a journal event ("who switched the model").
+# Secrets are FORBIDDEN here (SECURITY rule #5) — workers hold their own keys
+# and reference them by id.
+entity VaultSettings singleton:
+    embedding_model: string required default="bge-m3"
+    llm_endpoint: string
+    chunk_size: int default=512
+    language: enum[Auto, Ru, En] default=Auto
+
 entity Workspace:
     name: string required unique
     description: text
@@ -40,15 +50,15 @@ roles:
 
 permissions:
     VaultAdmin:
-        full    [Workspace, Source]
+        full    [Workspace, Source, VaultSettings]
         read    [SearchQuery]
         act     [retry_index, pause]
         approve [pause]
     Indexer:
-        read   [Workspace, Source]
+        read   [Workspace, Source, VaultSettings]
         update [Source]
         act    [start_index, finish_index, fail_index]
-        deny   [delete *, update Workspace.*, read SearchQuery, update Source.path]
+        deny   [delete *, update Workspace.*, update VaultSettings.*, read SearchQuery, update Source.path]
     Searcher:
         read   [Workspace]
         create [SearchQuery]

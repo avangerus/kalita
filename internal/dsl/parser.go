@@ -108,14 +108,16 @@ func (p *parser) manifestLine(ln *Line) {
 
 func (p *parser) entity(ln *Line) {
 	p.pos++
-	if len(ln.Toks) < 3 || ln.Toks[1].Kind != TIdent || ln.Toks[2].Text != ":" {
+	t := ln.Toks
+	singleton := len(t) >= 4 && t[2].Text == "singleton" && t[3].Text == ":"
+	if !singleton && (len(t) < 3 || t[1].Kind != TIdent || t[2].Text != ":") {
 		p.errs.add(EExpectedColon, ln.File, ln.Num,
-			"entity declaration must be `entity Name:`",
+			"entity declaration must be `entity Name:` or `entity Name singleton:`",
 			"write `entity Debtor:` with a PascalCase name and a trailing colon")
 		p.skipChildren(ln.Indent)
 		return
 	}
-	e := &EntityDecl{Name: ln.Toks[1].Text, File: ln.File, Line: ln.Num}
+	e := &EntityDecl{Name: t[1].Text, File: ln.File, Line: ln.Num, Singleton: singleton}
 	body := p.children(ln.Indent)
 	if len(body) == 0 {
 		p.errs.add(EEmptyBlock, ln.File, ln.Num, "entity "+e.Name+" has no fields",

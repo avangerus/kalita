@@ -8,7 +8,7 @@ const grammarText = `kalita DSL v0 — grammar summary
 Indentation: 4 spaces, no tabs. Comments: # to end of line. One pack = pack.kal manifest + *.kal modules.
 
 MANIFEST:    pack <name> / version <semver> / requires kalita >= 0.1 / depends core >= 0.1
-ENTITY:      entity Name:
+ENTITY:      entity Name:            # or: entity Name singleton:  (at most one record — settings)
                  field: type [required] [unique] [default=<expr>] [computed=<expr>] [on_delete=restrict|set_null|cascade]
 TYPES:       string text int float money bool date datetime file enum[A, B] ref[Entity] ref[core.User] array[ref[Entity]]
 CONSTRAINTS: constraints:            # immediately after its entity

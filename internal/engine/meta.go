@@ -40,6 +40,7 @@ type MetaUI struct {
 
 type MetaEntity struct {
 	Name          string       `json:"name"`
+	Singleton     bool         `json:"singleton,omitempty"`
 	Fields        []MetaField  `json:"fields"`
 	CanCreate     bool         `json:"can_create"`
 	CanRead       bool         `json:"can_read"`
@@ -76,6 +77,7 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 		decl := e.model.Entities[name]
 		me := MetaEntity{
 			Name:      name,
+			Singleton: decl.Singleton,
 			CanCreate: e.can(role, "create", name, "", nil, actorID).allowed,
 			CanRead:   e.can(role, "read", name, "", nil, actorID).allowed,
 			CanUpdate: e.can(role, "update", name, "", nil, actorID).allowed,

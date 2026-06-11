@@ -248,6 +248,47 @@ func TestIdempotentCreate(t *testing.T) {
 	}
 }
 
+func TestSingleton(t *testing.T) {
+	src := `
+entity Settings singleton:
+    model: string required default="bge-m3"
+    chunk: int default=512
+
+roles:
+    Owner
+
+permissions:
+    Owner:
+        full [Settings]
+`
+	model, errs := dsl.Compile(map[string]string{"t.kal": src})
+	if len(errs) > 0 {
+		t.Fatal(errs[0])
+	}
+	e, err := New(ctx, model, eventstore.NewMemStore(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
+	first, err := e.Create(ctx, owner, "Settings", map[string]any{}, basis, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Values["model"] != "bge-m3" {
+		t.Fatalf("defaults must apply: %v", first.Values)
+	}
+	// second instance must conflict
+	_, err = e.Create(ctx, owner, "Settings", map[string]any{}, basis, "")
+	ce := wantCode(t, err, CodeConflict)
+	if ce.FixHint == "" {
+		t.Fatal("singleton conflict must hint at updating")
+	}
+	// updates work normally — and are journaled (who switched the model)
+	if _, err := e.Update(ctx, owner, "Settings", first.ID, map[string]any{"model": "e5-large"}, basis, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // --- additive migration prototype (risk #1, exercised early) ---------------------
 
 const testPackV2 = testPack + `

@@ -41,6 +41,7 @@ type EntityDecl struct {
 	Name        string
 	File        string
 	Line        int
+	Singleton   bool // at most one record (settings-style entities)
 	Fields      []*FieldDecl
 	Constraints []ConstraintDecl
 }
