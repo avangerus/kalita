@@ -50,6 +50,8 @@ func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("GET /api/tasks", s.tasks)
 	s.mux.HandleFunc("GET /api/proposals", s.proposals)
 	s.mux.HandleFunc("POST /api/proposals/{id}/decide", s.decideProposal)
+	s.mux.HandleFunc("GET /api/actors", s.actors)
+	s.mux.HandleFunc("POST /api/actors/{id}/disable", s.disableActor)
 	return s
 }
 

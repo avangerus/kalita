@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"context"
@@ -25,7 +25,7 @@ func newSecureServer(t *testing.T) (*httptest.Server, string) {
 	store := eventstore.NewMemStore(nil)
 	reg := identity.NewRegistry(store)
 	registrar := eventstore.Actor{Type: eventstore.ActorHuman, ID: "root", Role: "Owner"}
-	token, err := reg.RegisterWithToken(context.Background(), registrar, "mike", eventstore.ActorHuman, "Owner", nil, nil)
+	token, err := reg.RegisterWithToken(context.Background(), registrar, "mike", eventstore.ActorHuman, "Owner", nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

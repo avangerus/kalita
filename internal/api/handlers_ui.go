@@ -116,6 +116,41 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// actors: the directory behind the Agents screen. Humans only — agents do
+// not enumerate or manage each other.
+func (s *Server) actors(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.actor(r)
+	if !ok || actor.Type != eventstore.ActorHuman {
+		writeAuthRequired(w)
+		return
+	}
+	if s.reg == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"actors": []any{}})
+		return
+	}
+	list, err := s.reg.List(r.Context())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"actors": list})
+}
+
+func (s *Server) disableActor(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.actor(r)
+	if !ok || actor.Type != eventstore.ActorHuman {
+		writeAuthRequired(w)
+		return
+	}
+	err := s.reg.Disable(r.Context(), actor, r.PathValue("id"),
+		&eventstore.Basis{Type: "human", ID: actor.ID})
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (s *Server) proposals(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.actor(r); !ok {
 		writeAuthRequired(w)

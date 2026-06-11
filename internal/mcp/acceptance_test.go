@@ -1,4 +1,4 @@
-package mcp
+﻿package mcp
 
 import (
 	"context"
@@ -26,7 +26,7 @@ func TestAcceptanceAgentBuildsItsWorkplace(t *testing.T) {
 	reg := identity.NewRegistry(store)
 	ctx := context.Background()
 	registrar := eventstore.Actor{Type: eventstore.ActorHuman, ID: "root", Role: "Owner"}
-	builderToken, err := reg.RegisterWithToken(ctx, registrar, "builder-1", eventstore.ActorAgent, "Helper", nil, nil)
+	builderToken, err := reg.RegisterWithToken(ctx, registrar, "builder-1", eventstore.ActorAgent, "Helper", nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

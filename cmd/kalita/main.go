@@ -54,16 +54,21 @@ func userCmd(args []string) {
 }
 
 func registerActor(args []string, typ eventstore.ActorType, what string) {
-	if len(args) < 1 || args[0] != "add" {
-		fmt.Printf("usage: kalita %s add --id <id> --role <Role> (KALITA_PG_DSN required)\n", what)
+	if len(args) < 1 || (args[0] != "add" && args[0] != "revoke") {
+		fmt.Printf("usage: kalita %s add|revoke --id <id> [--role <Role>] [--model ...] (KALITA_PG_DSN required)\n", what)
 		os.Exit(1)
 	}
-	fs := flag.NewFlagSet(what+" add", flag.ExitOnError)
+	action := args[0]
+	fs := flag.NewFlagSet(what+" "+action, flag.ExitOnError)
 	id := fs.String("id", "", what+" id")
 	role := fs.String("role", "", "role from the pack")
+	model := fs.String("model", "", "which model powers this agent (journaled)")
+	endpoint := fs.String("endpoint", "", "where the agent runs")
+	owner := fs.String("owner", "", "who answers for this actor")
+	desc := fs.String("desc", "", "description")
 	_ = fs.Parse(args[1:])
-	if *id == "" || *role == "" {
-		log.Fatal("--id and --role are required")
+	if *id == "" {
+		log.Fatal("--id is required")
 	}
 	dsn := os.Getenv("KALITA_PG_DSN")
 	if dsn == "" {
@@ -77,8 +82,25 @@ func registerActor(args []string, typ eventstore.ActorType, what string) {
 	defer store.Close()
 	reg := identity.NewRegistry(store)
 	registrar := eventstore.Actor{Type: eventstore.ActorHuman, ID: "node-admin", Role: "Owner"}
-	token, err := reg.RegisterWithToken(ctx, registrar, *id, typ, *role, nil,
-		&eventstore.Basis{Type: "human", ID: "node-admin"})
+	basis := &eventstore.Basis{Type: "human", ID: "node-admin"}
+
+	if action == "revoke" {
+		if err := reg.Disable(ctx, registrar, *id, basis); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("%s %s revoked: token and signatures are dead\n", what, *id)
+		fmt.Println("restart the node to pick up the change (v0)")
+		return
+	}
+
+	if *role == "" {
+		log.Fatal("--role is required for add")
+	}
+	var meta *identity.ActorMeta
+	if *model != "" || *endpoint != "" || *owner != "" || *desc != "" {
+		meta = &identity.ActorMeta{Model: *model, Endpoint: *endpoint, Owner: *owner, Description: *desc}
+	}
+	token, err := reg.RegisterWithToken(ctx, registrar, *id, typ, *role, nil, meta, basis)
 	if err != nil {
 		log.Fatal(err)
 	}

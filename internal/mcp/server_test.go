@@ -1,4 +1,4 @@
-package mcp
+﻿package mcp
 
 import (
 	"bytes"
@@ -38,12 +38,12 @@ func newMCP(t *testing.T) (*httptest.Server, string, string) {
 	reg := identity.NewRegistry(store)
 	registrar := eventstore.Actor{Type: eventstore.ActorHuman, ID: "root", Role: "Owner"}
 	collectorToken, err := reg.RegisterWithToken(context.Background(), registrar,
-		"collector-1", eventstore.ActorAgent, "Collector", nil, nil)
+		"collector-1", eventstore.ActorAgent, "Collector", nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	annaToken, err := reg.RegisterWithToken(context.Background(), registrar,
-		"anna", eventstore.ActorHuman, "Accountant", nil, nil)
+		"anna", eventstore.ActorHuman, "Accountant", nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

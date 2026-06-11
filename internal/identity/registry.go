@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/avangerus/kalita/internal/eventstore"
 )
@@ -25,6 +26,16 @@ func NewRegistry(store eventstore.Store) *Registry {
 	return &Registry{store: store}
 }
 
+// ActorMeta describes what stands behind an actor — for agents: which model,
+// whose endpoint, who answers for it. Lands in the journal at registration:
+// "which model acted" is part of provenance.
+type ActorMeta struct {
+	Model       string `json:"model,omitempty"`
+	Endpoint    string `json:"endpoint,omitempty"`
+	Owner       string `json:"owner,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 // actorPayload is the payload of actor.registered / actor.key_rotated events.
 // TokenHash is sha256 of the bearer token used for MCP authentication; the
 // token itself never enters the journal.
@@ -33,16 +44,18 @@ type actorPayload struct {
 	Role      string               `json:"role,omitempty"`
 	PublicKey []byte               `json:"public_key,omitempty"`
 	TokenHash []byte               `json:"token_hash,omitempty"`
+	Meta      *ActorMeta           `json:"meta,omitempty"`
 }
 
 // ActorInfo is the current state of an actor derived from the journal.
 type ActorInfo struct {
-	ID        string
-	Type      eventstore.ActorType
-	Role      string
-	PublicKey ed25519.PublicKey
-	TokenHash []byte
-	Disabled  bool
+	ID        string               `json:"id"`
+	Type      eventstore.ActorType `json:"type"`
+	Role      string               `json:"role"`
+	PublicKey ed25519.PublicKey    `json:"-"`
+	TokenHash []byte               `json:"-"`
+	Meta      *ActorMeta           `json:"meta,omitempty"`
+	Disabled  bool                 `json:"disabled"`
 }
 
 var (
@@ -55,26 +68,27 @@ var (
 // Register appends actor.registered. registrar is the (human) actor performing
 // the registration; agents cannot register agents in v0.
 func (r *Registry) Register(ctx context.Context, registrar eventstore.Actor, id string, typ eventstore.ActorType, role string, pub ed25519.PublicKey, basis *eventstore.Basis) error {
-	_, err := r.register(ctx, registrar, id, typ, role, pub, nil, basis)
+	_, err := r.register(ctx, registrar, id, typ, role, pub, nil, nil, basis)
 	return err
 }
 
 // RegisterWithToken registers an actor and issues a bearer token for MCP
 // authentication. The token is returned ONCE; only its hash is journaled.
-func (r *Registry) RegisterWithToken(ctx context.Context, registrar eventstore.Actor, id string, typ eventstore.ActorType, role string, pub ed25519.PublicKey, basis *eventstore.Basis) (string, error) {
+// meta may be nil; for agents it should say which model stands behind them.
+func (r *Registry) RegisterWithToken(ctx context.Context, registrar eventstore.Actor, id string, typ eventstore.ActorType, role string, pub ed25519.PublicKey, meta *ActorMeta, basis *eventstore.Basis) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
 	token := hex.EncodeToString(raw)
 	hash := sha256.Sum256([]byte(token))
-	if _, err := r.register(ctx, registrar, id, typ, role, pub, hash[:], basis); err != nil {
+	if _, err := r.register(ctx, registrar, id, typ, role, pub, hash[:], meta, basis); err != nil {
 		return "", err
 	}
 	return token, nil
 }
 
-func (r *Registry) register(ctx context.Context, registrar eventstore.Actor, id string, typ eventstore.ActorType, role string, pub ed25519.PublicKey, tokenHash []byte, basis *eventstore.Basis) (*eventstore.Event, error) {
+func (r *Registry) register(ctx context.Context, registrar eventstore.Actor, id string, typ eventstore.ActorType, role string, pub ed25519.PublicKey, tokenHash []byte, meta *ActorMeta, basis *eventstore.Basis) (*eventstore.Event, error) {
 	if registrar.Type != eventstore.ActorHuman {
 		return nil, fmt.Errorf("identity: only humans register actors in v0, got %s", registrar.Type)
 	}
@@ -85,7 +99,7 @@ func (r *Registry) register(ctx context.Context, registrar eventstore.Actor, id 
 	if existing != nil {
 		return nil, ErrActorExists
 	}
-	payload, err := json.Marshal(actorPayload{ActorType: typ, Role: role, PublicKey: pub, TokenHash: tokenHash})
+	payload, err := json.Marshal(actorPayload{ActorType: typ, Role: role, PublicKey: pub, TokenHash: tokenHash, Meta: meta})
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +110,20 @@ func (r *Registry) register(ctx context.Context, registrar eventstore.Actor, id 
 		Payload: payload,
 		Basis:   basis,
 	})
+}
+
+// List returns all actors (the directory behind the Agents screen).
+func (r *Registry) List(ctx context.Context) ([]*ActorInfo, error) {
+	infos, err := r.all(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*ActorInfo, 0, len(infos))
+	for _, info := range infos {
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
 }
 
 // Authenticate resolves a bearer token to an active actor.
@@ -143,6 +171,9 @@ func (r *Registry) all(ctx context.Context) (map[string]*ActorInfo, error) {
 			if p.TokenHash != nil {
 				info.TokenHash = p.TokenHash
 			}
+			if p.Meta != nil {
+				info.Meta = p.Meta
+			}
 		case eventstore.ActorDisabled:
 			if info, ok := infos[id]; ok {
 				info.Disabled = true
@@ -172,8 +203,12 @@ func (r *Registry) RotateKey(ctx context.Context, registrar eventstore.Actor, id
 	return err
 }
 
-// Disable appends actor.disabled; the actor's signatures stop verifying.
+// Disable appends actor.disabled; the actor's token and signatures stop
+// working immediately. Only humans revoke.
 func (r *Registry) Disable(ctx context.Context, registrar eventstore.Actor, id string, basis *eventstore.Basis) error {
+	if registrar.Type != eventstore.ActorHuman {
+		return fmt.Errorf("identity: only humans disable actors")
+	}
 	if _, err := r.Get(ctx, id); err != nil {
 		return err
 	}
