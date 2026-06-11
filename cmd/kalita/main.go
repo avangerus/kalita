@@ -166,6 +166,7 @@ func serve(args []string) {
 	tlsKey := fs.String("tls-key", "", "TLS key file")
 	devHeaders := fs.Bool("insecure-dev-auth", false, "enable X-Actor-* header identity (local development ONLY)")
 	insecureHTTP := fs.Bool("insecure-http", false, "allow plaintext HTTP on non-loopback addresses (NOT recommended)")
+	demo := fs.Bool("demo", false, "seed demo users and data on an empty journal, print ready tokens")
 	_ = fs.Parse(args)
 
 	tls := *tlsCert != "" && *tlsKey != ""
@@ -221,6 +222,10 @@ func serve(args []string) {
 	mux.Handle("/api/", api.New(eng, reg, apiOpts...))
 	mux.Handle("/", webui.Handler())
 	handler := api.Secure(mux)
+
+	if *demo {
+		seedDemo(ctx, eng, reg, store)
+	}
 
 	packName := "(genesis)"
 	if m := eng.Model().Manifest; m != nil {

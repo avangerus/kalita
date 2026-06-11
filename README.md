@@ -1,4 +1,4 @@
-# Kalita
+﻿# Kalita
 
 **An executable runtime for business systems in the agent era.**
 
@@ -17,7 +17,7 @@ Why: LLM agents silently corrupt what they are trusted with when the artifact is
 ## Quick start
 
 ```bash
-docker compose up --build
+docker compose up --build   # or natively: kalita serve --pack examples/collections --demo
 # REST:  http://localhost:8080/api/system   (v0 dev auth: X-Actor-Id/X-Actor-Role headers — local only!)
 # MCP:   http://localhost:8080/mcp          (bearer tokens: kalita agent add --id bot --role Collector)
 ```
