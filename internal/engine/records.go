@@ -98,7 +98,11 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 	e.setStateSince(entity, rec.ID, ev.TS)
 	e.runAutoTransitions(ctx, entity, rec.ID)
 	e.runEventTriggers(ctx, "create", entity, rec.ID)
-	return rec, nil
+	// return the same enriched shape as Get/Query: computed fields evaluated,
+	// unreadable fields masked — so a caller sees its serial number and any
+	// computed values immediately, not a bare echo of what it sent.
+	full := e.withComputed(decl, rec.ID, rec.Values)
+	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, full, actor.ID)}, nil
 }
 
 // checkWorkflowField rejects direct writes to a workflow-governed field:

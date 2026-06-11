@@ -1,0 +1,19 @@
+Service Desk (ITSM) pack; Create returns the enriched record
+
+A real-spec dogfood: the СТП ПУИТ Service Desk (ITSM) functional core built as
+one pack — 10 entities (Incident, ServiceRequest, Change, Problem, WorkOrder,
+KnownError, Service catalog, ConfigItem/CMDB, SLAPolicy, KBArticle), their state
+machines as workflows with HITL on service-request approval and change CAB, the
+10 RBAC roles from the TZ as ABAC permissions, escalation automation, and three
+operator dashboards. Compiles; driven end-to-end through MCP by a dogfood test
+(open an incident, run its state machine, park an approval and a CAB sign-off
+behind human signatures, read the boards incl. group-by and `assignee = null`).
+
+Engine fix surfaced by that dogfood: Create returned a bare echo of the input,
+so callers never saw the assigned serial number or any computed field until a
+follow-up read. Create now returns the same enriched shape as Get/Query —
+computed fields evaluated, unreadable fields masked.
+
+Modeling notes recorded in the pack: WorkOrder's polymorphic parent is faked
+with explicit refs + a discriminator (no polymorphic ref yet, gap Ж); minute-
+level SLA timers await hours_since/minutes_since (gap Б7).

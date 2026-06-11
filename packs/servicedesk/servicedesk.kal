@@ -1,0 +1,275 @@
+# Service Desk (СТП ПУИТ) — функциональное ядро ITSM на kalita.
+# Источник: D:/work/tecius/it_puit, HLD 03-domain-model.yaml. Здесь — данные и
+# поведение: сущности, state-машины, RBAC по 10 ролям ТЗ (Приложение 3),
+# SLA-данные, дашборды. Инфраструктура ТЗ ложится на нативные примитивы kalita:
+#   BPMN/Flowable        -> workflow + automation
+#   Outbox/Kafka         -> журнал событий (event store)
+#   Keycloak/AD RBAC     -> roles + ABAC permissions + identity
+#   S3 вложения          -> file-поля
+#   Tivoli-приёмник, 1С  -> воркеры-агенты (вне этого пака)
+
+# --- справочники / CMDB ------------------------------------------------------
+
+entity Service:
+    code: string required unique
+    name: string required
+    description: text
+    category: string
+    request_form_schema: json          # схема формы запроса (как в ТЗ JSONB)
+    published: bool default=false
+
+entity ConfigItem:
+    external_id: string required unique # ID из 1С
+    name: string required
+    ci_type: enum[Software, Hardware, ServiceCI, License, Document, Other] default=Other
+    status: enum[Active, Retired, Planned] default=Active
+    attributes: json
+    owner: ref[core.User]
+    source: enum[Sync1C, Manual] default=Manual
+
+entity SLAPolicy:
+    name: string required
+    applies_to: enum[Incident, ServiceRequest, Change, Ticket] default=Incident
+    priority: enum[P1, P2, P3, P4] default=P3
+    response_minutes: int
+    resolution_minutes: int
+    business_calendar: string default="24x7"
+
+# --- проблемы и известные ошибки ---------------------------------------------
+
+entity Problem:
+    number: serial format="PRB-{year}-{seq:6}"
+    title: string required
+    description: text
+    root_cause: text
+    priority: enum[P1, P2, P3, P4] default=P3
+    assignee: ref[core.User]
+    opened: datetime default=$now
+    age_days: int computed = days_since(opened)
+    status: enum[New, Investigating, RootCauseIdentified, KnownErrorState, Resolved, Closed] default=New
+
+workflow Problem on status:
+    New                 -> Investigating:       investigate_problem
+    Investigating       -> RootCauseIdentified: identify_rca
+    RootCauseIdentified -> KnownErrorState:     register_known_error
+    KnownErrorState     -> Resolved:            resolve_problem
+    Resolved            -> Closed:              close_problem
+
+entity KnownError:
+    problem: ref[Problem] on_delete=cascade
+    symptoms: text
+    workaround: text
+    permanent_fix: text
+    kb_article: ref[KBArticle]
+    status: enum[Active, Resolved] default=Active
+
+# --- база знаний (FTS у kalita нативный — search по text/string) --------------
+
+entity KBArticle:
+    title: string required
+    body: text
+    category: string
+    tags: array[string]
+    author: ref[core.User] default=$me
+    updated: datetime default=$now
+    status: enum[Draft, Published, Archived] default=Draft
+
+workflow KBArticle on status:
+    Draft     -> Published: publish_article requires approval(KbEditor)
+    Published -> Archived:  archive_article
+    Archived  -> Draft:     revise_article
+
+# --- инциденты ----------------------------------------------------------------
+
+entity Incident:
+    number: serial format="INC-{year}-{seq:6}"
+    title: string required
+    description: text
+    priority: enum[P1, P2, P3, P4] default=P3
+    impact: enum[High, Medium, Low] default=Medium
+    urgency: enum[High, Medium, Low] default=Medium
+    source: enum[Manual, Tivoli, Email, Portal] default=Manual
+    ci: ref[ConfigItem]
+    problem: ref[Problem]
+    reporter: ref[core.User] default=$me
+    assignee: ref[core.User]
+    sla_policy: ref[SLAPolicy]
+    opened: datetime default=$now
+    resolved_at: datetime
+    age_days: int computed = days_since(opened)
+    status: enum[New, Investigating, Identified, Resolved, Closed] default=New
+
+workflow Incident on status:
+    New           -> Investigating: investigate assignee=OperatorL2
+    Investigating -> Identified:    identify
+    Identified    -> Resolved:      resolve_incident
+    Resolved      -> Closed:        close_incident
+    Resolved      -> Investigating: reopen_incident
+    New           -> Closed:        auto_close when source = Tivoli
+
+# дубли инцидентов — двунаправленная связь, синхронизируется рантаймом
+link Incident -> Incident as duplicates / duplicated_by
+
+# --- запросы на обслуживание из каталога -------------------------------------
+
+entity ServiceRequest:
+    number: serial format="SR-{year}-{seq:6}"
+    service: ref[Service] on_delete=restrict
+    requester: ref[core.User] default=$me
+    form_data: json
+    approval_required: bool default=false
+    opened: datetime default=$now
+    status: enum[Submitted, ApprovalPending, Approved, Rejected, Fulfilling, Fulfilled, Closed] default=Submitted
+
+workflow ServiceRequest on status:
+    Submitted       -> ApprovalPending: require_approval when approval_required = true
+    Submitted       -> Fulfilling:      auto_approve when approval_required = false
+    ApprovalPending -> Approved:        approve_request requires approval(Supervisor)
+    ApprovalPending -> Rejected:        reject_request requires approval(Supervisor)
+    Approved        -> Fulfilling:      start_fulfillment
+    Fulfilling      -> Fulfilled:       fulfill
+    Fulfilled       -> Closed:          close_request
+
+# --- запросы на изменение (RFC) с согласованием CAB --------------------------
+
+entity Change:
+    number: serial format="CHG-{year}-{seq:6}"
+    title: string required
+    description: text
+    change_type: enum[Standard, Normal, Emergency] default=Normal
+    risk: enum[Low, Medium, High] default=Medium
+    requester: ref[core.User] default=$me
+    cab_approved_by: ref[core.User]
+    planned_start: datetime
+    planned_end: datetime
+    affected_ci: array[ref[ConfigItem]]
+    status: enum[Draft, Assessment, CabApproval, Approved, Scheduled, Implementing, Review, Closed, Rejected] default=Draft
+
+workflow Change on status:
+    Draft        -> Assessment:   submit_change
+    Assessment   -> CabApproval:  request_cab
+    CabApproval  -> Approved:     approve_change requires approval(ChangeManager)
+    CabApproval  -> Rejected:     reject_change requires approval(ChangeManager)
+    Approved     -> Scheduled:    schedule_change
+    Scheduled    -> Implementing: implement_change
+    Implementing -> Review:       complete_change
+    Review       -> Closed:       close_change
+
+# --- рабочие задания (наряды) -------------------------------------------------
+# ТЗ: полиморфный родитель (parent_type + parent_id). У kalita нет полиморфных
+# ссылок (пробел Ж в APPS-GAP-PLAN), поэтому моделируем явными ссылками +
+# дискриминатором parent_type. Заполняется одна из ссылок по типу.
+
+entity WorkOrder:
+    number: serial format="WO-{year}-{seq:6}"
+    parent_type: enum[Incident, ServiceRequest, Change, Problem] default=Incident
+    incident: ref[Incident]
+    request: ref[ServiceRequest]
+    change: ref[Change]
+    problem: ref[Problem]
+    assignee: ref[core.User]
+    due: datetime
+    result: text
+    status: enum[Created, Assigned, InProgress, Completed, Cancelled] default=Created
+
+workflow WorkOrder on status:
+    Created    -> Assigned:   assign_wo
+    Assigned   -> InProgress: start_wo
+    InProgress -> Completed:  complete_wo
+    Created    -> Cancelled:  cancel_wo
+
+# --- роли RBAC (ТЗ Приложение 3) ---------------------------------------------
+
+roles:
+    LkpUser
+    OperatorL1
+    OperatorL2
+    Supervisor
+    ProblemManager
+    ChangeManager
+    CatalogManager
+    KbEditor
+    ReportViewer
+    Admin
+
+permissions:
+    # Пользователь ЛКП: создаёт запросы, видит только свои обращения
+    LkpUser:
+        create [ServiceRequest]
+        read ServiceRequest where requester = $me
+        read Incident where reporter = $me
+        read [Service, KBArticle]
+    # 1 линия: приём и первичная обработка инцидентов и нарядов
+    OperatorL1:
+        read   [Incident, ServiceRequest, ConfigItem, Service, KBArticle, WorkOrder]
+        create [Incident, WorkOrder]
+        update [Incident, WorkOrder]
+        act    [investigate, identify, start_fulfillment, fulfill, assign_wo, start_wo, complete_wo, cancel_wo]
+    # 2 линия: разбор инцидентов и проблем
+    OperatorL2:
+        read   [Incident, Problem, ServiceRequest, ConfigItem, WorkOrder, KBArticle]
+        create [Incident, WorkOrder, Problem]
+        update [Incident, WorkOrder, Problem]
+        act    [investigate, identify, resolve_incident, close_incident, reopen_incident, investigate_problem, identify_rca, assign_wo, start_wo, complete_wo]
+    # Руководитель/диспетчер: полный контроль очереди, согласование запросов
+    Supervisor:
+        full    [Incident, ServiceRequest, WorkOrder]
+        read    [Problem, Change, ConfigItem, Service, KBArticle]
+        approve [approve_request, reject_request]
+        act     [require_approval, auto_approve, approve_request, reject_request, start_fulfillment, fulfill, close_request, investigate, identify, resolve_incident, close_incident, reopen_incident]
+    # Менеджер проблем
+    ProblemManager:
+        full [Problem, KnownError]
+        read [Incident, ConfigItem]
+        act  [investigate_problem, identify_rca, register_known_error, resolve_problem, close_problem]
+    # Менеджер изменений: ведёт RFC, подписывает CAB
+    ChangeManager:
+        full    [Change]
+        read    [ConfigItem, Incident]
+        approve [approve_change, reject_change]
+        act     [submit_change, request_cab, approve_change, reject_change, schedule_change, implement_change, complete_change, close_change]
+    # Менеджер каталога услуг
+    CatalogManager:
+        full [Service]
+        read [ServiceRequest]
+    # Редактор базы знаний: пишет и публикует статьи (публикация — HITL)
+    KbEditor:
+        full    [KBArticle]
+        approve [publish_article]
+        act     [publish_article, archive_article, revise_article]
+    # Аналитик: только чтение и дашборды
+    ReportViewer:
+        read [Incident, ServiceRequest, Change, Problem, WorkOrder, ConfigItem, Service, KBArticle, SLAPolicy]
+    # Администратор
+    Admin:
+        full [Service, ConfigItem, SLAPolicy, Incident, ServiceRequest, Change, WorkOrder, Problem, KnownError, KBArticle]
+        act  [investigate, identify, resolve_incident, close_incident, reopen_incident, auto_close, require_approval, auto_approve, start_fulfillment, fulfill, close_request, submit_change, request_cab, schedule_change, implement_change, complete_change, close_change, assign_wo, start_wo, complete_wo, cancel_wo, investigate_problem, identify_rca, register_known_error, resolve_problem, close_problem, archive_article, revise_article]
+
+# --- автоматизация: эскалации и уведомления ----------------------------------
+
+automation:
+    on create Incident:
+        notify email(reporter)
+    on stuck Incident in New for 1d:
+        escalate_to Supervisor
+    on stuck Change in CabApproval for 3d:
+        escalate_to ChangeManager
+
+# --- дашборды (сводки по всей таблице, с учётом прав строки) ------------------
+
+dashboard OperatorBoard "Очередь оператора":
+    tile "Открытые инциденты":       count Incident where status != Closed and status != Resolved
+    tile "Не назначены":             count Incident where assignee = null
+    tile "Инциденты по статусу":     count Incident group by status
+    tile "Инциденты по приоритету":  count Incident group by priority
+
+dashboard ServiceRequestsBoard "Запросы на обслуживание":
+    tile "В работе":         count ServiceRequest where status != Closed
+    tile "На согласовании":  count ServiceRequest where status = ApprovalPending
+    tile "По статусу":       count ServiceRequest group by status
+
+dashboard ChangesBoard "Изменения":
+    tile "Активные RFC":  count Change where status != Closed and status != Rejected
+    tile "Ждут CAB":      count Change where status = CabApproval
+    tile "По типу":       count Change group by change_type
+    tile "По риску":      count Change group by risk
