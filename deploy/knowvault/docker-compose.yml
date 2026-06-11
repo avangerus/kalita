@@ -31,6 +31,7 @@ services:
     environment:
       KALITA_PG_DSN: postgres://postgres:${POSTGRES_PASSWORD:-knowvault}@postgres:5432/knowvault
       KALITA_BOOTSTRAP_SECRET: ${KALITA_BOOTSTRAP_SECRET:?set a strong secret in .env}
+      KALITA_BRAND: ${BRAND_NAME:-KnowVault}
     command:
       - serve
       - --pack=/opt/kalita/packs/knowvault

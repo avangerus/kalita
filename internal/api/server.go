@@ -26,6 +26,14 @@ type Server struct {
 	devAuth bool
 	rag     *ragConfig
 	boot    *bootstrapConfig
+	brand   brandConfig
+}
+
+// brandConfig white-labels the UI: the product the customer sees, not "Kalita".
+type brandConfig struct {
+	Name   string `json:"name"`
+	Accent string `json:"accent,omitempty"`
+	Tagline string `json:"tagline,omitempty"`
 }
 
 // Option configures the server.
@@ -48,11 +56,24 @@ func WithBootstrap(secret string, roles []string) Option {
 	return func(s *Server) { s.enableBootstrap(secret, roles) }
 }
 
+// WithBrand white-labels the UI (product name shown instead of "Kalita").
+func WithBrand(name, accent, tagline string) Option {
+	return func(s *Server) {
+		if name != "" {
+			s.brand = brandConfig{Name: name, Accent: accent, Tagline: tagline}
+		}
+	}
+}
+
 func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
-	s := &Server{eng: eng, reg: reg, mux: http.NewServeMux()}
+	s := &Server{eng: eng, reg: reg, mux: http.NewServeMux(), brand: brandConfig{Name: "Kalita"}}
 	for _, o := range opts {
 		o(s)
 	}
+	// public: the login screen needs the brand before any auth
+	s.mux.HandleFunc("GET /api/brand", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, s.brand)
+	})
 	s.mux.HandleFunc("GET /api/system", s.describe)
 	s.mux.HandleFunc("GET /api/meta", s.meta)
 	s.mux.HandleFunc("GET /api/records/{entity}", s.query)

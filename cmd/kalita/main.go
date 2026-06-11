@@ -214,6 +214,9 @@ func serve(args []string) {
 	dataDir := fs.String("data-dir", "kalita-data", "node key directory (node.key/node.pub)")
 	uiDir := fs.String("ui-dir", "", "serve a UI directory from disk (e.g. ./web); empty = embedded if built with -tags embedui, else API-only")
 	filesDir := fs.String("files-dir", "", "directory for uploaded files (content-addressed); empty = uploads disabled")
+	brand := fs.String("brand", "", "white-label product name shown in the UI instead of Kalita")
+	brandAccent := fs.String("brand-accent", "", "UI accent color (e.g. #4da3ff)")
+	brandTagline := fs.String("brand-tagline", "", "short tagline under the product name")
 	devHeaders := fs.Bool("insecure-dev-auth", false, "enable X-Actor-* header identity (local development ONLY)")
 	insecureHTTP := fs.Bool("insecure-http", false, "allow plaintext HTTP on non-loopback addresses (NOT recommended)")
 	demo := fs.Bool("demo", false, "seed demo users and data on an empty journal, print ready tokens")
@@ -273,6 +276,13 @@ func serve(args []string) {
 	if *searchBackend != "" {
 		apiOpts = append(apiOpts, api.WithRAGSearch(*searchBackend, *searchScope, *searchLog, "Searcher"))
 		log.Printf("RAG search enabled: /api/search -> %s (scope %s)", *searchBackend, *searchScope)
+	}
+	if b := *brand; b != "" || os.Getenv("KALITA_BRAND") != "" {
+		name := b
+		if name == "" {
+			name = os.Getenv("KALITA_BRAND")
+		}
+		apiOpts = append(apiOpts, api.WithBrand(name, *brandAccent, *brandTagline))
 	}
 	if secret := os.Getenv("KALITA_BOOTSTRAP_SECRET"); secret != "" {
 		roles := []string{"Indexer", "Searcher"}

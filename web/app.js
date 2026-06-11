@@ -110,15 +110,26 @@ function FieldInput({ field, value, onChange }) {
 const fmt = (v) => v === null || v === undefined ? '' :
   typeof v === 'object' ? JSON.stringify(v) : String(v);
 
+// --- branding (white-label; fetched before auth) --------------------------------
+const BRAND = { name: 'Kalita', accent: '', tagline: '' };
+async function loadBrand() {
+  try {
+    const b = await (await fetch('/api/brand')).json();
+    if (b?.name) Object.assign(BRAND, b);
+  } catch { /* default */ }
+  document.title = BRAND.name;
+  if (BRAND.accent) document.documentElement.style.setProperty('--acc', BRAND.accent);
+}
+
 // --- views ----------------------------------------------------------------------
 
 function Login() {
   const [token, setToken] = useState('');
   return html`<div class="login card">
-    <h2>Kalita</h2>
-    <div class="muted" style="margin-bottom:10px">Paste your access token (issued by the node admin: <code>kalita user add</code>). Passkeys arrive in v0.2.</div>
-    <label>Access token</label><input type="password" value=${token} onInput=${e => setToken(e.target.value)} />
-    <button class="btn green" onClick=${() => { if (token.trim()) { session.set({ token: token.trim() }); location.reload(); } }}>Enter</button>
+    <h2>${BRAND.name}</h2>
+    <div class="muted" style="margin-bottom:10px">${BRAND.tagline || html`Введите свой токен доступа.`}</div>
+    <label>Токен доступа</label><input type="password" value=${token} onInput=${e => setToken(e.target.value)} />
+    <button class="btn green" onClick=${() => { if (token.trim()) { session.set({ token: token.trim() }); location.reload(); } }}>Войти</button>
   </div>`;
 }
 
@@ -385,7 +396,7 @@ function App() {
 
   return html`<div class="shell">
     <div class="side">
-      <h1>Kalita</h1>
+      <h1>${BRAND.name}</h1>
       <div class="who">${meta.pack || '(genesis)'} · v${meta.def_version}<br/>${meta.actor_id} — ${meta.role}
         <a style="display:block" onClick=${() => { session.clear(); location.reload(); }}>sign out</a></div>
       <div class="nav">
@@ -399,4 +410,5 @@ function App() {
   </div>`;
 }
 
-render(session.get() ? html`<${App} />` : html`<${Login} />`, document.getElementById('root'));
+loadBrand().then(() =>
+  render(session.get() ? html`<${App} />` : html`<${Login} />`, document.getElementById('root')));
