@@ -137,6 +137,13 @@ func (e *Engine) ApplyAdditive(ctx context.Context, actor eventstore.Actor, next
 	return nil
 }
 
+// Model returns the active definition. Callers must not mutate it.
+func (e *Engine) Model() *dsl.Model {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.model
+}
+
 func (e *Engine) DefVersion() uint64 {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
