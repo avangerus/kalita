@@ -4,8 +4,6 @@ import (
 	"errors"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // AppendInput is what callers provide; the store assigns EventID, Seq, TS,
@@ -64,24 +62,7 @@ func (s *MemStore) Append(in AppendInput) (*Event, error) {
 		prev = s.events[n-1].Hash
 	}
 
-	id, err := uuid.NewV7()
-	if err != nil {
-		return nil, err
-	}
-	e := &Event{
-		EventID:        id.String(),
-		Seq:            uint64(len(s.events)) + 1,
-		TS:             s.now().UTC(),
-		Actor:          in.Actor,
-		Kind:           in.Kind,
-		Subject:        in.Subject,
-		Payload:        in.Payload,
-		Basis:          in.Basis,
-		DefVersion:     in.DefVersion,
-		IdempotencyKey: in.IdempotencyKey,
-		PrevHash:       prev,
-	}
-	e.Hash, err = computeHash(prev, e)
+	e, err := buildEvent(in, uint64(len(s.events))+1, prev, s.now)
 	if err != nil {
 		return nil, err
 	}
