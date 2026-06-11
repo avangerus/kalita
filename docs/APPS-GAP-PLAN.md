@@ -83,7 +83,12 @@ dogfood (kalita разрабатывает себя через себя) ✅.
 dogfood: kalita, управляющая своей разработкой агентами, как продукт.
 
 ## Порядок исполнения (автопилот)
-Comment → арифметика в computed → null → report/dashboard → array[file] →
+Comment✅ → арифметика в computed✅ → null✅ → report/dashboard✅ → **array[file]** →
 hours_since → calendar-view → бизнес-календарь → datetime-триггер → core.User+i18n.
+Сделано (коммит 0e94f74): null-присутствие в языке выражений; dashboard-блок
+(count/sum/avg/min/max, group by, where) с агрегатами по всей таблице и
+построчным ABAC; MCP/REST endpoints; dogfood CRM-воронки. Заодно: грамматика
+вернулась в MCP вместо панграммы (learn_by_example удалён). Следующий блокер —
+array[file] (несколько вложений), затем hours_since.
 После каждых 2-3 — собрать соответствующий пак как dogfood и проверить вживую.
 Тест успеха: HR / CRM / Desk собираются паком и проходят реальный сценарий E2E.
