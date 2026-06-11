@@ -1,0 +1,11 @@
+Teach by one pangram example instead of prose grammar
+
+Founder's 'pangram' idea: one example that uses every letter ('the quick brown
+fox...'). examples/pangram/pangram.kal uses EVERY type and construct, annotated;
+read it once, write any pack by analogy — no grammar to carry.
+
+- MCP: learn_by_example tool returns the pangram; server 'instructions' (sent
+  once at handshake, not per request) point agents to it
+- pangram embedded in the binary, guarded by a test that it COMPILES (never
+  teaches wrong syntax); ~1.3k tokens, self-evident field syntax name: type
+- preferred over get_grammar

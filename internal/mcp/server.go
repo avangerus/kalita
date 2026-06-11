@@ -82,6 +82,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "kalita", "version": "0.1.0"},
+			// instructions ride once at handshake, not per request: point the
+			// agent at the pangram, the one annotated example that teaches the
+			// whole language by analogy — no grammar to carry.
+			"instructions": "To author a pack you do NOT need to learn a grammar. Call the tool `learn_by_example` once: it returns ONE annotated example pack (the pangram) that uses every type and construct. Write packs by analogy to it. Then `validate_dsl` to compile-check (fix by the structured errors), and `propose_change` to apply (a human signs). Field syntax is `name: type [modifiers]` — self-evident from the example.",
 		}})
 	case "ping":
 		writeRPC(w, rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{}})
