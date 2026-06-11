@@ -1,0 +1,20 @@
+{
+  "name": "@kalita/sdk",
+  "version": "0.1.0",
+  "description": "Client SDK for Kalita — build product faces over the agent-era runtime",
+  "type": "module",
+  "exports": {
+    ".": "./client.js",
+    "./react": "./react.js"
+  },
+  "files": ["client.js", "react.js", "README.md"],
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true }
+  },
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "keywords": ["kalita", "ai-agents", "low-code", "sdk"]
+}
