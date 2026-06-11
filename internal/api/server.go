@@ -25,10 +25,16 @@ type Server struct {
 func New(eng *engine.Engine) *Server {
 	s := &Server{eng: eng, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/system", s.describe)
+	s.mux.HandleFunc("GET /api/meta", s.meta)
 	s.mux.HandleFunc("GET /api/records/{entity}", s.query)
 	s.mux.HandleFunc("GET /api/records/{entity}/{id}", s.get)
 	s.mux.HandleFunc("POST /api/records/{entity}", s.create)
 	s.mux.HandleFunc("PATCH /api/records/{entity}/{id}", s.update)
+	s.mux.HandleFunc("POST /api/records/{entity}/{id}/act", s.act)
+	s.mux.HandleFunc("GET /api/records/{entity}/{id}/journal", s.journal)
+	s.mux.HandleFunc("GET /api/approvals", s.approvals)
+	s.mux.HandleFunc("POST /api/approvals/{id}/decide", s.decide)
+	s.mux.HandleFunc("GET /api/tasks", s.tasks)
 	return s
 }
 

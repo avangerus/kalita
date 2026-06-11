@@ -14,6 +14,7 @@ const (
 	CodeConflict         = "CONFLICT"
 	CodeBasisRequired    = "BASIS_REQUIRED"
 	CodeGuardFailed      = "GUARD_FAILED"
+	CodeStaleBase        = "STALE_BASE"
 )
 
 type Err struct {

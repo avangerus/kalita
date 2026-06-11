@@ -22,8 +22,10 @@ type Engine struct {
 	records    map[string]map[string]*Record // entity → id → record
 	approvals  map[string]*Approval
 	tasks      map[string]*Task
+	proposals  map[string]*Proposal
 	stateSince map[string]map[string]time.Time // entity → id → entered current state
 	taskTTL    time.Duration
+	defApprover string // role whose human signature applies definitions
 	now        func() time.Time
 	// verify checks an actor's signature (wired to identity.Registry by the
 	// node). When set, approval decisions REQUIRE a valid signature.
@@ -43,6 +45,10 @@ func WithVerifier(v func(ctx context.Context, actorID string, msg, sig []byte) e
 
 // WithTaskTTL sets the task lease duration (default 1h).
 func WithTaskTTL(d time.Duration) Option { return func(e *Engine) { e.taskTTL = d } }
+
+// WithDefinitionApprover sets the role whose human signature applies
+// definition changes (default Owner).
+func WithDefinitionApprover(role string) Option { return func(e *Engine) { e.defApprover = role } }
 
 // Record is the projected current state of one row.
 type Record struct {
@@ -74,8 +80,10 @@ func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...
 		records:    map[string]map[string]*Record{},
 		approvals:  map[string]*Approval{},
 		tasks:      map[string]*Task{},
+		proposals:  map[string]*Proposal{},
 		stateSince: map[string]map[string]time.Time{},
 		taskTTL:    time.Hour,
+		defApprover: "Owner",
 		now:        time.Now,
 	}
 	for _, opt := range opts {
@@ -175,7 +183,32 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		if t, ok := e.tasks[ev.Subject.TaskID]; ok {
 			t.Status, t.TakenBy = TaskOpen, ""
 		}
+	case eventstore.DefinitionProposed:
+		var p proposalPayload
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			return
+		}
+		e.proposals[ev.Subject.ProposalID] = &Proposal{
+			ID: ev.Subject.ProposalID, Description: p.Description, Author: ev.Actor,
+			BaseDefVersion: p.BaseDefVersion, Files: p.Files, Plan: p.Plan, Status: ProposalPending,
+		}
+	case eventstore.DefinitionApproved:
+		if p, ok := e.proposals[ev.Subject.ProposalID]; ok {
+			p.Status = ProposalApproved
+		}
+	case eventstore.DefinitionRejected:
+		if p, ok := e.proposals[ev.Subject.ProposalID]; ok {
+			p.Status = ProposalRejected
+		}
 	case eventstore.DefinitionApplied:
+		// definitions replay from the journal: the pack directory is only the
+		// genesis seed
+		if p, ok := e.proposals[ev.Subject.ProposalID]; ok && len(p.Files) > 0 {
+			if next, errs := dsl.Compile(p.Files); len(errs) == 0 {
+				e.model = next
+			}
+			p.Status = ProposalApplied
+		}
 		e.defVersion++
 	}
 }
@@ -195,30 +228,8 @@ func (e *Engine) ApplyAdditive(ctx context.Context, actor eventstore.Actor, next
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	for name, oldEnt := range e.model.Entities {
-		newEnt, ok := next.Entities[name]
-		if !ok {
-			return invalid("", "entity "+name+" removed; only additive changes are allowed in v0",
-				"keep the entity; destructive migrations require the manual procedure")
-		}
-		newFields := map[string]dsl.TypeRef{}
-		for _, f := range newEnt.Fields {
-			newFields[f.Name] = f.Type
-		}
-		for _, f := range oldEnt.Fields {
-			nf, ok := newFields[f.Name]
-			if !ok {
-				return invalid(f.Name, fmt.Sprintf("field %s.%s removed; only additive changes are allowed in v0", name, f.Name),
-					"keep the field; removals require the manual procedure")
-			}
-			if nf.Kind != f.Type.Kind || nf.Scalar != f.Type.Scalar || nf.RefTarget != f.Type.RefTarget {
-				return invalid(f.Name, fmt.Sprintf("field %s.%s changed type; not allowed in v0", name, f.Name),
-					"add a new field instead of changing the type")
-			}
-			if nf.Kind == dsl.TyEnum && len(nf.EnumValues) < len(f.Type.EnumValues) {
-				return invalid(f.Name, "enum values may only be appended", "keep existing enum values, add new ones at the end")
-			}
-		}
+	if err := validateAdditive(e.model, next); err != nil {
+		return err
 	}
 
 	if _, err := e.store.Append(ctx, eventstore.AppendInput{
