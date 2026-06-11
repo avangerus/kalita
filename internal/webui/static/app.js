@@ -43,7 +43,28 @@ const nav = (r) => { location.hash = r; };
 
 // --- field rendering -------------------------------------------------------------
 
+// RefInput: a dropdown of the target entity's records, labeled by their first
+// string-ish field. core.* targets fall back to a text input (no core pack yet).
+function RefInput({ field, value, onChange }) {
+  const [opts, setOpts] = useState(null);
+  useEffect(() => {
+    if (field.ref.startsWith('core.')) { setOpts(false); return; }
+    api(`/api/records/${field.ref}?limit=200`)
+      .then(r => setOpts(r.records || []))
+      .catch(() => setOpts(false));
+  }, [field.ref]);
+  if (opts === false) return html`<input value=${value ?? ''} onInput=${e => onChange(e.target.value)} placeholder=${field.ref} />`;
+  if (opts === null) return html`<select disabled><option>loading ${field.ref}…</option></select>`;
+  const label = (r) => {
+    for (const k in r.values) { const v = r.values[k]; if (typeof v === 'string' && v && !v.match(/^[0-9a-f-]{36}$/)) return v; }
+    return r.id.slice(0, 8);
+  };
+  return html`<select value=${value || ''} onChange=${e => onChange(e.target.value)}>
+    <option value="">—</option>${opts.map(r => html`<option value=${r.id}>${label(r)}</option>`)}</select>`;
+}
+
 function FieldInput({ field, value, onChange }) {
+  if (field.type === 'ref') return html`<${RefInput} field=${field} value=${value} onChange=${onChange} />`;
   if (field.type === 'enum') return html`<select value=${value || ''} onChange=${e => onChange(e.target.value)}>
     <option value="">—</option>${field.values.map(v => html`<option value=${v}>${v}</option>`)}</select>`;
   if (field.type === 'bool') return html`<select value=${String(value ?? '')} onChange=${e => onChange(e.target.value === 'true')}>
@@ -174,19 +195,33 @@ function SingletonView({ ent, refresh }) {
   return html`<${RecordView} ent=${ent} id=${rows[0].id} refresh=${refresh} />`;
 }
 
+const PAGE = 25;
+
 function EntityList({ ent }) {
   const [rows, setRows] = useState([]); const [creating, setCreating] = useState(false);
+  const [page, setPage] = useState(0); const [q, setQ] = useState('');
   const cols = ent.ui.list_columns?.length ? ent.ui.list_columns : ent.fields.filter(f => f.readable).slice(0, 6).map(f => f.name);
-  const load = () => api(`/api/records/${ent.name}`).then(r => setRows(r.records || []));
-  useEffect(() => { load(); setCreating(false); }, [ent.name]);
+  const load = () => api(`/api/records/${ent.name}?limit=${PAGE + 1}&offset=${page * PAGE}`).then(r => setRows(r.records || []));
+  useEffect(() => { load(); setCreating(false); }, [ent.name, page]);
+  const hasNext = rows.length > PAGE;
+  const visible = rows.slice(0, PAGE).filter(r => !q ||
+    cols.some(c => String(r.values[c] ?? '').toLowerCase().includes(q.toLowerCase())));
   return html`<div>
     <h2>${ent.name} ${ent.ui.board_by && html`<a class="muted" style="font-size:13px" onClick=${() => nav(`/board/${ent.name}`)}>board view</a>`}</h2>
-    ${ent.can_create && html`<button class="btn" onClick=${() => setCreating(!creating)}>${creating ? 'Cancel' : `+ New ${ent.name}`}</button>`}
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      ${ent.can_create && html`<button class="btn" onClick=${() => setCreating(!creating)}>${creating ? 'Cancel' : `+ New ${ent.name}`}</button>`}
+      <input style="max-width:240px;margin:0" placeholder="filter this page…" value=${q} onInput=${e => setQ(e.target.value)} />
+    </div>
     ${creating && html`<${CreateForm} ent=${ent} onDone=${() => { setCreating(false); load(); }} />`}
     <table style="margin-top:10px"><thead><tr>${cols.map(c => html`<th>${c}</th>`)}</tr></thead>
-    <tbody>${rows.map(r => html`<tr onClick=${() => nav(`/e/${ent.name}/${r.id}`)}>
+    <tbody>${visible.map(r => html`<tr onClick=${() => nav(`/e/${ent.name}/${r.id}`)}>
       ${cols.map(c => html`<td>${fmt(r.values[c])}</td>`)}</tr>`)}</tbody></table>
-    ${rows.length === 0 && html`<div class="muted" style="margin-top:8px">no records visible to your role</div>`}
+    ${visible.length === 0 && html`<div class="muted" style="margin-top:8px">no records visible to your role</div>`}
+    <div style="margin-top:10px">
+      ${page > 0 && html`<button class="btn" onClick=${() => setPage(page - 1)}>← prev</button>`}
+      ${(page > 0 || hasNext) && html`<span class="muted" style="margin:0 8px">page ${page + 1}</span>`}
+      ${hasNext && html`<button class="btn" onClick=${() => setPage(page + 1)}>next →</button>`}
+    </div>
   </div>`;
 }
 
