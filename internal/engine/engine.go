@@ -247,6 +247,75 @@ func (e *Engine) ApplyAdditive(ctx context.Context, actor eventstore.Actor, next
 	return nil
 }
 
+// Export dumps all records of an entity without permission filtering — the
+// operator-only era-migration path (cmd export, node stopped).
+func (e *Engine) Export(entity string) []*Record {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	var out []*Record
+	for _, id := range sortedIDs(e.records[entity]) {
+		rec := e.records[entity][id]
+		vals := make(map[string]any, len(rec.Values))
+		for k, v := range rec.Values {
+			vals[k] = v
+		}
+		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: vals})
+	}
+	return out
+}
+
+// ImportRecord restores a record with its original id during an era import:
+// types are validated against the NEW definition, but permissions, ref
+// existence and the workflow-field guard are bypassed — the operator owns the
+// data, state is restored as-is, refs may arrive out of order.
+func (e *Engine) ImportRecord(ctx context.Context, actor eventstore.Actor, entity, id string, values map[string]any, basis *eventstore.Basis) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	decl, errr := e.entityOrErr(entity)
+	if errr != nil {
+		return errr
+	}
+	for name, v := range values {
+		f := findFieldDecl(decl, name)
+		if f == nil {
+			return invalid(name, "unknown field "+entity+"."+name,
+				"transform the export to match the new pack before importing")
+		}
+		if v != nil && f.Computed == "" {
+			if err := checkType(f, v); err != nil {
+				return err
+			}
+		}
+	}
+	payload, _ := json.Marshal(createdPayload{Values: values})
+	ev, err := e.store.Append(ctx, eventstore.AppendInput{
+		Actor:      actor,
+		Kind:       eventstore.RecordCreated,
+		Subject:    eventstore.Subject{Entity: entity, RecordID: id},
+		Payload:    payload,
+		Basis:      basis,
+		DefVersion: e.defVersion,
+	})
+	if err != nil {
+		return err
+	}
+	if e.records[entity] == nil {
+		e.records[entity] = map[string]*Record{}
+	}
+	e.records[entity][id] = &Record{ID: id, Entity: entity, Values: values}
+	e.setStateSince(entity, id, ev.TS)
+	return nil
+}
+
+func findFieldDecl(decl *dsl.EntityDecl, name string) *dsl.FieldDecl {
+	for _, f := range decl.Fields {
+		if f.Name == name {
+			return f
+		}
+	}
+	return nil
+}
+
 // Model returns the active definition. Callers must not mutate it.
 func (e *Engine) Model() *dsl.Model {
 	e.mu.RLock()

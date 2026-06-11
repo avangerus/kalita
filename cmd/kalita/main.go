@@ -41,6 +41,10 @@ func main() {
 		userCmd(os.Args[2:])
 	case "verify":
 		verifyCmd(os.Args[2:])
+	case "export":
+		exportCmd(os.Args[2:])
+	case "import":
+		importCmd(os.Args[2:])
 	default:
 		usage()
 	}
