@@ -105,7 +105,7 @@ func (e *Engine) Act(ctx context.Context, actor eventstore.Actor, entity, id, ac
 	}
 	if tr.When != "" {
 		full := e.withComputed(decl, rec.ID, rec.Values)
-		if !evalWhere(tr.When, evalCtx{values: full, actorID: actor.ID}) {
+		if !evalWhere(tr.When, e.ctxFor(rec.ID, actor.ID, full)) {
 			return nil, &Err{Code: CodeGuardFailed,
 				Message: fmt.Sprintf("guard `%s` is false for %s %s", tr.When, entity, id),
 				FixHint: "the transition exists but its condition does not hold for this record"}
@@ -279,7 +279,7 @@ func (e *Engine) runAutoTransitions(ctx context.Context, entity, id string) {
 				continue
 			}
 			full := e.withComputed(decl, rec.ID, rec.Values)
-			if tr.When != "" && !evalWhere(tr.When, evalCtx{values: full, actorID: ""}) {
+			if tr.When != "" && !evalWhere(tr.When, e.ctxFor(rec.ID, "", full)) {
 				continue
 			}
 			_ = e.applyTransition(ctx, autoActor, entity, id, tr, current,

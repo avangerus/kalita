@@ -38,7 +38,7 @@ func (e *Engine) can(role, verb, entity, field string, record map[string]any, ac
 			continue
 		}
 		for _, item := range rule.Items {
-			if itemMatches(item, verb, entity, field) && whereMatchesForDeny(item, record, actorID) {
+			if itemMatches(item, verb, entity, field) && e.whereMatchesForDeny(item, record, actorID) {
 				return decision{false, denyRuleText(item)}
 			}
 		}
@@ -63,7 +63,7 @@ func (e *Engine) can(role, verb, entity, field string, record map[string]any, ac
 				if item.Where == "" {
 					return decision{true, ""}
 				}
-				if record != nil && evalWhere(item.Where, evalCtx{values: record, actorID: actorID}) {
+				if record != nil && evalWhere(item.Where, e.ctxFor("", actorID, record)) {
 					return decision{true, ""}
 				}
 			}
@@ -102,14 +102,14 @@ func isCrud(v string) bool {
 // whereMatchesForDeny: a conditional deny without a record fails closed only
 // for reads of concrete records; for record==nil (create/schema checks) a
 // conditional deny cannot be evaluated and does not match.
-func whereMatchesForDeny(item dsl.PermItem, record map[string]any, actorID string) bool {
+func (e *Engine) whereMatchesForDeny(item dsl.PermItem, record map[string]any, actorID string) bool {
 	if item.Where == "" {
 		return true
 	}
 	if record == nil {
 		return false
 	}
-	return evalWhere(item.Where, evalCtx{values: record, actorID: actorID})
+	return evalWhere(item.Where, e.ctxFor("", actorID, record))
 }
 
 func denyRuleText(item dsl.PermItem) string {

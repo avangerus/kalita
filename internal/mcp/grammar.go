@@ -48,7 +48,10 @@ UI:          ui Entity:
                  form:
                      section "Title": [f1, f2]
                  board: by enum_field
-EXPR:        field cmp literal | field in [a, b] | clauses joined by and; cmp: = != > < >= <=; literals: 42, "str", true, $me; days_since(path)
+EXPR:        full boolean language for where/guards/filters:
+             and / or / not / ( ) ; cmp: = != > < >= <= ; field in [a, b]
+             operands: field | ref.path (project.owner) | 42 | "str" | bareword(enum) | $me | $self | $now | true | false
+             ABAC example: read Issue where (reporter = $me or project.owner = $me) and status != Closed
 COMPUTED:    computed = <path> | days_since(path) | count(Entity where reffield = $self)
              | sum|avg|min|max(Entity.field where reffield = $self)   # roll-up over related records
 RULES:       agent role without deny does not compile; workflow state field cannot be written directly; mutations require basis; only additive migrations.`

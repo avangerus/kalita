@@ -35,7 +35,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 			for _, id := range sortedIDs(e.records[rule.Entity]) {
 				rec := e.records[rule.Entity][id]
 				full := e.withComputed(decl, rec.ID, rec.Values)
-				if rule.When != "" && !evalWhere(rule.When, evalCtx{values: full, actorID: ""}) {
+				if rule.When != "" && !evalWhere(rule.When, e.ctxFor(rec.ID, "", full)) {
 					continue
 				}
 				e.fireActions(ctx, rule, rule.Entity, id, fmt.Sprintf("auto|%s|%s|%s", key, id, day))
@@ -78,7 +78,7 @@ func (e *Engine) runEventTriggers(ctx context.Context, trigger, entity, id strin
 			return
 		}
 		full := e.withComputed(decl, rec.ID, rec.Values)
-		if rule.When != "" && !evalWhere(rule.When, evalCtx{values: full, actorID: ""}) {
+		if rule.When != "" && !evalWhere(rule.When, e.ctxFor(rec.ID, "", full)) {
 			continue
 		}
 		e.fireActions(ctx, rule, entity, id, "")

@@ -132,26 +132,52 @@ func (e *Engine) evalAggregate(fn, body, selfID string) (any, bool) {
 	return nil, false
 }
 
-// resolvePath reads `field` or `field . sub` (one ref hop) from values.
+// resolvePath reads a dotted path from values, following ref hops up to two
+// levels (project.owner, contract.company.name). Each hop dereferences a ref
+// field's id to the referenced record.
 func (e *Engine) resolvePath(path string, values map[string]any) (any, bool) {
 	parts := strings.Split(strings.ReplaceAll(path, " ", ""), ".")
-	switch len(parts) {
-	case 1:
-		v, ok := values[parts[0]]
-		return v, ok
-	case 2:
-		refID, _ := values[parts[0]].(string)
+	cur := values
+	for i, part := range parts {
+		v, ok := cur[part]
+		if !ok {
+			return nil, false
+		}
+		if i == len(parts)-1 {
+			return v, true
+		}
+		// not the last part: must be a ref id we can dereference
+		refID, _ := v.(string)
 		if refID == "" {
 			return nil, false
 		}
-		for _, rows := range e.records {
-			if rec, ok := rows[refID]; ok {
-				v, ok := rec.Values[parts[1]]
-				return v, ok
-			}
+		next := e.lookupAny(refID)
+		if next == nil {
+			return nil, false
 		}
-		return nil, false
-	default:
-		return nil, false // deeper paths are not expressible in v0
+		cur = next
+	}
+	return nil, false
+}
+
+// lookupAny finds a record by id across all entities (refs are globally
+// unique uuids), returning its values.
+func (e *Engine) lookupAny(id string) map[string]any {
+	for _, rows := range e.records {
+		if rec, ok := rows[id]; ok {
+			return rec.Values
+		}
+	}
+	return nil
+}
+
+// ctxFor builds an evaluation context with ref-path resolution and the clock.
+func (e *Engine) ctxFor(selfID, actorID string, values map[string]any) evalCtx {
+	return evalCtx{
+		values:  values,
+		actorID: actorID,
+		selfID:  selfID,
+		now:     e.now(),
+		resolve: func(path string) (any, bool) { return e.resolvePath(path, values) },
 	}
 }
