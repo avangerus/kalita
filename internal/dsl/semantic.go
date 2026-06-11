@@ -16,6 +16,25 @@ type Model struct {
 	Workflows   map[string]*WorkflowDecl  // by entity (one workflow per entity in v0)
 	Automations []*AutomationRule
 	UIs         []*UIDecl
+	Links       []*LinkDecl
+}
+
+// LinkByName resolves a link name (forward or inverse) for an entity, returning
+// the decl and whether the name is the forward direction.
+func (m *Model) LinkByName(entity, name string) (*LinkDecl, bool, bool) {
+	for _, l := range m.Links {
+		if l.From == entity && l.Forward == name {
+			return l, true, true
+		}
+		if l.To == entity && l.Inverse == name {
+			return l, false, true
+		}
+		// self-links (From==To): inverse also applies on the same entity
+		if l.From == entity && l.Inverse == name {
+			return l, false, true
+		}
+	}
+	return nil, false, false
 }
 
 // corePrefix marks references into the built-in core pack (core.User etc).
@@ -33,6 +52,7 @@ func analyze(ast *AST, errs *Errors) *Model {
 		Workflows:   map[string]*WorkflowDecl{},
 		Automations: ast.Automations,
 		UIs:         ast.UIs,
+		Links:       ast.Links,
 	}
 
 	// entities, duplicate detection
@@ -143,7 +163,33 @@ func analyze(ast *AST, errs *Errors) *Model {
 	}
 
 	analyzeBlocks(ast, m, errs)
+	analyzeLinks(ast, m, errs)
 	return m
+}
+
+func analyzeLinks(ast *AST, m *Model, errs *Errors) {
+	names := map[string]bool{} // per-entity link names must be unique
+	mark := func(entity, name string, file string, line int) {
+		key := entity + "." + name
+		if names[key] {
+			errs.add(EDupLinkName, file, line,
+				"link name "+name+" already used on "+entity,
+				"forward and inverse names must be unique per entity (and not clash with fields)")
+		}
+		names[key] = true
+	}
+	for _, l := range ast.Links {
+		if _, ok := m.Entities[l.From]; !ok {
+			errs.add(ELinkEntity, l.File, l.Line, "link from unknown entity "+l.From, "declare the entity first")
+			continue
+		}
+		if _, ok := m.Entities[l.To]; !ok {
+			errs.add(ELinkEntity, l.File, l.Line, "link to unknown entity "+l.To, "declare the entity first")
+			continue
+		}
+		mark(l.From, l.Forward, l.File, l.Line)
+		mark(l.To, l.Inverse, l.File, l.Line)
+	}
 }
 
 // checkRefTarget validates ref / array[ref] targets.

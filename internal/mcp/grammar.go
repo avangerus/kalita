@@ -16,6 +16,8 @@ TYPES:       string text int float money bool date datetime file
              array[ref[Entity]] array[string](tags) array[enum[A, B]](multiselect)
 CONSTRAINTS: constraints:            # immediately after its entity
                  unique(field1, field2)
+LINK:        link FromEntity -> ToEntity as forward_name / inverse_name
+             # named bidirectional relation (Jira issue links); both sides kept in sync
 WORKFLOW:    workflow Entity on enum_field:
                  From -> To: action [when <expr>] [assignee=agent(Role)|Role] [requires approval(Role)]
                  From -> To: auto when <expr>

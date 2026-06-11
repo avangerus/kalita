@@ -93,6 +93,9 @@ func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("POST /api/register", s.register)
 	s.mux.HandleFunc("POST /api/files", s.uploadFile)
 	s.mux.HandleFunc("GET /api/files/{hash}", s.downloadFile)
+	s.mux.HandleFunc("GET /api/records/{entity}/{id}/links", s.listLinks)
+	s.mux.HandleFunc("POST /api/records/{entity}/{id}/links", s.addLink)
+	s.mux.HandleFunc("DELETE /api/records/{entity}/{id}/links", s.removeLink)
 	return s
 }
 

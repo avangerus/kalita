@@ -150,6 +150,18 @@ type Manifest struct {
 	Depends  []string
 }
 
+// LinkDecl is a named bidirectional relation between two entities (Jira issue
+// links): `link Task -> Task as blocks / blocked_by`. The runtime keeps both
+// sides consistent: adding a forward link creates the inverse automatically.
+type LinkDecl struct {
+	From    string
+	To      string
+	Forward string // e.g. blocks
+	Inverse string // e.g. blocked_by
+	File    string
+	Line    int
+}
+
 type AST struct {
 	Manifest    *Manifest
 	Entities    []*EntityDecl
@@ -158,4 +170,5 @@ type AST struct {
 	Workflows   []*WorkflowDecl
 	Automations []*AutomationRule
 	UIs         []*UIDecl
+	Links       []*LinkDecl
 }

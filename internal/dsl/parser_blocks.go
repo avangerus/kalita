@@ -4,6 +4,29 @@ import "strings"
 
 // Parsers for workflow / automation / ui blocks (full grammar v0, week 4).
 
+// --- link ---------------------------------------------------------------------
+//
+//	link Task -> Task as blocks / blocked_by
+//
+// Single-line: a named bidirectional relation. The runtime stores the forward
+// edge and exposes the inverse automatically.
+
+func (p *parser) link(ln *Line) {
+	t := ln.Toks
+	// link From -> To as forward / inverse
+	if len(t) < 8 || t[2].Text != "->" || t[4].Text != "as" || t[6].Text != "/" ||
+		t[1].Kind != TIdent || t[3].Kind != TIdent || t[5].Kind != TIdent || t[7].Kind != TIdent {
+		p.errs.add(EBadLink, ln.File, ln.Num,
+			"link must be `link From -> To as forward / inverse`",
+			"write e.g. `link Task -> Task as blocks / blocked_by`")
+		return
+	}
+	p.ast.Links = append(p.ast.Links, &LinkDecl{
+		From: t[1].Text, To: t[3].Text, Forward: t[5].Text, Inverse: t[7].Text,
+		File: ln.File, Line: ln.Num,
+	})
+}
+
 // --- workflow -----------------------------------------------------------------
 //
 //	workflow Debtor on status:

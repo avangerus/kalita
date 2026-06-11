@@ -59,6 +59,9 @@ const (
 	InviteCreated  Kind = "invite.created"
 	InviteRedeemed Kind = "invite.redeemed"
 
+	LinkAdded   Kind = "link.added"
+	LinkRemoved Kind = "link.removed"
+
 	NodeStarted        Kind = "node.started"
 	ProjectionRebuilt  Kind = "projection.rebuilt"
 	CheckpointSealed   Kind = "checkpoint.sealed"

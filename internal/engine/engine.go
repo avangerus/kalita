@@ -25,6 +25,7 @@ type Engine struct {
 	taskWake   chan struct{} // long-polling waiters, closed on new tasks
 	proposals  map[string]*Proposal
 	stateSince map[string]map[string]time.Time // entity → id → entered current state
+	links      map[string]linkPayload          // canonical link key → fact
 	taskTTL    time.Duration
 	defApprover string // role whose human signature applies definitions
 	blobs      BlobStore
@@ -84,6 +85,7 @@ func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...
 		tasks:      map[string]*Task{},
 		proposals:  map[string]*Proposal{},
 		stateSince: map[string]map[string]time.Time{},
+		links:      map[string]linkPayload{},
 		taskTTL:    time.Hour,
 		defApprover: "Owner",
 		now:        time.Now,
@@ -201,6 +203,16 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 	case eventstore.DefinitionRejected:
 		if p, ok := e.proposals[ev.Subject.ProposalID]; ok {
 			p.Status = ProposalRejected
+		}
+	case eventstore.LinkAdded:
+		var lp linkPayload
+		if json.Unmarshal(ev.Payload, &lp) == nil {
+			e.links[lp.Link+"|"+lp.From+"|"+lp.To] = lp
+		}
+	case eventstore.LinkRemoved:
+		var lp linkPayload
+		if json.Unmarshal(ev.Payload, &lp) == nil {
+			delete(e.links, lp.Link+"|"+lp.From+"|"+lp.To)
 		}
 	case eventstore.DefinitionApplied:
 		// definitions replay from the journal: the pack directory is only the

@@ -42,6 +42,9 @@ const (
 	EUIUnknownField Code = "E029_UI_UNKNOWN_FIELD"
 	EDupWorkflow    Code = "E030_DUPLICATE_WORKFLOW"
 	ENotAgentRole   Code = "E031_ROLE_IS_NOT_AGENT"
+	EBadLink        Code = "E032_BAD_LINK"
+	ELinkEntity     Code = "E033_LINK_UNKNOWN_ENTITY"
+	EDupLinkName    Code = "E034_DUPLICATE_LINK_NAME"
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)
