@@ -165,14 +165,16 @@ type LinkDecl struct {
 	Line    int
 }
 
-// DashboardTile is one metric on a dashboard: an aggregate over an entity,
-// optionally grouped by a field (a breakdown like "deals by stage").
+// DashboardTile is one metric on a dashboard: an aggregate over ALL records of
+// an entity (not row-scoped like a computed field), optionally filtered by a
+// where-condition and/or grouped by a field (a breakdown like "deals by stage").
 type DashboardTile struct {
 	Label   string
-	Func    string // count | sum
+	Func    string // count | sum | avg | min | max
 	Entity  string
-	Field   string // for sum
+	Field   string // for sum/avg/min/max
 	GroupBy string // "" = single number; else a per-value breakdown
+	Where   string // raw filter expression over the whole table, "" = all rows
 	Line    int
 }
 

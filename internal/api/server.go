@@ -96,6 +96,8 @@ func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("GET /api/files/{hash}", s.downloadFile)
 	s.mux.HandleFunc("GET /api/records/{entity}/{id}/comments", s.listComments)
 	s.mux.HandleFunc("POST /api/records/{entity}/{id}/comments", s.postComment)
+	s.mux.HandleFunc("GET /api/dashboards", s.dashboards)
+	s.mux.HandleFunc("GET /api/dashboards/{name}", s.dashboard)
 	s.mux.HandleFunc("GET /api/records/{entity}/{id}/links", s.listLinks)
 	s.mux.HandleFunc("POST /api/records/{entity}/{id}/links", s.addLink)
 	s.mux.HandleFunc("DELETE /api/records/{entity}/{id}/links", s.removeLink)
@@ -200,6 +202,28 @@ func (s *Server) query(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"records": rows})
+}
+
+func (s *Server) dashboards(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.actor(r); !ok {
+		writeAuthRequired(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"dashboards": s.eng.Dashboards()})
+}
+
+func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.actor(r)
+	if !ok {
+		writeAuthRequired(w)
+		return
+	}
+	res, e := s.eng.Dashboard(r.Context(), actor, r.PathValue("name"))
+	if e != nil {
+		writeErr(w, e)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) get(w http.ResponseWriter, r *http.Request) {

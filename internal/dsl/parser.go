@@ -59,10 +59,12 @@ func (p *parser) run() {
 			p.automation(ln)
 		case "ui":
 			p.ui(ln)
+		case "dashboard":
+			p.dashboard(ln)
 		default:
 			p.errs.add(EUnknownBlock, ln.File, ln.Num,
 				"unknown top-level block "+head,
-				"allowed: pack, version, requires, depends, entity, constraints, workflow, link, roles, permissions, automation, ui")
+				"allowed: pack, version, requires, depends, entity, constraints, workflow, link, roles, permissions, automation, ui, dashboard")
 			p.pos++
 			p.skipChildren(0)
 		}

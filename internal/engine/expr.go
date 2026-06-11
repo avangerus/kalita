@@ -241,8 +241,8 @@ func (p *exprParser) parseOperand() (operand, bool) {
 	switch t.kind {
 	case "word":
 		p.pos++
-		// $me/$self/$now/true/false are literals; everything else is a path
-		if strings.HasPrefix(t.text, "$") || t.text == "true" || t.text == "false" {
+		// $me/$self/$now/true/false/null are literals; everything else is a path
+		if strings.HasPrefix(t.text, "$") || t.text == "true" || t.text == "false" || t.text == "null" {
 			return operand{"lit", t.text}, true
 		}
 		return operand{"path", t.text}, true
@@ -303,6 +303,19 @@ func (p *exprParser) parseComparison() exprNode {
 var cmpOps = map[string]bool{"=": true, "!=": true, ">": true, "<": true, ">=": true, "<=": true}
 
 func (n *cmpNode) eval(c evalCtx) (bool, bool) {
+	// presence check: `x = null` (x is empty) / `x != null` (x is filled).
+	// only meaningful for equality; `null` on either side switches to presence.
+	if (n.op == "=" || n.op == "!=") && (isNullLit(n.left) || isNullLit(n.right)) {
+		subj := n.left
+		if isNullLit(n.left) {
+			subj = n.right
+		}
+		present := operandPresent(subj, c)
+		if n.op == "!=" {
+			return present, true
+		}
+		return !present, true
+	}
 	lv, lok := resolveOperand(n.left, c)
 	switch n.op {
 	case "truthy":
@@ -349,6 +362,26 @@ func (n *cmpNode) eval(c evalCtx) (bool, bool) {
 	return false, false
 }
 
+func isNullLit(o operand) bool { return o.kind == "lit" && o.text == "null" }
+
+// operandPresent reports whether the operand resolves to a real (non-null)
+// value. An absent field or a field set to nil is "not present" — that is what
+// `= null` tests. A bareword compared against null is read as a field name.
+func operandPresent(o operand, c evalCtx) bool {
+	if o.kind == "lit" {
+		return o.text != "null"
+	}
+	if !strings.Contains(o.text, ".") {
+		v, ok := c.values[o.text]
+		return ok && v != nil
+	}
+	if c.resolve != nil {
+		v, ok := c.resolve(o.text)
+		return ok && v != nil
+	}
+	return false
+}
+
 // resolveOperand returns the value of a path or literal. A bareword that is
 // not an existing field is a literal (enum value): `status = Overdue` compares
 // the status field to the literal "Overdue".
@@ -382,6 +415,8 @@ func litValue(lit string, c evalCtx) any {
 		return true
 	case "false":
 		return false
+	case "null":
+		return nil
 	}
 	if n, err := strconv.ParseFloat(lit, 64); err == nil {
 		return n

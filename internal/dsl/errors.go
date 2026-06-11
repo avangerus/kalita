@@ -45,6 +45,9 @@ const (
 	EBadLink        Code = "E032_BAD_LINK"
 	ELinkEntity     Code = "E033_LINK_UNKNOWN_ENTITY"
 	EDupLinkName    Code = "E034_DUPLICATE_LINK_NAME"
+	EBadDashboardTile Code = "E035_BAD_DASHBOARD_TILE"
+	EDashboardEntity  Code = "E036_DASHBOARD_UNKNOWN_ENTITY"
+	EDashboardField   Code = "E037_DASHBOARD_UNKNOWN_FIELD"
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)

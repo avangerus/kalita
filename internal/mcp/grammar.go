@@ -51,11 +51,17 @@ UI:          ui Entity:
                  form:
                      section "Title": [f1, f2]
                  board: by enum_field
+DASHBOARD:   dashboard Name "Title":
+                 tile "Label": count|sum|avg|min|max [field] Entity [group by field] [where <expr>]
+             # count takes no field; sum/avg/min/max take a numeric field. Aggregates the
+             # WHOLE table (not $self roll-up). Totals respect each reader's row permissions.
 EXPR:        full boolean language for where/guards/filters:
              and / or / not / ( ) ; cmp: = != > < >= <= ; field in [a, b]
-             operands: field | ref.path (project.owner) | 42 | "str" | bareword(enum) | $me | $self | $now | true | false
+             operands: field | ref.path (project.owner) | 42 | "str" | bareword(enum) | $me | $self | $now | true | false | null
+             null is presence: field = null (empty) / field != null (filled)
              ABAC example: read Issue where (reporter = $me or project.owner = $me) and status != Closed
-COMPUTED:    computed = <path> | days_since(path) | count(Entity where reffield = $self)
+COMPUTED:    computed = <arithmetic of fields: + - * / and ( ), e.g. amount - amount * discount / 100>
+             | <path> | days_since(path) | count(Entity where reffield = $self)
              | sum|avg|min|max(Entity.field where reffield = $self)   # roll-up over related records
 RULES:       agent role without deny does not compile; workflow state field cannot be written directly; mutations require basis; only additive migrations.`
 
@@ -90,4 +96,8 @@ permissions:
 
 ui Ticket:
     list: [title, priority, status]
-    board: by status`
+    board: by status
+
+dashboard TicketStats "Tickets":
+    tile "Open":      count Ticket where status != Done
+    tile "By status": count Ticket group by status`

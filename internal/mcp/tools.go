@@ -82,10 +82,11 @@ var toolDefs = []map[string]any{
 		"required": []string{"pack", "entities"},
 	}},
 	{"name": "field_types", "description": "The closed list of field types — discover types without the prose grammar.", "inputSchema": schema(map[string]any{})},
-	{"name": "learn_by_example", "description": "Returns ONE annotated example pack (the pangram) that uses every type and construct. Read it once and write any pack by analogy — no grammar needed. Preferred over get_grammar.", "inputSchema": schema(map[string]any{})},
 	{"name": "validate_dsl", "description": "Dry-run compile of .kal sources. Returns structured errors with fix hints; loop until ok.", "inputSchema": schema(map[string]any{"files": obj}, "files")},
 	{"name": "propose_change", "description": "Propose new/changed pack sources. Validated, then parked for a human signature; base_def_version must match the live system (describe_system).", "inputSchema": schema(map[string]any{"files": obj, "base_def_version": num, "description": str, "basis": basisSchema}, "files", "base_def_version", "description", "basis")},
 	{"name": "get_proposal", "description": "Status of a proposal: pending, applied or rejected with reason.", "inputSchema": schema(map[string]any{"proposal_id": str}, "proposal_id")},
+	{"name": "list_dashboards", "description": "Names and titles of the dashboards declared in the loaded packs.", "inputSchema": schema(map[string]any{})},
+	{"name": "dashboard", "description": "Compute one dashboard by name: each tile is an aggregate (count/sum/avg/min/max) over a whole table, optionally grouped. Totals respect your row-level permissions.", "inputSchema": schema(map[string]any{"name": str}, "name")},
 }
 
 func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, args json.RawMessage) (any, any) {
@@ -270,10 +271,6 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 	case "field_types":
 		return map[string]any{"types": dsl.FieldTypes()}, nil
 
-	case "learn_by_example":
-		return map[string]any{"pangram": pangramExample,
-			"note": "This one annotated pack uses every type and construct. Write packs by analogy; field syntax is `name: type [modifiers]`. Then validate_dsl and propose_change."}, nil
-
 	case "validate_dsl":
 		var a struct{ Files map[string]string `json:"files"` }
 		_ = json.Unmarshal(args, &a)
@@ -317,6 +314,18 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		}
 		return map[string]any{"proposal_id": p.ID, "status": p.Status, "reason": p.Reason,
 			"def_version": s.eng.DefVersion()}, nil
+
+	case "list_dashboards":
+		return map[string]any{"dashboards": s.eng.Dashboards()}, nil
+
+	case "dashboard":
+		var a struct{ Name string `json:"name"` }
+		_ = json.Unmarshal(args, &a)
+		res, e := s.eng.Dashboard(ctx, actor, a.Name)
+		if e != nil {
+			return nil, e
+		}
+		return res, nil
 
 	default:
 		return nil, map[string]any{"code": "VALIDATION_ERROR", "message": "unknown tool " + name,

@@ -17,6 +17,7 @@ type Model struct {
 	Automations []*AutomationRule
 	UIs         []*UIDecl
 	Links       []*LinkDecl
+	Dashboards  []*DashboardDecl
 }
 
 // LinkByName resolves a link name (forward or inverse) for an entity, returning
@@ -53,6 +54,7 @@ func analyze(ast *AST, errs *Errors) *Model {
 		Automations: ast.Automations,
 		UIs:         ast.UIs,
 		Links:       ast.Links,
+		Dashboards:  ast.Dashboards,
 	}
 
 	// entities, duplicate detection

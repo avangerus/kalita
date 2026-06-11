@@ -112,6 +112,28 @@ func analyzeBlocks(ast *AST, m *Model, errs *Errors) {
 		}
 	}
 
+	for _, d := range ast.Dashboards {
+		for _, tile := range d.Tiles {
+			e, ok := m.Entities[tile.Entity]
+			if !ok {
+				errs.add(EDashboardEntity, d.File, tile.Line,
+					fmt.Sprintf("dashboard tile %q aggregates over unknown entity %s", tile.Label, tile.Entity),
+					"reference an entity declared in this pack")
+				continue
+			}
+			if tile.Field != "" && findField(e, tile.Field) == nil {
+				errs.add(EDashboardField, d.File, tile.Line,
+					fmt.Sprintf("dashboard tile %q aggregates unknown field %s.%s", tile.Label, tile.Entity, tile.Field),
+					tile.Func+" needs a declared numeric field of "+tile.Entity)
+			}
+			if tile.GroupBy != "" && findField(e, tile.GroupBy) == nil {
+				errs.add(EDashboardField, d.File, tile.Line,
+					fmt.Sprintf("dashboard tile %q groups by unknown field %s.%s", tile.Label, tile.Entity, tile.GroupBy),
+					"group by a declared field of "+tile.Entity)
+			}
+		}
+	}
+
 	// act/approve permission names must exist as workflow actions
 	for role, pb := range m.Perms {
 		for _, rule := range pb.Rules {

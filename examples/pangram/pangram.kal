@@ -1,6 +1,12 @@
-# THE PANGRAM PACK — one example that uses every type and every construct.
-# Read this once and you can write any kalita pack by analogy. No grammar needed.
-# Indent with 4 spaces. Comments start with #. A pack = pack.kal + *.kal files.
+# THE PANGRAM PACK — one example that uses every type and construct.
+# Read once, write any pack by analogy. Indent 4 spaces. # = comment.
+# Lines marked  !INVARIANT  are NOT style — break them and it WON'T COMPILE / RUN.
+# The five invariants that make kalita safe (an agent must respect them):
+#   1. an agent role MUST have a `deny [...]` block
+#   2. the workflow state field is set ONLY by transitions, never written directly
+#   3. a transition with `requires approval(Role)` does not happen until a human signs
+#   4. every data change needs a basis (the API supplies it) — no silent writes
+#   5. default-deny: a role sees/does nothing unless a permission grants it
 
 pack pangram
 version 0.1.0
@@ -37,10 +43,11 @@ entity Order:
     channels:    array[enum[Web, Phone, Email]]        # multiselect
     priority:    enum[Low, Normal, High] default=Normal
     status:      enum[Draft, Confirmed, Shipped, Done] default=Draft
-    # computed: arithmetic between fields, and an aggregate over related rows
+    # computed: arithmetic between fields, and an aggregate over related rows (read-only)
     net:         float computed = amount - amount * discount / 100
     line_count:  int   computed = count(OrderLine where order = $self)
     total:       money computed = sum(OrderLine.sum where order = $self)
+    # !INVARIANT 2: `status` above is the workflow field — never write it directly; use act(...)
 
 constraints:
     unique(number)
@@ -65,14 +72,14 @@ link Order -> Order as relates_to / relates_to     # symmetric
 workflow Order on status:
     Draft     -> Confirmed: confirm when amount > 0          # guard
     Confirmed -> Shipped:   ship assignee=agent(Logistics)   # an agent does this step
-    Shipped   -> Done:      close requires approval(Manager)  # a human must sign (HITL)
+    Shipped   -> Done:      close requires approval(Manager)  # !INVARIANT 3: HITL — won't happen without a human signature
     any       -> Draft:     reopen                            # `any` matches all states
 
 roles:
     Manager
     Clerk
     Customer
-    Logistics agent          # an AGENT role (note: must have a deny block below)
+    Logistics agent          # an AGENT role — !INVARIANT 1: must have a deny block (see below) or it WON'T COMPILE
 
 permissions:
     Manager:
@@ -118,3 +125,12 @@ ui Order:
 
 ui Customer:
     list: [name, user]
+
+# --- dashboard: table-wide aggregates (count/sum/avg/min/max) over ALL records,
+#     filtered by `where` and/or broken down by `group by`. Totals respect each
+#     reader's row permissions, so a scoped user sees totals of only their rows ---
+dashboard OrderStats "Orders":
+    tile "Open orders": count Order where status != Done
+    tile "Revenue":     sum amount Order where status = Done
+    tile "Avg ticket":  avg amount Order where status = Done
+    tile "By status":   count Order group by status

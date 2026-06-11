@@ -83,9 +83,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "kalita", "version": "0.1.0"},
 			// instructions ride once at handshake, not per request: point the
-			// agent at the pangram, the one annotated example that teaches the
-			// whole language by analogy — no grammar to carry.
-			"instructions": "To author a pack you do NOT need to learn a grammar. Call the tool `learn_by_example` once: it returns ONE annotated example pack (the pangram) that uses every type and construct. Write packs by analogy to it. Then `validate_dsl` to compile-check (fix by the structured errors), and `propose_change` to apply (a human signs). Field syntax is `name: type [modifiers]` — self-evident from the example.",
+			// agent at the grammar — the compact normative summary of the whole
+			// language — plus a canonical example to pattern-match against.
+			"instructions": "To author a pack, call `get_grammar` once: it returns the kalita DSL grammar summary (every block and type) plus a canonical example. Write packs against it, then `validate_dsl` to compile-check (fix by the structured errors), and `propose_change` to apply (a human signs). Field syntax is `name: type [modifiers]`. For structured authoring without DSL text you may instead use `compose_pack` (JSON in, validated DSL out).",
 		}})
 	case "ping":
 		writeRPC(w, rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{}})

@@ -323,6 +323,103 @@ func (p *parser) ui(ln *Line) {
 	p.ast.UIs = append(p.ast.UIs, decl)
 }
 
+// --- dashboard --------------------------------------------------------------
+//
+//	dashboard SalesFunnel "Sales funnel":
+//	    tile "Open deals":   count Deal where stage != Won and stage != Lost
+//	    tile "Pipeline":     sum amount Deal where stage != Lost
+//	    tile "By stage":     count Deal group by stage
+//	    tile "Avg won deal": avg amount Deal where stage = Won
+//
+// A dashboard is a set of tiles. Each tile is an aggregate over the WHOLE table
+// of an entity (unlike a computed field, which rolls up rows tied to $self),
+// optionally filtered by `where` and/or broken down by `group by <field>`.
+
+var aggTileFuncs = map[string]bool{"count": true, "sum": true, "avg": true, "min": true, "max": true}
+
+func (p *parser) dashboard(ln *Line) {
+	p.pos++
+	t := ln.Toks
+	if len(t) < 3 || t[1].Kind != TIdent || t[len(t)-1].Text != ":" {
+		p.errs.add(EExpectedColon, ln.File, ln.Num,
+			"dashboard block must be `dashboard Name [\"Title\"]:`",
+			"write e.g. `dashboard SalesFunnel \"Sales funnel\":`")
+		p.skipChildren(ln.Indent)
+		return
+	}
+	d := &DashboardDecl{Name: t[1].Text, File: ln.File, Line: ln.Num}
+	if t[2].Kind == TStr {
+		d.Title = t[2].Text
+	}
+	for _, body := range p.children(ln.Indent) {
+		if tile := p.dashboardTile(&body); tile != nil {
+			d.Tiles = append(d.Tiles, *tile)
+		}
+	}
+	if len(d.Tiles) == 0 {
+		p.errs.add(EEmptyBlock, ln.File, ln.Num, "dashboard has no tiles",
+			"add at least one tile, e.g. `tile \"Total\": count Deal`")
+	}
+	p.ast.Dashboards = append(p.ast.Dashboards, d)
+}
+
+func (p *parser) dashboardTile(ln *Line) *DashboardTile {
+	t := ln.Toks
+	if len(t) < 4 || t[0].Text != "tile" || t[1].Kind != TStr || t[2].Text != ":" {
+		p.errs.add(EBadDashboardTile, ln.File, ln.Num,
+			"tile must be `tile \"Label\": <func> [field] Entity [group by field] [where expr]`",
+			"write e.g. `tile \"Pipeline\": sum amount Deal where stage != Lost`")
+		return nil
+	}
+	tile := &DashboardTile{Label: t[1].Text, Line: ln.Num}
+	rest := t[3:]
+	if len(rest) == 0 || rest[0].Kind != TIdent || !aggTileFuncs[rest[0].Text] {
+		p.errs.add(EBadDashboardTile, ln.File, ln.Num,
+			"tile must start with an aggregate: count, sum, avg, min, max",
+			"write e.g. `count Deal` or `sum amount Deal`")
+		return nil
+	}
+	tile.Func = rest[0].Text
+	i := 1
+	if tile.Func != "count" {
+		if i >= len(rest) || rest[i].Kind != TIdent {
+			p.errs.add(EBadDashboardTile, ln.File, ln.Num,
+				tile.Func+" needs a field to aggregate", "write e.g. `"+tile.Func+" amount Deal`")
+			return nil
+		}
+		tile.Field = rest[i].Text
+		i++
+	}
+	if i >= len(rest) || rest[i].Kind != TIdent {
+		p.errs.add(EBadDashboardTile, ln.File, ln.Num, "tile needs an entity to aggregate over",
+			"name the entity after the function, e.g. `count Deal`")
+		return nil
+	}
+	tile.Entity = rest[i].Text
+	i++
+	for i < len(rest) {
+		switch rest[i].Text {
+		case "group":
+			if i+2 >= len(rest) || rest[i+1].Text != "by" || rest[i+2].Kind != TIdent {
+				p.errs.add(EBadDashboardTile, ln.File, ln.Num, "group by needs a field",
+					"write e.g. `group by stage`")
+				return nil
+			}
+			tile.GroupBy = rest[i+2].Text
+			i += 3
+		case "where":
+			expr, n := exprUntilStop(rest[i+1:], map[string]bool{"group": true})
+			tile.Where = expr
+			i += 1 + n
+		default:
+			p.errs.add(EBadDashboardTile, ln.File, ln.Num, "unexpected "+rest[i].Text+" in tile",
+				"after the entity only `group by <field>` and `where <expr>` are allowed")
+			return nil
+		}
+	}
+	return tile
+}
+
 // bracketContents returns identifiers inside the first [...] of the line.
 func bracketContents(toks []Tok) []string {
 	var out []string
