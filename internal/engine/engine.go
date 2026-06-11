@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/eventstore"
@@ -19,6 +20,22 @@ type Engine struct {
 	store      eventstore.Store
 	defVersion uint64
 	records    map[string]map[string]*Record // entity → id → record
+	approvals  map[string]*Approval
+	now        func() time.Time
+	// verify checks an actor's signature (wired to identity.Registry by the
+	// node). When set, approval decisions REQUIRE a valid signature.
+	verify func(ctx context.Context, actorID string, msg, sig []byte) error
+}
+
+// Option configures the engine.
+type Option func(*Engine)
+
+// WithClock injects a deterministic clock (tests, replay).
+func WithClock(now func() time.Time) Option { return func(e *Engine) { e.now = now } }
+
+// WithVerifier wires signature verification for approval decisions.
+func WithVerifier(v func(ctx context.Context, actorID string, msg, sig []byte) error) Option {
+	return func(e *Engine) { e.verify = v }
 }
 
 // Record is the projected current state of one row.
@@ -43,12 +60,17 @@ type updatedPayload struct {
 }
 
 // New builds an engine over a model and journal, replaying existing events.
-func New(ctx context.Context, model *dsl.Model, store eventstore.Store) (*Engine, error) {
+func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...Option) (*Engine, error) {
 	e := &Engine{
 		model:      model,
 		store:      store,
 		defVersion: 1,
 		records:    map[string]map[string]*Record{},
+		approvals:  map[string]*Approval{},
+		now:        time.Now,
+	}
+	for _, opt := range opts {
+		opt(e)
 	}
 	events, err := store.All(ctx)
 	if err != nil {
@@ -83,6 +105,34 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 			for _, ch := range p.Changes {
 				rec.Values[ch.Field] = ch.New
 			}
+		}
+	case eventstore.RecordAction:
+		var p actionPayload
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			return
+		}
+		if rec, ok := e.records[ev.Subject.Entity][ev.Subject.RecordID]; ok {
+			if wf, ok := e.model.Workflows[ev.Subject.Entity]; ok {
+				rec.Values[wf.Field] = p.To
+			}
+		}
+	case eventstore.ApprovalRequested:
+		var p approvalPayload
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			return
+		}
+		e.approvals[ev.Subject.ApprovalID] = &Approval{
+			ID: ev.Subject.ApprovalID, Entity: p.Entity, RecordID: p.RecordID,
+			Action: p.Action, From: p.From, To: p.To, Role: p.Role,
+			RequestedBy: ev.Actor, Status: ApprovalPending,
+		}
+	case eventstore.ApprovalGranted:
+		if a, ok := e.approvals[ev.Subject.ApprovalID]; ok {
+			a.Status = ApprovalGrantedStatus
+		}
+	case eventstore.ApprovalRejected:
+		if a, ok := e.approvals[ev.Subject.ApprovalID]; ok {
+			a.Status = ApprovalRejectedStatus
 		}
 	case eventstore.DefinitionApplied:
 		e.defVersion++

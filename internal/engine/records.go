@@ -40,6 +40,9 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 	if d := e.can(actor.Role, "create", entity, "", nil, actor.ID); !d.allowed {
 		return nil, denied(actor.Role, "create", entity, d.rule)
 	}
+	if err := e.checkWorkflowField(entity, values); err != nil {
+		return nil, err
+	}
 	vals := make(map[string]any, len(values))
 	for k, v := range values {
 		vals[k] = v
@@ -83,7 +86,22 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 		e.records[entity] = map[string]*Record{}
 	}
 	e.records[entity][rec.ID] = rec
+	e.runAutoTransitions(ctx, entity, rec.ID)
 	return rec, nil
+}
+
+// checkWorkflowField rejects direct writes to a workflow-governed field:
+// state changes exist only as transitions.
+func (e *Engine) checkWorkflowField(entity string, values map[string]any) *Err {
+	wf, ok := e.model.Workflows[entity]
+	if !ok {
+		return nil
+	}
+	if _, touched := values[wf.Field]; touched {
+		return invalid(wf.Field, entity+"."+wf.Field+" is governed by the workflow",
+			"use act(...) with a transition action; the state field cannot be written directly")
+	}
+	return nil
 }
 
 // Update applies a partial change to a record.
@@ -102,6 +120,9 @@ func (e *Engine) Update(ctx context.Context, actor eventstore.Actor, entity, id 
 	rec, ok := e.records[entity][id]
 	if !ok {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
+	}
+	if err := e.checkWorkflowField(entity, values); err != nil {
+		return nil, err
 	}
 	if d := e.can(actor.Role, "update", entity, "", rec.Values, actor.ID); !d.allowed {
 		return nil, denied(actor.Role, "update", entity, d.rule)
@@ -150,6 +171,7 @@ func (e *Engine) Update(ctx context.Context, actor eventstore.Actor, entity, id 
 	for _, ch := range changes {
 		rec.Values[ch.Field] = ch.New
 	}
+	e.runAutoTransitions(ctx, entity, id)
 	return rec, nil
 }
 
@@ -160,7 +182,8 @@ func (e *Engine) Get(ctx context.Context, actor eventstore.Actor, entity, id str
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	if _, errr := e.entityOrErr(entity); errr != nil {
+	decl, errr := e.entityOrErr(entity)
+	if errr != nil {
 		return nil, errr
 	}
 	rec, ok := e.records[entity][id]
@@ -170,7 +193,8 @@ func (e *Engine) Get(ctx context.Context, actor eventstore.Actor, entity, id str
 	if d := e.can(actor.Role, "read", entity, "", rec.Values, actor.ID); !d.allowed {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
-	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, rec.Values, actor.ID)}, nil
+	full := e.withComputed(decl, rec.Values)
+	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, full, actor.ID)}, nil
 }
 
 // QueryOpts are v0 query parameters: equality filters, limit, offset cursor.
@@ -185,7 +209,8 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	if _, errr := e.entityOrErr(entity); errr != nil {
+	decl, errr := e.entityOrErr(entity)
+	if errr != nil {
 		return nil, errr
 	}
 	var out []*Record
@@ -194,9 +219,10 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 		if d := e.can(actor.Role, "read", entity, "", rec.Values, actor.ID); !d.allowed {
 			continue
 		}
+		full := e.withComputed(decl, rec.Values)
 		match := true
 		for k, want := range opts.Filter {
-			if rec.Values[k] != want {
+			if full[k] != want {
 				match = false
 				break
 			}
@@ -204,7 +230,7 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 		if !match {
 			continue
 		}
-		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, rec.Values, actor.ID)})
+		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, full, actor.ID)})
 	}
 	if opts.Offset > 0 {
 		if opts.Offset >= len(out) {

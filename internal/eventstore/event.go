@@ -68,6 +68,7 @@ type Subject struct {
 	RecordID   string `json:"record_id,omitempty"`
 	ProposalID string `json:"proposal_id,omitempty"`
 	TaskID     string `json:"task_id,omitempty"`
+	ApprovalID string `json:"approval_id,omitempty"`
 	ActorID    string `json:"actor_id,omitempty"`
 }
 

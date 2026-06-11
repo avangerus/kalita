@@ -126,8 +126,9 @@ func TestRESTEndToEnd(t *testing.T) {
 		t.Fatalf("update: %d", resp.StatusCode)
 	}
 
-	// query with filter
-	resp, list := anna.do("GET", "/api/records/Debtor?status=OnTime", nil)
+	// query with filter: the auto transition has already moved the debtor to
+	// Overdue (due_date is in the past) — the workflow engine at work
+	resp, list := anna.do("GET", "/api/records/Debtor?status=Overdue", nil)
 	if resp.StatusCode != 200 || len(list["records"].([]any)) != 1 {
 		t.Fatalf("query: %d %v", resp.StatusCode, list)
 	}

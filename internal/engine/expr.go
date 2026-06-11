@@ -31,19 +31,42 @@ func evalWhere(expr string, c evalCtx) bool {
 }
 
 func evalClause(clause string, c evalCtx) bool {
-	for _, op := range []string{"!=", "="} {
-		if i := strings.Index(clause, op); i > 0 {
-			field := strings.TrimSpace(clause[:i])
-			lit := strings.TrimSpace(clause[i+len(op):])
-			got, ok := c.values[field]
-			if !ok {
+	for _, op := range []string{">=", "<=", "!=", ">", "<", "="} {
+		i := strings.Index(clause, op)
+		if i <= 0 {
+			continue
+		}
+		// `>` must not match inside `>=` etc.
+		if (op == ">" || op == "<" || op == "=") && i+1 < len(clause) && clause[i+1] == '=' {
+			continue
+		}
+		field := strings.TrimSpace(clause[:i])
+		lit := strings.TrimSpace(clause[i+len(op):])
+		got, ok := c.values[field]
+		if !ok {
+			return false
+		}
+		switch op {
+		case "=":
+			return literalEquals(lit, got, c)
+		case "!=":
+			return !literalEquals(lit, got, c)
+		default:
+			g, ok1 := toFloat(got)
+			w, err := strconv.ParseFloat(lit, 64)
+			if !ok1 || err != nil {
 				return false
 			}
-			eq := literalEquals(lit, got, c)
-			if op == "=" {
-				return eq
+			switch op {
+			case ">":
+				return g > w
+			case "<":
+				return g < w
+			case ">=":
+				return g >= w
+			case "<=":
+				return g <= w
 			}
-			return !eq
 		}
 	}
 	return false

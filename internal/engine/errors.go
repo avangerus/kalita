@@ -13,6 +13,7 @@ const (
 	CodeNotFound         = "NOT_FOUND"
 	CodeConflict         = "CONFLICT"
 	CodeBasisRequired    = "BASIS_REQUIRED"
+	CodeGuardFailed      = "GUARD_FAILED"
 )
 
 type Err struct {

@@ -35,6 +35,7 @@ permissions:
         deny  [update Debtor.debt, delete *, read Contract where classified = true]
     Accountant:
         full  [Debtor, Contract]
+        act   [escalate]
     FinDirector:
         approve [escalate]
         read    all
