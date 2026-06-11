@@ -14,6 +14,8 @@ import (
 	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
+	"github.com/avangerus/kalita/internal/identity"
+	"github.com/avangerus/kalita/internal/mcp"
 )
 
 var version = "0.1.0-dev"
@@ -30,9 +32,47 @@ func main() {
 		serve(os.Args[2:])
 	case "check":
 		check(os.Args[2:])
+	case "agent":
+		agentCmd(os.Args[2:])
 	default:
 		usage()
 	}
+}
+
+// agentCmd registers an agent and prints its bearer token (once).
+// v0: run while the node is stopped — projections are rebuilt at serve start.
+func agentCmd(args []string) {
+	if len(args) < 1 || args[0] != "add" {
+		fmt.Println("usage: kalita agent add --id <id> --role <Role> (KALITA_PG_DSN required)")
+		os.Exit(1)
+	}
+	fs := flag.NewFlagSet("agent add", flag.ExitOnError)
+	id := fs.String("id", "", "agent id")
+	role := fs.String("role", "", "role from the pack")
+	_ = fs.Parse(args[1:])
+	if *id == "" || *role == "" {
+		log.Fatal("--id and --role are required")
+	}
+	dsn := os.Getenv("KALITA_PG_DSN")
+	if dsn == "" {
+		log.Fatal("KALITA_PG_DSN is required: agent identities live in the journal")
+	}
+	ctx := context.Background()
+	store, err := eventstore.NewPGStore(ctx, dsn, "", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.Close()
+	reg := identity.NewRegistry(store)
+	registrar := eventstore.Actor{Type: eventstore.ActorHuman, ID: "node-admin", Role: "Owner"}
+	token, err := reg.RegisterWithToken(ctx, registrar, *id, eventstore.ActorAgent, *role, nil,
+		&eventstore.Basis{Type: "human", ID: "node-admin"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("agent %s (role %s) registered\n", *id, *role)
+	fmt.Printf("bearer token (shown once, only the hash is journaled):\n%s\n", token)
+	fmt.Println("restart the node to pick up the registration (v0)")
 }
 
 func usage() {
@@ -115,12 +155,16 @@ func serve(args []string) {
 		log.Print("journal: IN-MEMORY (dev only, state is lost on exit; set KALITA_PG_DSN)")
 	}
 
-	eng, err := engine.New(ctx, model, store)
+	reg := identity.NewRegistry(store)
+	eng, err := engine.New(ctx, model, store, engine.WithVerifier(reg.VerifySignature))
 	if err != nil {
 		log.Fatalf("engine: %v", err)
 	}
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcp.New(eng, reg))
+	mux.Handle("/", api.New(eng))
 	log.Printf("pack %s: %d entities, %d roles, def_version %d",
 		model.Manifest.Name, len(model.Entities), len(model.Roles), eng.DefVersion())
-	log.Printf("listening on %s (v0 dev auth: X-Actor-Id / X-Actor-Role headers)", *listen)
-	log.Fatal(http.ListenAndServe(*listen, api.New(eng)))
+	log.Printf("listening on %s — REST (dev headers) + MCP at /mcp (agent bearer tokens)", *listen)
+	log.Fatal(http.ListenAndServe(*listen, mux))
 }

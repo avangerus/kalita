@@ -3,6 +3,10 @@ package identity
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,10 +26,13 @@ func NewRegistry(store eventstore.Store) *Registry {
 }
 
 // actorPayload is the payload of actor.registered / actor.key_rotated events.
+// TokenHash is sha256 of the bearer token used for MCP authentication; the
+// token itself never enters the journal.
 type actorPayload struct {
 	ActorType eventstore.ActorType `json:"actor_type"`
 	Role      string               `json:"role,omitempty"`
 	PublicKey []byte               `json:"public_key,omitempty"`
+	TokenHash []byte               `json:"token_hash,omitempty"`
 }
 
 // ActorInfo is the current state of an actor derived from the journal.
@@ -34,6 +41,7 @@ type ActorInfo struct {
 	Type      eventstore.ActorType
 	Role      string
 	PublicKey ed25519.PublicKey
+	TokenHash []byte
 	Disabled  bool
 }
 
@@ -47,28 +55,101 @@ var (
 // Register appends actor.registered. registrar is the (human) actor performing
 // the registration; agents cannot register agents in v0.
 func (r *Registry) Register(ctx context.Context, registrar eventstore.Actor, id string, typ eventstore.ActorType, role string, pub ed25519.PublicKey, basis *eventstore.Basis) error {
+	_, err := r.register(ctx, registrar, id, typ, role, pub, nil, basis)
+	return err
+}
+
+// RegisterWithToken registers an actor and issues a bearer token for MCP
+// authentication. The token is returned ONCE; only its hash is journaled.
+func (r *Registry) RegisterWithToken(ctx context.Context, registrar eventstore.Actor, id string, typ eventstore.ActorType, role string, pub ed25519.PublicKey, basis *eventstore.Basis) (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(raw)
+	hash := sha256.Sum256([]byte(token))
+	if _, err := r.register(ctx, registrar, id, typ, role, pub, hash[:], basis); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+func (r *Registry) register(ctx context.Context, registrar eventstore.Actor, id string, typ eventstore.ActorType, role string, pub ed25519.PublicKey, tokenHash []byte, basis *eventstore.Basis) (*eventstore.Event, error) {
 	if registrar.Type != eventstore.ActorHuman {
-		return fmt.Errorf("identity: only humans register actors in v0, got %s", registrar.Type)
+		return nil, fmt.Errorf("identity: only humans register actors in v0, got %s", registrar.Type)
 	}
 	existing, err := r.lookup(ctx, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if existing != nil {
-		return ErrActorExists
+		return nil, ErrActorExists
 	}
-	payload, err := json.Marshal(actorPayload{ActorType: typ, Role: role, PublicKey: pub})
+	payload, err := json.Marshal(actorPayload{ActorType: typ, Role: role, PublicKey: pub, TokenHash: tokenHash})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = r.store.Append(ctx, eventstore.AppendInput{
+	return r.store.Append(ctx, eventstore.AppendInput{
 		Actor:   registrar,
 		Kind:    eventstore.ActorRegistered,
 		Subject: eventstore.Subject{ActorID: id},
 		Payload: payload,
 		Basis:   basis,
 	})
-	return err
+}
+
+// Authenticate resolves a bearer token to an active actor.
+func (r *Registry) Authenticate(ctx context.Context, token string) (*ActorInfo, error) {
+	hash := sha256.Sum256([]byte(token))
+	infos, err := r.all(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, info := range infos {
+		if info.TokenHash != nil && subtle.ConstantTimeCompare(info.TokenHash, hash[:]) == 1 {
+			if info.Disabled {
+				return nil, ErrActorDisabled
+			}
+			return info, nil
+		}
+	}
+	return nil, ErrActorUnknown
+}
+
+// all replays actor.* events into the full directory.
+func (r *Registry) all(ctx context.Context) (map[string]*ActorInfo, error) {
+	events, err := r.store.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	infos := map[string]*ActorInfo{}
+	for _, e := range events {
+		id := e.Subject.ActorID
+		if id == "" {
+			continue
+		}
+		switch e.Kind {
+		case eventstore.ActorRegistered, eventstore.ActorKeyRotated:
+			var p actorPayload
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				continue
+			}
+			info := infos[id]
+			if info == nil {
+				info = &ActorInfo{ID: id}
+				infos[id] = info
+			}
+			info.Type, info.Role, info.PublicKey = p.ActorType, p.Role, p.PublicKey
+			if p.TokenHash != nil {
+				info.TokenHash = p.TokenHash
+			}
+		case eventstore.ActorDisabled:
+			if info, ok := infos[id]; ok {
+				info.Disabled = true
+			}
+		}
+	}
+	return infos, nil
 }
 
 // RotateKey appends actor.key_rotated with the new public key.
