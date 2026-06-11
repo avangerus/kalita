@@ -121,6 +121,41 @@ func (r *Registry) register(ctx context.Context, registrar eventstore.Actor, id 
 	})
 }
 
+// EnsureActor registers an actor idempotently and returns a token. Used by
+// bootstrap: a worker presenting the node's shared secret gets a stable
+// identity on first start, the same token slot on restarts (re-issued). If the
+// actor already exists, a fresh token is issued and the old one rotated out.
+func (r *Registry) EnsureActor(ctx context.Context, id string, typ eventstore.ActorType, role string, meta *ActorMeta) (string, error) {
+	existing, err := r.lookup(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	registrar := eventstore.Actor{Type: eventstore.ActorHuman, ID: "bootstrap", Role: "Owner"}
+	basis := &eventstore.Basis{Type: "human", ID: "bootstrap"}
+	if existing == nil {
+		return r.RegisterWithToken(ctx, registrar, id, typ, role, nil, meta, basis)
+	}
+	// already registered: rotate its token (re-issue), keep role/meta
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(raw)
+	hash := sha256.Sum256([]byte(token))
+	payload, _ := json.Marshal(actorPayload{ActorType: existing.Type, Role: existing.Role,
+		PublicKey: existing.PublicKey, TokenHash: hash[:], Meta: existing.Meta})
+	if _, err := r.store.Append(ctx, eventstore.AppendInput{
+		Actor:   registrar,
+		Kind:    eventstore.ActorKeyRotated,
+		Subject: eventstore.Subject{ActorID: id},
+		Payload: payload,
+		Basis:   basis,
+	}); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
 // List returns all actors (the directory behind the Agents screen).
 func (r *Registry) List(ctx context.Context) ([]*ActorInfo, error) {
 	infos, err := r.all(ctx)

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/avangerus/kalita/internal/api"
@@ -273,6 +274,14 @@ func serve(args []string) {
 		apiOpts = append(apiOpts, api.WithRAGSearch(*searchBackend, *searchScope, *searchLog, "Searcher"))
 		log.Printf("RAG search enabled: /api/search -> %s (scope %s)", *searchBackend, *searchScope)
 	}
+	if secret := os.Getenv("KALITA_BOOTSTRAP_SECRET"); secret != "" {
+		roles := []string{"Indexer", "Searcher"}
+		if r := os.Getenv("KALITA_BOOTSTRAP_ROLES"); r != "" {
+			roles = splitComma(r)
+		}
+		apiOpts = append(apiOpts, api.WithBootstrap(secret, roles))
+		log.Printf("worker bootstrap enabled for roles %v", roles)
+	}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.New(eng, reg))
 	mux.Handle("/api/", api.New(eng, reg, apiOpts...))
@@ -354,6 +363,16 @@ func serve(args []string) {
 		log.Fatal(http.ListenAndServeTLS(*listen, *tlsCert, *tlsKey, handler))
 	}
 	log.Fatal(http.ListenAndServe(*listen, handler))
+}
+
+func splitComma(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func isLoopback(listen string) bool {

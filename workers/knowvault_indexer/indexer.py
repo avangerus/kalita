@@ -23,8 +23,11 @@ import urllib.error
 import uuid
 from datetime import datetime, timezone
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from bootstrap import get_token  # noqa: E402
+
 NODE = os.environ.get("KALITA_URL", "http://127.0.0.1:8095")
-TOKEN = os.environ.get("KALITA_TOKEN") or sys.exit("KALITA_TOKEN is required")
+TOKEN = get_token()
 QDRANT = os.environ.get("KV_QDRANT", "http://192.168.1.4:6333")
 LM = os.environ.get("KV_LM", "http://localhost:1234")
 

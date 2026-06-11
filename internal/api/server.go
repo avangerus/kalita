@@ -25,6 +25,7 @@ type Server struct {
 	mux     *http.ServeMux
 	devAuth bool
 	rag     *ragConfig
+	boot    *bootstrapConfig
 }
 
 // Option configures the server.
@@ -39,6 +40,12 @@ func WithRAGSearch(backend, scope, logEntity, role string) Option {
 	return func(s *Server) {
 		s.enableRAG(ragConfig{Backend: backend, Scope: scope, LogEntity: logEntity, Role: role})
 	}
+}
+
+// WithBootstrap mounts POST /api/bootstrap so workers self-register with a
+// shared secret, minting only the allowlisted roles.
+func WithBootstrap(secret string, roles []string) Option {
+	return func(s *Server) { s.enableBootstrap(secret, roles) }
 }
 
 func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
