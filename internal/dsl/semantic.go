@@ -8,12 +8,14 @@ import (
 // Semantic model: the compiler's output, consumed by the runtime engines.
 
 type Model struct {
-	Manifest *Manifest
-	Entities map[string]*EntityDecl
-	Order    []string // entity declaration order
-	Roles    map[string]*RoleDecl
-	Perms    map[string]*PermBlock // by role
-	Raw      []*RawBlock           // workflow/automation/ui, analyzed week 4
+	Manifest    *Manifest
+	Entities    map[string]*EntityDecl
+	Order       []string // entity declaration order
+	Roles       map[string]*RoleDecl
+	Perms       map[string]*PermBlock     // by role
+	Workflows   map[string]*WorkflowDecl  // by entity (one workflow per entity in v0)
+	Automations []*AutomationRule
+	UIs         []*UIDecl
 }
 
 // corePrefix marks references into the built-in core pack (core.User etc).
@@ -24,11 +26,13 @@ var coreEntities = map[string]bool{"core.User": true}
 
 func analyze(ast *AST, errs *Errors) *Model {
 	m := &Model{
-		Manifest: ast.Manifest,
-		Entities: map[string]*EntityDecl{},
-		Roles:    map[string]*RoleDecl{},
-		Perms:    map[string]*PermBlock{},
-		Raw:      ast.RawBlocks,
+		Manifest:    ast.Manifest,
+		Entities:    map[string]*EntityDecl{},
+		Roles:       map[string]*RoleDecl{},
+		Perms:       map[string]*PermBlock{},
+		Workflows:   map[string]*WorkflowDecl{},
+		Automations: ast.Automations,
+		UIs:         ast.UIs,
 	}
 
 	// entities, duplicate detection
@@ -138,6 +142,7 @@ func analyze(ast *AST, errs *Errors) *Model {
 		}
 	}
 
+	analyzeBlocks(ast, m, errs)
 	return m
 }
 

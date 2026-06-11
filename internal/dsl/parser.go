@@ -50,8 +50,12 @@ func (p *parser) run() {
 			p.roles(ln)
 		case "permissions":
 			p.permissions(ln)
-		case "workflow", "automation", "ui":
-			p.rawBlock(ln, head)
+		case "workflow":
+			p.workflow(ln)
+		case "automation":
+			p.automation(ln)
+		case "ui":
+			p.ui(ln)
 		default:
 			p.errs.add(EUnknownBlock, ln.File, ln.Num,
 				"unknown top-level block "+head,
@@ -506,10 +510,3 @@ func parsePermItem(toks []Tok, outerVerb string, ln *Line, errs *Errors) *PermIt
 	return item
 }
 
-// --- raw blocks (workflow / automation / ui — analyzed in week 4) -------------
-
-func (p *parser) rawBlock(ln *Line, kind string) {
-	p.pos++
-	rb := &RawBlock{Kind: kind, Lines: append([]Line{*ln}, p.children(ln.Indent)...)}
-	p.ast.RawBlocks = append(p.ast.RawBlocks, rb)
-}

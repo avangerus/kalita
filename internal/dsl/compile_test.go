@@ -95,13 +95,50 @@ func TestCollectionsPackCompiles(t *testing.T) {
 		t.Fatalf("deny[2] must be read Contract where ...: %+v", deny.Items[2])
 	}
 
-	// workflow / automation / ui survive as raw blocks for week 4
-	kinds := map[string]bool{}
-	for _, rb := range m.Raw {
-		kinds[rb.Kind] = true
+	// workflow fully analyzed (week 4 gate)
+	wf, ok := m.Workflows["Debtor"]
+	if !ok {
+		t.Fatal("Debtor workflow must exist")
 	}
-	if !kinds["workflow"] || !kinds["automation"] || !kinds["ui"] {
-		t.Fatalf("raw blocks must be preserved, got %v", kinds)
+	if wf.Field != "status" || len(wf.Transitions) != 4 {
+		t.Fatalf("Debtor workflow parsed wrong: field=%s transitions=%d", wf.Field, len(wf.Transitions))
+	}
+	esc := wf.Transitions[2]
+	if esc.Action != "escalate" || esc.ApprovalRole != "FinDirector" {
+		t.Fatalf("escalate transition parsed wrong: %+v", esc)
+	}
+	claim := wf.Transitions[1]
+	if claim.Action != "send_claim" || !claim.AssigneeAgent || claim.AssigneeRole != "Collector" {
+		t.Fatalf("send_claim transition parsed wrong: %+v", claim)
+	}
+	auto := wf.Transitions[0]
+	if !auto.Auto || auto.When == "" {
+		t.Fatalf("auto transition parsed wrong: %+v", auto)
+	}
+	last := wf.Transitions[3]
+	if last.From != "any" || last.To != "Settled" {
+		t.Fatalf("any -> Settled parsed wrong: %+v", last)
+	}
+
+	// automation analyzed
+	if len(m.Automations) != 2 {
+		t.Fatalf("collections declares 2 automation rules, got %d", len(m.Automations))
+	}
+	sched := m.Automations[0]
+	if sched.Trigger != "schedule" || sched.Entity != "Debtor" || sched.When == "" || len(sched.Actions) != 2 {
+		t.Fatalf("schedule rule parsed wrong: %+v", sched)
+	}
+	if sched.Actions[0].Kind != "agent" || sched.Actions[0].Role != "Collector" || sched.Actions[0].Task != "draft_reminder" {
+		t.Fatalf("agent action parsed wrong: %+v", sched.Actions[0])
+	}
+	stuck := m.Automations[1]
+	if stuck.Trigger != "stuck" || stuck.Entity != "Debtor" || stuck.StuckState != "Claim" || stuck.StuckFor != "10d" {
+		t.Fatalf("stuck rule parsed wrong: %+v", stuck)
+	}
+
+	// ui analyzed
+	if len(m.UIs) != 1 || m.UIs[0].BoardBy != "status" || len(m.UIs[0].FieldRefs) == 0 {
+		t.Fatalf("ui parsed wrong: %+v", m.UIs)
 	}
 }
 

@@ -39,6 +39,19 @@ func TestBrokenSources(t *testing.T) {
 		{"agent without permissions at all", "entity A:\n    x: int\n\nroles:\n    Bot agent", EAgentNoDeny},
 		{"empty entity", "entity A:", EEmptyBlock},
 		{"manifest without value", "pack", EBadManifest},
+		{"bad transition syntax", "entity A:\n    s: enum[X, Y]\n\nworkflow A on s:\n    X Y: go", EBadTransition},
+		{"workflow on non-enum", "entity A:\n    s: string\n\nworkflow A on s:\n    X -> Y: go", EWorkflowField},
+		{"unknown state", "entity A:\n    s: enum[X, Y]\n\nworkflow A on s:\n    X -> Z: go", EUnknownState},
+		{"duplicate action", "entity A:\n    s: enum[X, Y, Z]\n\nworkflow A on s:\n    X -> Y: go\n    Y -> Z: go", EDupAction},
+		{"duplicate workflow", "entity A:\n    s: enum[X, Y]\n\nworkflow A on s:\n    X -> Y: go\n\nworkflow A on s:\n    Y -> X: back", EDupWorkflow},
+		{"approval by unknown role", "entity A:\n    s: enum[X, Y]\n\nworkflow A on s:\n    X -> Y: go requires approval(Ghost)", EUnknownRole},
+		{"agent assignee not agent role", "entity A:\n    s: enum[X, Y]\n\nroles:\n    Human\n\nworkflow A on s:\n    X -> Y: go assignee=agent(Human)", ENotAgentRole},
+		{"act perm unknown action", "entity A:\n    s: enum[X, Y]\n\nroles:\n    Owner\n\nworkflow A on s:\n    X -> Y: go\n\npermissions:\n    Owner:\n        act [fly]", EUnknownAction},
+		{"automation unknown trigger", "automation:\n    on explode A:\n        escalate_to Owner", EBadAutomation},
+		{"schedule when without for", "entity A:\n    s: enum[X, Y]\n\nautomation:\n    on schedule daily when s = X:\n        escalate_to Owner", EBadAutomation},
+		{"stuck without workflow", "entity A:\n    s: enum[X, Y]\n\nroles:\n    Owner\n\nautomation:\n    on stuck A in X for 2d:\n        escalate_to Owner", EBadAutomation},
+		{"ui unknown field", "entity A:\n    x: int\n\nui A:\n    list: [x, ghost]", EUIUnknownField},
+		{"ui board unknown field", "entity A:\n    x: int\n\nui A:\n    board: by ghost", EUIUnknownField},
 	}
 
 	for _, tc := range cases {

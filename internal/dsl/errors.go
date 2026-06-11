@@ -33,6 +33,15 @@ const (
 	EEmptyBlock     Code = "E020_EMPTY_BLOCK"
 	EBadManifest    Code = "E021_BAD_MANIFEST"
 	EOrphanBlock    Code = "E022_BLOCK_WITHOUT_ENTITY"
+	EBadTransition  Code = "E023_BAD_TRANSITION"
+	EBadAutomation  Code = "E024_BAD_AUTOMATION"
+	EWorkflowField  Code = "E025_WORKFLOW_FIELD_NOT_ENUM"
+	EUnknownState   Code = "E026_UNKNOWN_STATE"
+	EDupAction      Code = "E027_DUPLICATE_ACTION"
+	EUnknownAction  Code = "E028_UNKNOWN_ACTION"
+	EUIUnknownField Code = "E029_UI_UNKNOWN_FIELD"
+	EDupWorkflow    Code = "E030_DUPLICATE_WORKFLOW"
+	ENotAgentRole   Code = "E031_ROLE_IS_NOT_AGENT"
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)

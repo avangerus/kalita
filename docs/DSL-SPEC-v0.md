@@ -98,7 +98,7 @@ permissions:
 
 ```
 automation:
-    on schedule daily at 09:00 when status = Overdue and overdue_days in [3, 7, 14]:
+    on schedule daily at 09:00 for Debtor when status = Overdue and overdue_days in [3, 7, 14]:
         agent Collector: draft_reminder(tone = soft if overdue_days < 7 else firm)
         notify email(manager)
 
@@ -109,7 +109,7 @@ automation:
         escalate_to FinDirector
 ```
 
-Триггеры v0: `on schedule <cron-подобное>`, `on create|update|delete <Entity> [when ...]`, `on stuck <Entity> in <State> for <duration>`.
+Триггеры v0: `on schedule <расписание> [for <Entity>] [when ...]` (с `for` — правило прогоняется по записям сущности, без — глобальное действие), `on create|update|delete <Entity> [when ...]`, `on stuck <Entity> in <State> for <duration>`.
 Действия v0 (закрытый список): `agent <Role>: <task>(args)` (создание задачи агенту), `notify email(...)`, `webhook out <url>` (только исходящие, объявленные = видимые в спеке), `create/update <Entity> set {...}`, `escalate_to <Role>`.
 
 ## 7. Выражения (намеренно бедные)

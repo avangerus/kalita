@@ -85,9 +85,53 @@ type PermBlock struct {
 	Rules []PermRule
 }
 
-type RawBlock struct {
-	Kind  string // workflow | automation | ui
-	Lines []Line
+type TransitionDecl struct {
+	From, To string // From may be "any"
+	Action   string
+	Auto     bool
+	When     string // raw guard expression
+	// assignee=agent(Role) → AssigneeAgent=true; assignee=Role → human role
+	AssigneeAgent bool
+	AssigneeRole  string
+	ApprovalRole  string // requires approval(Role)
+	Line          int
+}
+
+type WorkflowDecl struct {
+	Entity      string
+	Field       string // the enum field the workflow governs
+	Transitions []TransitionDecl
+	File        string
+	Line        int
+}
+
+type AutomationAction struct {
+	Kind string // agent | notify | webhook | escalate
+	Role string // agent / escalate_to target
+	Task string // agent task name
+	Args string // raw args text
+	Raw  string
+	Line int
+}
+
+type AutomationRule struct {
+	Trigger    string // schedule | create | update | delete | stuck
+	Schedule   string // raw schedule text for schedule triggers
+	Entity     string // bound entity ("" for global schedule rules)
+	StuckState string
+	StuckFor   string
+	When       string // raw condition
+	Actions    []AutomationAction
+	File       string
+	Line       int
+}
+
+type UIDecl struct {
+	Entity    string
+	FieldRefs []PermItem // line-tagged field references to validate (Entity.field)
+	BoardBy   string
+	File      string
+	Line      int
 }
 
 type Manifest struct {
@@ -102,5 +146,7 @@ type AST struct {
 	Entities    []*EntityDecl
 	Roles       []*RoleDecl
 	Permissions []*PermBlock
-	RawBlocks   []*RawBlock
+	Workflows   []*WorkflowDecl
+	Automations []*AutomationRule
+	UIs         []*UIDecl
 }
