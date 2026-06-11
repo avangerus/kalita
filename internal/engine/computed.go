@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,28 +41,196 @@ func (e *Engine) withComputed(decl *dsl.EntityDecl, selfID string, values map[st
 
 var aggFuncs = map[string]bool{"count": true, "sum": true, "avg": true, "min": true, "max": true}
 
+// evalComputed evaluates a computed-field expression. It is an arithmetic
+// expression ( + - * / and parentheses ) whose atoms are: number literals,
+// field/ref-paths (resolved to numbers), and the function terms days_since(...)
+// and the aggregates count/sum/avg/min/max(...). One closed, checkable grammar
+// — NOT arbitrary code.
 func (e *Engine) evalComputed(expr, selfID string, values map[string]any) (any, bool) {
-	expr = strings.TrimSpace(expr)
-	if rest, ok := strings.CutPrefix(expr, "days_since ("); ok {
-		path := strings.TrimSpace(strings.TrimSuffix(rest, ")"))
-		raw, ok := e.resolvePath(path, values)
+	p := &arith{s: strings.TrimSpace(expr), e: e, selfID: selfID, values: values}
+	v, ok := p.parseExpr()
+	p.skipSpace()
+	if !ok || p.pos != len(p.s) {
+		return nil, false
+	}
+	return v, true
+}
+
+// arith is a recursive-descent evaluator over the computed expression string.
+type arith struct {
+	s      string
+	pos    int
+	e      *Engine
+	selfID string
+	values map[string]any
+}
+
+func (p *arith) skipSpace() {
+	for p.pos < len(p.s) && (p.s[p.pos] == ' ' || p.s[p.pos] == '\t') {
+		p.pos++
+	}
+}
+
+func (p *arith) parseExpr() (float64, bool) {
+	left, ok := p.parseTerm()
+	if !ok {
+		return 0, false
+	}
+	for {
+		p.skipSpace()
+		if p.pos >= len(p.s) || (p.s[p.pos] != '+' && p.s[p.pos] != '-') {
+			return left, true
+		}
+		op := p.s[p.pos]
+		p.pos++
+		right, ok := p.parseTerm()
 		if !ok {
+			return 0, false
+		}
+		if op == '+' {
+			left += right
+		} else {
+			left -= right
+		}
+	}
+}
+
+func (p *arith) parseTerm() (float64, bool) {
+	left, ok := p.parseFactor()
+	if !ok {
+		return 0, false
+	}
+	for {
+		p.skipSpace()
+		if p.pos >= len(p.s) || (p.s[p.pos] != '*' && p.s[p.pos] != '/') {
+			return left, true
+		}
+		op := p.s[p.pos]
+		p.pos++
+		right, ok := p.parseFactor()
+		if !ok {
+			return 0, false
+		}
+		if op == '*' {
+			left *= right
+		} else {
+			if right == 0 {
+				return 0, false // division by zero fails the computed value
+			}
+			left /= right
+		}
+	}
+}
+
+func (p *arith) parseFactor() (float64, bool) {
+	p.skipSpace()
+	if p.pos >= len(p.s) {
+		return 0, false
+	}
+	c := p.s[p.pos]
+	if c == '(' {
+		p.pos++
+		v, ok := p.parseExpr()
+		p.skipSpace()
+		if !ok || p.pos >= len(p.s) || p.s[p.pos] != ')' {
+			return 0, false
+		}
+		p.pos++
+		return v, true
+	}
+	if c == '-' {
+		p.pos++
+		v, ok := p.parseFactor()
+		return -v, ok
+	}
+	if c >= '0' && c <= '9' || c == '.' {
+		return p.parseNumber()
+	}
+	return p.parseAtom()
+}
+
+func (p *arith) parseNumber() (float64, bool) {
+	start := p.pos
+	for p.pos < len(p.s) && (p.s[p.pos] >= '0' && p.s[p.pos] <= '9' || p.s[p.pos] == '.') {
+		p.pos++
+	}
+	n, err := strconv.ParseFloat(p.s[start:p.pos], 64)
+	return n, err == nil
+}
+
+// parseAtom reads an identifier; if followed by '(', it is a function term
+// (days_since or an aggregate) whose balanced-paren body is dispatched to the
+// existing handlers. Otherwise it is a field/ref-path resolved to a number.
+func (p *arith) parseAtom() (float64, bool) {
+	start := p.pos
+	for p.pos < len(p.s) {
+		ch := p.s[p.pos]
+		if ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_' || ch == '.' {
+			p.pos++
+			continue
+		}
+		break
+	}
+	name := p.s[start:p.pos]
+	if name == "" {
+		return 0, false
+	}
+	p.skipSpace()
+	if p.pos < len(p.s) && p.s[p.pos] == '(' {
+		// capture balanced parens
+		depth, j := 0, p.pos
+		for j < len(p.s) {
+			if p.s[j] == '(' {
+				depth++
+			} else if p.s[j] == ')' {
+				depth--
+				if depth == 0 {
+					break
+				}
+			}
+			j++
+		}
+		if depth != 0 {
+			return 0, false
+		}
+		body := p.s[p.pos+1 : j]
+		p.pos = j + 1
+		var v any
+		var ok bool
+		switch {
+		case name == "days_since":
+			v, ok = p.e.evalDaysSince(strings.TrimSpace(body), p.values)
+		case aggFuncs[name]:
+			v, ok = p.e.evalAggregate(name, body+")", p.selfID)
+		default:
+			return 0, false
+		}
+		f, fok := toFloat(v)
+		return f, ok && fok
+	}
+	// a path: resolve and coerce to number
+	raw, ok := p.e.resolvePath(name, p.values)
+	if !ok {
+		return 0, false
+	}
+	f, fok := toFloat(raw)
+	return f, fok
+}
+
+// evalDaysSince computes whole days from a date/datetime field to now.
+func (e *Engine) evalDaysSince(path string, values map[string]any) (any, bool) {
+	raw, ok := e.resolvePath(path, values)
+	if !ok {
+		return nil, false
+	}
+	s, _ := raw.(string)
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		if t, err = time.Parse(time.RFC3339, s); err != nil {
 			return nil, false
 		}
-		s, _ := raw.(string)
-		t, err := time.Parse("2006-01-02", s)
-		if err != nil {
-			if t, err = time.Parse(time.RFC3339, s); err != nil {
-				return nil, false
-			}
-		}
-		return float64(int(e.now().UTC().Sub(t).Hours() / 24)), true
 	}
-	// aggregate: fn ( Entity[.field] where reffield = $self )
-	if i := strings.IndexByte(expr, '('); i > 0 && aggFuncs[strings.TrimSpace(expr[:i])] {
-		return e.evalAggregate(strings.TrimSpace(expr[:i]), expr[i+1:], selfID)
-	}
-	return e.resolvePath(expr, values)
+	return float64(int(e.now().UTC().Sub(t).Hours() / 24)), true
 }
 
 // evalAggregate computes count/sum/avg/min/max over records of a target entity
