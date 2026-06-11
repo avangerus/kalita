@@ -35,7 +35,8 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(New(eng))
+	// dev-header identity is an explicit opt-in (P0): these tests exercise it
+	srv := httptest.NewServer(Secure(New(eng, nil, WithDevHeaders())))
 	t.Cleanup(srv.Close)
 	return srv
 }

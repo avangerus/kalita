@@ -1,4 +1,4 @@
-// Package api is the REST layer over the engine: same operations, same error
+﻿// Package api is the REST layer over the engine: same operations, same error
 // codes, zero business logic of its own. The UI (week 7) and humans consume
 // it; agents get the MCP gateway (week 6).
 package api
@@ -8,22 +8,35 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
+	"github.com/avangerus/kalita/internal/identity"
 )
 
-// Server wraps the engine with HTTP. Identity in v0 comes from dev headers —
-// an explicit stub: X-Actor-Id / X-Actor-Type / X-Actor-Role. It is replaced
-// by agent keys (week 6, MCP) and WebAuthn sessions (week 7). Do not expose a
-// v0 node outside a trusted network.
+// Server wraps the engine with HTTP. Identity: bearer tokens resolved through
+// the registry — same mechanism as agents, no parallel access model (SECURITY
+// rule #1). Dev headers (X-Actor-Id/Role) exist ONLY behind an explicit
+// opt-in for local development and tests.
 type Server struct {
-	eng *engine.Engine
-	mux *http.ServeMux
+	eng      *engine.Engine
+	reg      *identity.Registry
+	mux      *http.ServeMux
+	devAuth  bool
 }
 
-func New(eng *engine.Engine) *Server {
-	s := &Server{eng: eng, mux: http.NewServeMux()}
+// Option configures the server.
+type Option func(*Server)
+
+// WithDevHeaders enables X-Actor-Id/X-Actor-Role identity. NEVER in production.
+func WithDevHeaders() Option { return func(s *Server) { s.devAuth = true } }
+
+func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
+	s := &Server{eng: eng, reg: reg, mux: http.NewServeMux()}
+	for _, o := range opts {
+		o(s)
+	}
 	s.mux.HandleFunc("GET /api/system", s.describe)
 	s.mux.HandleFunc("GET /api/meta", s.meta)
 	s.mux.HandleFunc("GET /api/records/{entity}", s.query)
@@ -42,21 +55,32 @@ func New(eng *engine.Engine) *Server {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
 
-// --- identity (v0 dev stub) ---------------------------------------------------
+// --- identity -------------------------------------------------------------------
 
-func actorFrom(r *http.Request) (eventstore.Actor, bool) {
-	a := eventstore.Actor{
-		Type: eventstore.ActorType(r.Header.Get("X-Actor-Type")),
-		ID:   r.Header.Get("X-Actor-Id"),
-		Role: r.Header.Get("X-Actor-Role"),
+// actor resolves the caller: bearer token via the registry; dev headers only
+// when explicitly enabled.
+func (s *Server) actor(r *http.Request) (eventstore.Actor, bool) {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") && s.reg != nil {
+		info, err := s.reg.Authenticate(r.Context(), strings.TrimPrefix(h, "Bearer "))
+		if err != nil {
+			return eventstore.Actor{}, false
+		}
+		return eventstore.Actor{Type: info.Type, ID: info.ID, Role: info.Role}, true
 	}
-	if a.ID == "" || a.Role == "" {
-		return a, false
+	if s.devAuth {
+		a := eventstore.Actor{
+			Type: eventstore.ActorType(r.Header.Get("X-Actor-Type")),
+			ID:   r.Header.Get("X-Actor-Id"),
+			Role: r.Header.Get("X-Actor-Role"),
+		}
+		if a.ID != "" && a.Role != "" {
+			if a.Type == "" {
+				a.Type = eventstore.ActorHuman
+			}
+			return a, true
+		}
 	}
-	if a.Type == "" {
-		a.Type = eventstore.ActorHuman
-	}
-	return a, true
+	return eventstore.Actor{}, false
 }
 
 // --- payloads -------------------------------------------------------------------
@@ -82,7 +106,7 @@ type describeResponse struct {
 // --- handlers ---------------------------------------------------------------------
 
 func (s *Server) describe(w http.ResponseWriter, r *http.Request) {
-	if _, ok := actorFrom(r); !ok {
+	if _, ok := s.actor(r); !ok {
 		writeAuthRequired(w)
 		return
 	}
@@ -105,7 +129,7 @@ func (s *Server) describe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) query(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(r)
+	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return
@@ -130,7 +154,7 @@ func (s *Server) query(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) get(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(r)
+	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return
@@ -144,7 +168,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) create(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(r)
+	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return
@@ -164,7 +188,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) update(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(r)
+	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return

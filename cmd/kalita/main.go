@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -35,20 +36,30 @@ func main() {
 		check(os.Args[2:])
 	case "agent":
 		agentCmd(os.Args[2:])
+	case "user":
+		userCmd(os.Args[2:])
 	default:
 		usage()
 	}
 }
 
-// agentCmd registers an agent and prints its bearer token (once).
+// agentCmd registers an actor (agent or human) and prints its bearer token.
 // v0: run while the node is stopped — projections are rebuilt at serve start.
 func agentCmd(args []string) {
+	registerActor(args, eventstore.ActorAgent, "agent")
+}
+
+func userCmd(args []string) {
+	registerActor(args, eventstore.ActorHuman, "user")
+}
+
+func registerActor(args []string, typ eventstore.ActorType, what string) {
 	if len(args) < 1 || args[0] != "add" {
-		fmt.Println("usage: kalita agent add --id <id> --role <Role> (KALITA_PG_DSN required)")
+		fmt.Printf("usage: kalita %s add --id <id> --role <Role> (KALITA_PG_DSN required)\n", what)
 		os.Exit(1)
 	}
-	fs := flag.NewFlagSet("agent add", flag.ExitOnError)
-	id := fs.String("id", "", "agent id")
+	fs := flag.NewFlagSet(what+" add", flag.ExitOnError)
+	id := fs.String("id", "", what+" id")
 	role := fs.String("role", "", "role from the pack")
 	_ = fs.Parse(args[1:])
 	if *id == "" || *role == "" {
@@ -56,7 +67,7 @@ func agentCmd(args []string) {
 	}
 	dsn := os.Getenv("KALITA_PG_DSN")
 	if dsn == "" {
-		log.Fatal("KALITA_PG_DSN is required: agent identities live in the journal")
+		log.Fatal("KALITA_PG_DSN is required: identities live in the journal")
 	}
 	ctx := context.Background()
 	store, err := eventstore.NewPGStore(ctx, dsn, "", nil)
@@ -66,12 +77,12 @@ func agentCmd(args []string) {
 	defer store.Close()
 	reg := identity.NewRegistry(store)
 	registrar := eventstore.Actor{Type: eventstore.ActorHuman, ID: "node-admin", Role: "Owner"}
-	token, err := reg.RegisterWithToken(ctx, registrar, *id, eventstore.ActorAgent, *role, nil,
+	token, err := reg.RegisterWithToken(ctx, registrar, *id, typ, *role, nil,
 		&eventstore.Basis{Type: "human", ID: "node-admin"})
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("agent %s (role %s) registered\n", *id, *role)
+	fmt.Printf("%s %s (role %s) registered\n", what, *id, *role)
 	fmt.Printf("bearer token (shown once, only the hash is journaled):\n%s\n", token)
 	fmt.Println("restart the node to pick up the registration (v0)")
 }
@@ -127,9 +138,19 @@ func check(args []string) {
 func serve(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	pack := fs.String("pack", "", "genesis pack directory (optional: empty node accepts its first pack via propose_change)")
-	listen := fs.String("listen", ":8080", "listen address")
+	listen := fs.String("listen", "127.0.0.1:8080", "listen address")
 	approver := fs.String("approver", "Owner", "role whose human signature applies definition changes")
+	tlsCert := fs.String("tls-cert", "", "TLS certificate file")
+	tlsKey := fs.String("tls-key", "", "TLS key file")
+	devHeaders := fs.Bool("insecure-dev-auth", false, "enable X-Actor-* header identity (local development ONLY)")
+	insecureHTTP := fs.Bool("insecure-http", false, "allow plaintext HTTP on non-loopback addresses (NOT recommended)")
 	_ = fs.Parse(args)
+
+	tls := *tlsCert != "" && *tlsKey != ""
+	if !tls && !*insecureHTTP && !isLoopback(*listen) {
+		log.Fatal("refusing to listen on a non-loopback address without TLS: " +
+			"pass --tls-cert/--tls-key, or --insecure-http if a TLS-terminating proxy is in front (SECURITY.md P0)")
+	}
 
 	var model *dsl.Model
 	if *pack != "" {
@@ -168,15 +189,37 @@ func serve(args []string) {
 	if err != nil {
 		log.Fatalf("engine: %v", err)
 	}
+	var apiOpts []api.Option
+	if *devHeaders {
+		log.Print("WARNING: --insecure-dev-auth is on — X-Actor headers grant any identity. Local development only.")
+		apiOpts = append(apiOpts, api.WithDevHeaders())
+	}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.New(eng, reg))
-	mux.Handle("/api/", api.New(eng))
+	mux.Handle("/api/", api.New(eng, reg, apiOpts...))
 	mux.Handle("/", webui.Handler())
+	handler := api.Secure(mux)
+
 	packName := "(genesis)"
 	if m := eng.Model().Manifest; m != nil {
 		packName = m.Name
 	}
 	log.Printf("pack %s: %d entities, def_version %d", packName, len(eng.Model().Entities), eng.DefVersion())
-	log.Printf("listening on %s — REST (dev headers) + MCP at /mcp (agent bearer tokens)", *listen)
-	log.Fatal(http.ListenAndServe(*listen, mux))
+	log.Printf("listening on %s — UI + REST /api (bearer tokens: kalita user add) + MCP /mcp", *listen)
+	if tls {
+		log.Fatal(http.ListenAndServeTLS(*listen, *tlsCert, *tlsKey, handler))
+	}
+	log.Fatal(http.ListenAndServe(*listen, handler))
+}
+
+func isLoopback(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

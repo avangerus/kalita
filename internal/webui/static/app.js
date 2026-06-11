@@ -16,7 +16,7 @@ async function api(path, opts = {}) {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
-      'X-Actor-Id': s?.id || '', 'X-Actor-Role': s?.role || '',
+      'Authorization': s?.token ? `Bearer ${s.token}` : '',
       ...(opts.headers || {}),
     },
   });
@@ -25,7 +25,8 @@ async function api(path, opts = {}) {
   return body;
 }
 
-const basis = () => ({ type: 'human', id: session.get().id });
+let me = { id: '', role: '' }; // filled from /api/meta after sign-in
+const basis = () => ({ type: 'human', id: me.id });
 
 // --- routing (hash) ------------------------------------------------------------
 
@@ -59,13 +60,12 @@ const fmt = (v) => v === null || v === undefined ? '' :
 // --- views ----------------------------------------------------------------------
 
 function Login() {
-  const [id, setId] = useState(''); const [role, setRole] = useState('');
+  const [token, setToken] = useState('');
   return html`<div class="login card">
     <h2>Kalita</h2>
-    <div class="muted" style="margin-bottom:10px">v0 dev sign-in (replaced by passkeys): who are you on this node?</div>
-    <label>Actor id</label><input value=${id} onInput=${e => setId(e.target.value)} />
-    <label>Role</label><input value=${role} onInput=${e => setRole(e.target.value)} />
-    <button class="btn green" onClick=${() => { if (id && role) { session.set({ id, role }); location.reload(); } }}>Enter</button>
+    <div class="muted" style="margin-bottom:10px">Paste your access token (issued by the node admin: <code>kalita user add</code>). Passkeys arrive in v0.2.</div>
+    <label>Access token</label><input type="password" value=${token} onInput=${e => setToken(e.target.value)} />
+    <button class="btn green" onClick=${() => { if (token.trim()) { session.set({ token: token.trim() }); location.reload(); } }}>Enter</button>
   </div>`;
 }
 
@@ -227,7 +227,7 @@ function App() {
       setInboxCount((a.approvals?.length || 0) + (p.proposals?.length || 0));
     } catch { /* ignore */ }
   };
-  useEffect(() => { api('/api/meta').then(m => { setMeta(m); refresh(); }).catch(setErr); }, []);
+  useEffect(() => { api('/api/meta').then(m => { me = { id: m.actor_id, role: m.role }; setMeta(m); refresh(); }).catch(setErr); }, []);
 
   if (err) return html`<div class="login card"><div class="err">${err.message || 'node unreachable'}</div>
     <button class="btn" onClick=${() => { session.clear(); location.reload(); }}>Sign in again</button></div>`;

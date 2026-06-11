@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"encoding/json"
@@ -13,7 +13,7 @@ import (
 // actions, the approval inbox and human task queues.
 
 func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(r)
+	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return
@@ -28,7 +28,7 @@ type actRequest struct {
 }
 
 func (s *Server) act(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(r)
+	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return
@@ -47,7 +47,7 @@ func (s *Server) act(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) journal(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(r)
+	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return
@@ -68,7 +68,7 @@ func (s *Server) journal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) approvals(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(r)
+	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return
@@ -83,7 +83,7 @@ type decideRequest struct {
 }
 
 func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(r)
+	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return
@@ -102,7 +102,7 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(r)
+	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return
@@ -117,7 +117,7 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) proposals(w http.ResponseWriter, r *http.Request) {
-	if _, ok := actorFrom(r); !ok {
+	if _, ok := s.actor(r); !ok {
 		writeAuthRequired(w)
 		return
 	}
@@ -125,7 +125,7 @@ func (s *Server) proposals(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) decideProposal(w http.ResponseWriter, r *http.Request) {
-	actor, ok := actorFrom(r)
+	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return

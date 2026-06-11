@@ -21,7 +21,9 @@ services:
         condition: service_healthy
     environment:
       KALITA_PG_DSN: postgres://postgres:${POSTGRES_PASSWORD:-kalita}@postgres:5432/kalita
-    command: ["serve", "--listen", ":8080", "--pack", "${KALITA_PACK:-/opt/kalita/examples/collections}"]
+    # --insecure-http: TLS is expected to terminate at your proxy; the node
+    # itself refuses non-loopback plaintext without this explicit flag
+    command: ["serve", "--listen", ":8080", "--insecure-http", "--pack", "${KALITA_PACK:-/opt/kalita/examples/collections}"]
     ports:
       - "8080:8080"
 
