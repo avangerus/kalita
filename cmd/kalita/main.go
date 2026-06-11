@@ -1,4 +1,4 @@
-// Command kalita is the single-binary entry point for the Kalita node.
+﻿// Command kalita is the single-binary entry point for the Kalita node.
 package main
 
 import (
@@ -62,7 +62,7 @@ func verifyCmd(args []string) {
 		log.Fatal("KALITA_PG_DSN is required")
 	}
 	ctx := context.Background()
-	store, err := eventstore.NewPGStore(ctx, dsn, "", nil)
+	store, err := eventstore.NewPGStore(ctx, dsn, os.Getenv("KALITA_PG_SCHEMA"), nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func registerActor(args []string, typ eventstore.ActorType, what string) {
 		log.Fatal("KALITA_PG_DSN is required: identities live in the journal")
 	}
 	ctx := context.Background()
-	store, err := eventstore.NewPGStore(ctx, dsn, "", nil)
+	store, err := eventstore.NewPGStore(ctx, dsn, os.Getenv("KALITA_PG_SCHEMA"), nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func serve(args []string) {
 	ctx := context.Background()
 	var store eventstore.Store
 	if dsn := os.Getenv("KALITA_PG_DSN"); dsn != "" {
-		pg, err := eventstore.NewPGStore(ctx, dsn, "", nil)
+		pg, err := eventstore.NewPGStore(ctx, dsn, os.Getenv("KALITA_PG_SCHEMA"), nil)
 		if err != nil {
 			log.Fatalf("postgres: %v", err)
 		}

@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -131,7 +131,7 @@ func mustPG(ctx context.Context) *eventstore.PGStore {
 	if dsn == "" {
 		log.Fatal("KALITA_PG_DSN is required")
 	}
-	store, err := eventstore.NewPGStore(ctx, dsn, "", nil)
+	store, err := eventstore.NewPGStore(ctx, dsn, os.Getenv("KALITA_PG_SCHEMA"), nil)
 	if err != nil {
 		log.Fatal(err)
 	}
