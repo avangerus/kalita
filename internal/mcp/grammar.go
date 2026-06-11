@@ -12,6 +12,8 @@ ENTITY:      entity Name:            # or: entity Name singleton:  (at most one 
                  field: type [required] [unique] [default=<expr>] [computed=<expr>] [on_delete=restrict|set_null|cascade]
 TYPES:       string text int float money bool date datetime file
              email url phone duration(2d4h) percent(0-100) color(#RRGGBB) decimal json
+             serial(auto document number; modifier format="INV-{year}-{seq:5}")
+             money(bare number, or {amount, currency} for multi-currency)
              enum[A, B] ref[Entity] ref[core.User]
              array[ref[Entity]] array[string](tags) array[enum[A, B]](multiselect)
 CONSTRAINTS: constraints:            # immediately after its entity

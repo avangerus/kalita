@@ -295,7 +295,7 @@ func (p *parser) modifiers(toks []Tok, f *FieldDecl, ln *Line) {
 		case "unique":
 			f.Unique = true
 			i++
-		case "default", "computed", "on_delete":
+		case "default", "computed", "on_delete", "format":
 			if i+2 >= len(toks)+1 || i+1 >= len(toks) || toks[i+1].Text != "=" {
 				p.errs.add(EBadModifier, ln.File, ln.Num, t.Text+" requires =value",
 					fmt.Sprintf("write `%s=...`", t.Text))
@@ -307,6 +307,8 @@ func (p *parser) modifiers(toks []Tok, f *FieldDecl, ln *Line) {
 				f.Default = val
 			case "computed":
 				f.Computed = val
+			case "format":
+				f.Format = strings.Trim(val, `"`)
 			case "on_delete":
 				if !onDeleteValues[val] {
 					p.errs.add(EBadModifier, ln.File, ln.Num, "on_delete must be restrict, set_null or cascade",
@@ -317,13 +319,13 @@ func (p *parser) modifiers(toks []Tok, f *FieldDecl, ln *Line) {
 			i += 2 + n
 		default:
 			p.errs.add(EBadModifier, ln.File, ln.Num, "unknown modifier "+t.Text,
-				"allowed modifiers: required, unique, default=, computed=, on_delete=")
+				"allowed modifiers: required, unique, default=, computed=, on_delete=, format=")
 			return
 		}
 	}
 }
 
-var modKeywords = map[string]bool{"required": true, "unique": true, "default": true, "computed": true, "on_delete": true}
+var modKeywords = map[string]bool{"required": true, "unique": true, "default": true, "computed": true, "on_delete": true, "format": true}
 
 // exprUntilKeyword joins tokens into a raw expression until the next modifier
 // keyword. Expressions stay raw text in week 2; the expression grammar is

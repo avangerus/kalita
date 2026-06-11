@@ -52,6 +52,7 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 	for k, v := range values {
 		vals[k] = v
 	}
+	e.assignSerials(decl, vals) // document numbers before validation
 	if err := e.validateValues(decl, vals, false, actor.ID); err != nil {
 		return nil, err
 	}

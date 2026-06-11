@@ -25,6 +25,8 @@ var scalarTypes = map[string]bool{
 	// rich scalars (v1):
 	"email": true, "url": true, "phone": true, "duration": true,
 	"percent": true, "color": true, "decimal": true, "json": true,
+	// serial: auto-assigned human-readable document number (INV-2026-00042)
+	"serial": true,
 }
 
 type TypeRef struct {
@@ -43,6 +45,7 @@ type FieldDecl struct {
 	Default  string // raw expression text, "" if absent
 	Computed string // raw expression text, "" if absent
 	OnDelete string // restrict | set_null | cascade, "" if absent
+	Format   string // serial format, e.g. "INV-{year}-{seq:5}", "" if absent
 }
 
 type EntityDecl struct {

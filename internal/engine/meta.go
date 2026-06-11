@@ -115,6 +115,10 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 			if wf, ok := e.model.Workflows[name]; ok && wf.Field == f.Name {
 				mf.Writable = false
 			}
+			// serial numbers are kernel-assigned, never user-editable
+			if f.Type.Kind == dsl.TyScalar && f.Type.Scalar == "serial" {
+				mf.Writable = false
+			}
 			me.Fields = append(me.Fields, mf)
 		}
 		if wf, ok := e.model.Workflows[name]; ok {

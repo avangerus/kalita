@@ -113,7 +113,7 @@ func checkScalar(f *dsl.FieldDecl, v any) *Err {
 			"pass a JSON "+jsonKind(want))
 	}
 	switch want {
-	case "string", "text":
+	case "string", "text", "serial":
 		if _, ok := v.(string); !ok {
 			return bad()
 		}
@@ -136,9 +136,26 @@ func checkScalar(f *dsl.FieldDecl, v any) *Err {
 		if !ok || n != float64(int64(n)) {
 			return bad()
 		}
-	case "float", "money":
+	case "float":
 		if _, ok := toFloat(v); !ok {
 			return bad()
+		}
+	case "money":
+		// money accepts a bare number (default currency) OR {amount, currency}
+		// for multi-currency ERP/CRM. Currency must be a 3-letter code.
+		if _, ok := toFloat(v); ok {
+			break
+		}
+		m, ok := v.(map[string]any)
+		if !ok {
+			return invalid(name, name+" must be a number or {amount, currency}",
+				`pass 1000 or {"amount": 1000, "currency": "RUB"}`)
+		}
+		if _, ok := toFloat(m["amount"]); !ok {
+			return invalid(name, name+" needs a numeric amount", `{"amount": 1000, "currency": "RUB"}`)
+		}
+		if c, _ := m["currency"].(string); c != "" && !reCurrency.MatchString(c) {
+			return invalid(name, c+" is not a currency code", "use a 3-letter ISO code like RUB, USD, EUR")
 		}
 	case "date":
 		s, ok := v.(string)
@@ -201,6 +218,7 @@ var (
 	rePhone    = regexp.MustCompile(`^\+?[0-9][0-9\s\-()]{4,}$`)
 	reColor    = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 	reDuration = regexp.MustCompile(`^(\d+d)?(\d+h)?(\d+m)?$`)
+	reCurrency = regexp.MustCompile(`^[A-Z]{3}$`)
 )
 
 // checkRefsExist verifies referenced records exist. core.* refs are accepted
