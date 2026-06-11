@@ -188,7 +188,10 @@ func analyzeLinks(ast *AST, m *Model, errs *Errors) {
 			continue
 		}
 		mark(l.From, l.Forward, l.File, l.Line)
-		mark(l.To, l.Inverse, l.File, l.Line)
+		// symmetric link (same name both ways, e.g. relates_to): mark once
+		if !(l.From == l.To && l.Forward == l.Inverse) {
+			mark(l.To, l.Inverse, l.File, l.Line)
+		}
 	}
 }
 
