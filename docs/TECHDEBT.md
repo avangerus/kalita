@@ -50,8 +50,10 @@ severity: **P0** блокирует прод · **P1** мешает заявле
 
 ## CRM table-stakes (ориентир Bitrix24/Salesforce/Pipedrive)
 
-- **P1 нет `crm`-пака** (Contact/Lead/Company/Deal/Activity + pipeline). Без него «мы CRM» — слова. (2026-06-12) ← следующий шаг
+- **P2 born-agentic SalesBot только на `on create Opportunity`.** Триаж лида (New→Working) не реализован: Activity нельзя привязать к Lead (нет ref Activity→Lead, только →Opportunity). → добавить Activity↔Lead или Lead-триаж без активности. (2026-06-12)
+- **P2 SalesBot не ставит `due` у заведённой Activity** (нет дедлайна follow-up). → попросить у LLM срок или дефолт +2 дня. (2026-06-12)
 - **P2 авто-капчур активностей, дедуп контактов, мобайл, форкаст по территориям** — отсутствуют (различители из бенчмарка). (2026-06-12)
+- **P3 deal→invoice handoff между паками** (CRM Opportunity Won → finance Invoice) не связан — finance.dsl это анонсирует, моста нет. (2026-06-12)
 
 ## KnowVault
 
@@ -64,3 +66,4 @@ severity: **P0** блокирует прод · **P1** мешает заявле
 
 - ~~Инкрементальная индексация KnowVault (skip unchanged / re-embed changed / drop deleted)~~ — закрыто `84f92ca`.
 - ~~Auto-reindex без ручного триггера~~ — закрыто `b822a03` (interval schedule + resync task).
+- ~~Born-agentic CRM (система действия)~~ — частично: SalesBot триажит новую Opportunity (квалификация + follow-up Activity + advance), HITL на close_won цел. Доказано вживую 2026-06-12.

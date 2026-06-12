@@ -282,10 +282,78 @@ def handle_legal(token, task):
     return True, "raised %d finding(s), overall risk %s, submitted for the lawyer" % (made, overall)
 
 
-# KALITA_HANDLER=legal switches the work function to the structured contract reviewer.
+def _extract_obj(text):
+    """Pull a single JSON object out of a model reply, tolerant of fences/prose."""
+    t = text.strip()
+    if "```" in t:
+        for part in t.split("```"):
+            p = part.strip()
+            if p[:4].lower() == "json":
+                p = p[4:].strip()
+            if p.startswith("{"):
+                t = p
+                break
+    i, j = t.find("{"), t.rfind("}")
+    if i >= 0 and j > i:
+        try:
+            o = json.loads(t[i:j + 1])
+            return o if isinstance(o, dict) else {}
+        except ValueError:
+            return {}
+    return {}
+
+
+def handle_sales(token, task):
+    """The sales agent: triage a fresh opportunity. Read it, draft a one-paragraph
+    qualification, BOOK the first follow-up as a real Activity (system of action,
+    not just a note), then advance the stage — stopping well before the win, which
+    only a human signs. The booked activity and the moved stage are the work, not
+    a wall of text."""
+    entity, rid, action = task.get("entity"), task.get("record_id"), task.get("action")
+    if not (entity and rid and action):
+        return True, "nothing to do"
+    basis = {"type": "task", "id": task["id"]}
+    if not LLM_URL:
+        res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis})
+        return (not err), ("advanced (no model)" if not err else json.dumps(res))
+
+    desc, _ = mcp(token, "describe_entity", {"entity": entity})
+    rec, _ = mcp(token, "get_record", {"entity": entity, "id": rid})
+    ctx = resolve_context(token, desc, rec.get("values", {}))
+    out = llm([
+        {"role": "system", "content":
+            "You are a sales development agent on the Kalita platform triaging a new opportunity. "
+            "Return ONLY a JSON object: "
+            '{"qualification": str, "first_activity": str}. '
+            "qualification: one short paragraph — is this worth pursuing, what to confirm, the risk. "
+            "first_activity: the subject line of the first follow-up CALL to book (imperative, <=80 chars). "
+            "Use only the real values given; no placeholders, no markdown."},
+        {"role": "user", "content":
+            "OPPORTUNITY:\n%s\n\nTriage it." % json.dumps(ctx, ensure_ascii=False, indent=2)},
+    ], max_tokens=500)
+    obj = _extract_obj(out)
+    qualification = (obj.get("qualification") or "Triaged; pursue and confirm budget/authority/need.").strip()
+    subject = (obj.get("first_activity") or "Intro call: confirm need, budget and timeline").strip()[:200]
+
+    _, aerr = mcp(token, "create_record", {"entity": "Activity", "basis": basis, "values": {
+        "subject": subject, "kind": "Call", "opportunity": rid}})
+    mcp(token, "comment", {"entity": entity, "id": rid, "basis": basis,
+                           "body": "Qualification: " + qualification})
+
+    res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis})
+    if err:
+        return False, json.dumps(res)
+    booked = "booked follow-up + " if not aerr else "(activity not booked) "
+    return True, booked + "qualified and advanced for the rep"
+
+
+# KALITA_HANDLER switches the work function: legal=contract reviewer, sales=SDR triage.
 def _work(token, task):
-    if os.environ.get("KALITA_HANDLER") == "legal":
+    h = os.environ.get("KALITA_HANDLER")
+    if h == "legal":
         return handle_legal(token, task)
+    if h == "sales":
+        return handle_sales(token, task)
     return handle(token, task)
 
 

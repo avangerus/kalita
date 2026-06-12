@@ -82,6 +82,10 @@ roles:
     SalesRep
     SalesManager
     Admin
+    # born-agentic: a sales agent that triages new opportunities — drafts a
+    # qualification note, schedules the first follow-up Activity, and advances the
+    # stage — but can NEVER sign a win (close_won stays a human's signature).
+    SalesBot agent
 
 permissions:
     # a rep manages their own pipeline; sees the shared account/contact book
@@ -101,12 +105,25 @@ permissions:
     Admin:
         full [Account, Contact, Lead, Opportunity, Activity]
         act  [start_work, qualify, disqualify, convert, reopen, qualify_opp, send_proposal, negotiate, close_won, close_lost, reopen_opp]
+    # the sales agent: reads the pipeline, books follow-up activities, advances a
+    # deal up to Negotiation — but cannot close a win and cannot delete anything.
+    SalesBot:
+        read   [Account, Contact, Lead, Opportunity, Activity]
+        create [Activity]
+        update [Opportunity, Activity]
+        act    [qualify_opp, send_proposal, negotiate]
+        deny   [delete *, approve close_won, update Opportunity.amount, update Opportunity.discount]
 
 # --- automation: follow-ups and stale-deal nudges ----------------------------
 
 automation:
     on create Lead:
         notify email(owner)
+    # every new opportunity is triaged by the sales agent the moment it appears:
+    # it drafts a qualification note, books the first follow-up, and moves the deal
+    # to Qualification — a system of ACTION, not just a system of record.
+    on create Opportunity:
+        agent SalesBot: qualify_opp()
     on stuck Opportunity in Negotiation for 14d:
         escalate_to SalesManager
 
