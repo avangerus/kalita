@@ -29,6 +29,25 @@ func coreModelEntities() []*EntityDecl {
 	}
 }
 
+// dictionaryEntity builds the standard master-data dictionary schema for an
+// mdg[Name] field: a code, a human name, a self-parent for hierarchy, and an
+// active flag (soft-retire). Injected as core.<Name> so it reuses the core.*
+// permission policy (read by all, written by the node owner), the ref picker and
+// the management screen — an MDG module out of the box.
+func dictionaryEntity(name string) *EntityDecl {
+	str := TypeRef{Kind: TyScalar, Scalar: "string"}
+	full := corePrefix + name
+	return &EntityDecl{
+		Name: full, Label: name,
+		Fields: []*FieldDecl{
+			{Name: "code", Type: str, Required: true, Unique: true, Label: "Code"},
+			{Name: "name", Type: str, Required: true, Label: "Name"},
+			{Name: "parent", Type: TypeRef{Kind: TyRef, RefTarget: full}, Label: "Parent"},
+			{Name: "active", Type: TypeRef{Kind: TyScalar, Scalar: "bool"}, Default: "true", Label: "Active"},
+		},
+	}
+}
+
 // coreEntityNames is the set of built-in entity names (for ref validation).
 func coreEntityNames() map[string]bool {
 	m := map[string]bool{"core.User": true}

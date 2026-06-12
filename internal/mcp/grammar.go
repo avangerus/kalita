@@ -17,8 +17,10 @@ TYPES:       string text int float money bool date datetime file
              serial(auto document number; modifier format="INV-{year}-{seq:5}")
              money(bare number, or {amount, currency} for multi-currency)
              enum[A, B] ref[Entity] ref[core.User] ref[core.Calendar]
+             mdg[Name]  # master-data dictionary: provisions a core.Name directory (code, name,
+             #            parent for hierarchy, active) with picker + permissions + screen — out of the box
              # core.* are built-in system entities (no need to declare): core.User (people
-             # directory), core.Calendar (business calendars). Read by all, written by the node owner.
+             # directory), core.Calendar (business calendars), mdg dictionaries. Read by all, written by the owner.
              array[ref[Entity]] array[string](tags) array[enum[A, B]](multiselect) array[file](attachments)
 CONSTRAINTS: constraints:            # immediately after its entity
                  unique(field1, field2)

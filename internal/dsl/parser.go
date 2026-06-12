@@ -194,6 +194,17 @@ func parseType(toks []Tok, ty *TypeRef, ln *Line, errs *Errors) (int, bool) {
 		}
 		ty.Kind, ty.RefTarget = TyRef, target
 		return 1 + n, true
+	case base == "mdg":
+		// mdg[Position] — master-data dictionary. Sugar for a ref to an
+		// auto-provisioned core.Position directory: the user gets the entity, the
+		// picker, the permissions and the management screen out of the box.
+		target, n, ok := bracketIdents(toks[1:], ln, errs, "mdg")
+		if !ok || len(target) != 1 {
+			errs.add(EBadTypeSyntax, ln.File, ln.Num, "mdg must be mdg[Name]", "write e.g. `position: mdg[Position]`")
+			return 0, false
+		}
+		ty.Kind, ty.RefTarget = TyRef, corePrefix+target[0]
+		return 1 + n, true
 	case base == "array":
 		// array[ref[X]] | array[string] (tags) | array[enum[A, B]] (multiselect)
 		if len(toks) < 3 || toks[1].Text != "[" {

@@ -77,6 +77,26 @@ func analyze(ast *AST, errs *Errors) *Model {
 		}
 	}
 
+	// auto-provision a master-data dictionary for every mdg[Name] field (a ref to
+	// core.<Name> that isn't a kernel built-in): the author writes one field and
+	// gets the whole directory — entity, picker, permissions, management screen.
+	dicts := map[string]bool{}
+	for _, e := range m.Entities {
+		for _, f := range e.Fields {
+			if f.Type.Kind == TyRef && strings.HasPrefix(f.Type.RefTarget, corePrefix) && !coreEntities[f.Type.RefTarget] {
+				dicts[strings.TrimPrefix(f.Type.RefTarget, corePrefix)] = true
+			}
+		}
+	}
+	for short := range dicts {
+		full := corePrefix + short
+		if _, exists := m.Entities[full]; !exists {
+			de := dictionaryEntity(short)
+			m.Entities[full] = de
+			m.Order = append(m.Order, full)
+		}
+	}
+
 	// fields: duplicates, ref targets, enum defaults, constraint fields
 	for _, name := range m.Order {
 		e := m.Entities[name]
@@ -210,9 +230,11 @@ func analyzeLinks(ast *AST, m *Model, errs *Errors) {
 func checkRefTarget(m *Model, e *EntityDecl, f *FieldDecl, errs *Errors) {
 	target := f.Type.RefTarget
 	if strings.HasPrefix(target, corePrefix) {
-		if !coreEntities[target] {
+		// a kernel built-in (core.User/core.Calendar) or an auto-provisioned mdg
+		// dictionary (injected into the model) is a valid target.
+		if !coreEntities[target] && m.Entities[target] == nil {
 			errs.add(EUnknownRef, e.File, f.Line, "unknown core entity "+target,
-				"available core entities: core.User")
+				"available core entities: core.User, core.Calendar; or use mdg[Name] to auto-create a dictionary")
 		}
 		return
 	}
