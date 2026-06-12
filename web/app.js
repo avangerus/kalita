@@ -48,9 +48,14 @@ const colLabel = (ent, c) => { const f = ent.fields.find(x => x.name === c); ret
 // humanize a workflow action identifier for a button: close_incident → Close incident
 const humanize = (s) => s.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
 
-// reclabel: a short human label for one record — its first non-uuid string value.
+// reclabel: a short human label for one record — a name-like field if present
+// (so it reads "Rich types demo", not the #hex color that happened to come
+// first), else the first plain string value.
+const LABEL_KEYS = ['name', 'title', 'subject', 'full_name', 'label', 'number', 'company'];
+const isPlainStr = (v) => typeof v === 'string' && v && !v.match(/^[0-9a-f-]{36}$/);
 const reclabel = (values) => {
-  for (const k in values) { const v = values[k]; if (typeof v === 'string' && v && !v.match(/^[0-9a-f-]{36}$/)) return v; }
+  for (const k of LABEL_KEYS) if (isPlainStr(values[k])) return values[k];
+  for (const k in values) if (isPlainStr(values[k])) return values[k];
   return (values.id || '').slice(0, 8) || '—';
 };
 
@@ -648,6 +653,47 @@ function FieldValue({ field, value }) {
   return out === '' ? html`<span class="muted">—</span>` : html`${out}`;
 }
 
+// LinksPanel: the `link` construct surfaced — named bidirectional relations
+// (blocks / blocked_by, relates_to). Shows linked records grouped by relation,
+// each clickable and removable, and an "add a link" control: pick the relation,
+// then the target record via the lookup modal. Only shown if the pack declares
+// links for this entity (meta.links).
+function LinksPanel({ ent, id }) {
+  const [links, setLinks] = useState(null);
+  const [rel, setRel] = useState('');
+  const [lk, setLk] = useState(null);
+  const [err, setErr] = useState(null);
+  const defs = ent.links || [];
+  const load = () => api(`/api/records/${ent.name}/${id}/links`).then(r => setLinks(r.links || [])).catch(() => setLinks([]));
+  useEffect(load, [ent.name, id]);
+  const mutate = async (method, name, otherId) => {
+    setErr(null);
+    try { await api(`/api/records/${ent.name}/${id}/links`, { method, body: JSON.stringify({ name, other_id: otherId, basis: basis() }) }); load(); }
+    catch (e) { setErr(e); }
+  };
+  if (!links || (links.length === 0 && (defs.length === 0 || !ent.can_update))) return null;
+  const byName = {};
+  links.forEach(l => { (byName[l.name] = byName[l.name] || []).push(l); });
+  const targetOf = (name) => (defs.find(d => d.name === name) || {}).target;
+  return html`<div class="card">
+    <h3 style="margin-top:0">Links</h3>
+    ${err && html`<div class="err">${err.message} ${err.fix_hint || ''}</div>`}
+    ${Object.keys(byName).length === 0 && html`<div class="muted">no links yet</div>`}
+    ${Object.entries(byName).map(([name, items]) => html`<div style="margin-bottom:8px">
+      <div class="muted" style="font-size:12px">${humanize(name)}</div>
+      ${items.map(l => html`<span class="pill" style="margin:0 6px 4px 0;display:inline-block">
+        <a onClick=${() => nav(`/e/${l.entity}/${l.record_id}`)}><${RefValue} field=${{ ref: l.entity }} value=${l.record_id} /></a>
+        ${ent.can_update && html`<span style="cursor:pointer;color:var(--dim)" onClick=${() => mutate('DELETE', name, l.record_id)}> ✕</span>`}</span>`)}
+    </div>`)}
+    ${ent.can_update && defs.length > 0 && html`<div style="display:flex;gap:8px;align-items:flex-start;margin-top:8px">
+      <select style="max-width:230px;margin:0" value=${rel} onChange=${e => setRel(e.target.value)}>
+        <option value="">add a link…</option>${defs.map(d => html`<option value=${d.name}>${humanize(d.name)} → ${d.target}</option>`)}</select>
+      ${rel && html`<button class="btn" onClick=${() => setLk({ name: rel, target: targetOf(rel) })}>🔍 pick ${targetOf(rel)}</button>`}
+    </div>`}
+    ${lk && html`<${LookupModal} entity=${lk.target} onPick=${oid => mutate('POST', lk.name, oid)} onClose=${() => setLk(null)} />`}
+  </div>`;
+}
+
 // --- audit timeline (the differentiator surfaced) -------------------------------
 
 // kindLabel: a human verb for a journal event kind.
@@ -773,6 +819,7 @@ function RecordView({ ent, id, refresh }) {
       </div>`}
     </div>
     ${showHist && html`<${Timeline} ent=${ent} id=${id} canRevert=${ent.can_revert} onChanged=${() => { load(); refresh(); }} />`}
+    <${LinksPanel} ent=${ent} id=${id} />
     <${Thread} ent=${ent} id=${id} />
   </div>`;
 }

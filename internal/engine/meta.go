@@ -54,12 +54,20 @@ type MetaEntity struct {
 	CanRevert     bool         `json:"can_revert"` // full on the entity → may undo/rewind (supervisory)
 	WorkflowField string       `json:"workflow_field,omitempty"`
 	Actions       []MetaAction `json:"actions,omitempty"`
+	Links         []MetaLink   `json:"links,omitempty"`
 	UI            MetaUI       `json:"ui"`
 }
 
 type MetaRole struct {
 	Name    string `json:"name"`
 	IsAgent bool   `json:"is_agent"`
+}
+
+// MetaLink is a named relation an entity can form from its side: the name to
+// use and the entity on the other end (so the UI can offer a picker).
+type MetaLink struct {
+	Name   string `json:"name"`
+	Target string `json:"target"`
 }
 
 type Meta struct {
@@ -164,6 +172,16 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 				}
 			}
 			me.UI.BoardBy = u.BoardBy
+		}
+		// named relations this entity can form, each with the entity on the other
+		// end (so the UI offers a relation picker + a target lookup)
+		for _, l := range e.model.Links {
+			if l.From == name {
+				me.Links = append(me.Links, MetaLink{Name: l.Forward, Target: l.To})
+			}
+			if l.To == name && l.Inverse != l.Forward {
+				me.Links = append(me.Links, MetaLink{Name: l.Inverse, Target: l.From})
+			}
 		}
 		m.Entities = append(m.Entities, me)
 	}
