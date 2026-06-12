@@ -40,13 +40,13 @@ description. Below, the language and the diagram it produces, side by side.
 ### Incident — fields, a live SLA, a workflow
 
 ```dsl
-entity Incident "Инцидент":
-    number:    serial format="INC-{year}-{seq:6}" label="Номер"
-    title:     string required label="Тема"
-    priority:  enum[P1, P2, P3, P4] default=P3 label="Приоритет"
+entity Incident:
+    number:    serial format="INC-{year}-{seq:6}"
+    title:     string required
+    priority:  enum[P1, P2, P3, P4] default=P3
     source:    enum[Manual, Tivoli, Email, Portal] default=Manual
-    assignee:  ref[core.User] label="Исполнитель"
-    sla_policy: ref[SLAPolicy] label="Политика SLA"
+    assignee:  ref[core.User]
+    sla_policy: ref[SLAPolicy]
     opened:    datetime default=$now
     # live SLA: minutes left before the linked policy's threshold is breached
     sla_left:  int computed = sla_policy.resolution_minutes - minutes_since(opened)
@@ -119,10 +119,10 @@ stateDiagram-v2
 ### Dashboards — table-wide aggregates, ABAC-aware
 
 ```dsl
-dashboard OperatorBoard "Очередь оператора":
-    tile "Открытые инциденты": count Incident where status != Closed and status != Resolved
-    tile "Просрочка SLA":      count Incident where sla_left < 0
-    tile "По приоритету":      count Incident group by priority
+dashboard OperatorBoard "Operator queue":
+    tile "Open incidents": count Incident where status != Closed and status != Resolved
+    tile "SLA breached":   count Incident where sla_left < 0
+    tile "By priority":    count Incident group by priority
 ```
 
 Totals respect each viewer's row permissions: a manager sees the whole table, a
