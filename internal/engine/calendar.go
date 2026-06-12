@@ -81,7 +81,7 @@ func calendarFromRecord(values map[string]any) businessCalendar {
 // calendarByCode looks up a Calendar entity record by its code and builds a
 // calendar from it. Returns false if no Calendar entity / record matches.
 func (e *Engine) calendarByCode(code string) (businessCalendar, bool) {
-	for _, rec := range e.records["Calendar"] {
+	for _, rec := range e.records["core.Calendar"] {
 		if c, _ := rec.Values["code"].(string); c == code {
 			return calendarFromRecord(rec.Values), true
 		}

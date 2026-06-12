@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/avangerus/kalita/internal/dsl"
 )
@@ -27,6 +28,19 @@ type decision struct {
 // matching for deny (fail closed) and as satisfied for allow only when the
 // allow has no condition.
 func (e *Engine) can(role, verb, entity, field string, record map[string]any, actorID string) decision {
+	// built-in core reference data (core.Calendar…): every authenticated actor
+	// reads it; only the node's definition approver writes it. Packs do not
+	// grant permissions on core.* entities — the kernel owns the policy.
+	if strings.HasPrefix(entity, "core.") {
+		if verb == "read" {
+			return decision{true, ""}
+		}
+		if role == e.defApprover {
+			return decision{true, ""}
+		}
+		return decision{false, "core reference data is managed by the " + e.defApprover + " role"}
+	}
+
 	pb, ok := e.model.Perms[role]
 	if !ok {
 		return decision{false, "no permissions block for role " + role}

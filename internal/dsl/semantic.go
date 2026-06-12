@@ -41,8 +41,8 @@ func (m *Model) LinkByName(entity, name string) (*LinkDecl, bool, bool) {
 // corePrefix marks references into the built-in core pack (core.User etc).
 const corePrefix = "core."
 
-// coreEntities is the closed list of built-ins available in v0.
-var coreEntities = map[string]bool{"core.User": true}
+// coreEntities is the closed list of built-in entity names (for ref validation).
+var coreEntities = coreEntityNames()
 
 func analyze(ast *AST, errs *Errors) *Model {
 	m := &Model{
@@ -66,6 +66,15 @@ func analyze(ast *AST, errs *Errors) *Model {
 		}
 		m.Entities[e.Name] = e
 		m.Order = append(m.Order, e.Name)
+	}
+
+	// merge built-in core data entities (core.Calendar…) so packs can ref them
+	// and the runtime can CRUD/serve them. A user pack may not redeclare them.
+	for _, ce := range coreModelEntities() {
+		if _, exists := m.Entities[ce.Name]; !exists {
+			m.Entities[ce.Name] = ce
+			m.Order = append(m.Order, ce.Name)
+		}
 	}
 
 	// fields: duplicates, ref targets, enum defaults, constraint fields

@@ -16,7 +16,9 @@ TYPES:       string text int float money bool date datetime file
              email url phone duration(2d4h) percent(0-100) color(#RRGGBB) decimal json
              serial(auto document number; modifier format="INV-{year}-{seq:5}")
              money(bare number, or {amount, currency} for multi-currency)
-             enum[A, B] ref[Entity] ref[core.User]
+             enum[A, B] ref[Entity] ref[core.User] ref[core.Calendar]
+             # core.* are built-in system entities (no need to declare): core.User (people
+             # directory), core.Calendar (business calendars). Read by all, written by the node owner.
              array[ref[Entity]] array[string](tags) array[enum[A, B]](multiselect) array[file](attachments)
 CONSTRAINTS: constraints:            # immediately after its entity
                  unique(field1, field2)

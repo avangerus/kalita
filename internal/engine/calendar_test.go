@@ -88,17 +88,11 @@ permissions:
 // next Monday a holiday removes that day's working time. Proves calendars are a
 // selectable system entity, not a single node setting.
 func TestNamedCalendarFromRecord(t *testing.T) {
+	// core.Calendar is a built-in system entity — no need to declare it.
 	src := `pack t
 version 0.1.0
 requires kalita >= 0.1
 depends core >= 0.1
-entity Calendar:
-    code: string required unique
-    name: string
-    workdays: array[enum[Mon, Tue, Wed, Thu, Fri, Sat, Sun]]
-    work_start: int default=540
-    work_end: int default=1080
-    holidays: array[string]
 entity Tkt:
     opened: datetime
     bmin: int computed = business_minutes_since(opened, production_ru)
@@ -106,7 +100,7 @@ roles:
     Op
 permissions:
     Op:
-        full [Calendar, Tkt]
+        full [Tkt]
 `
 	model, errs := dsl.Compile(map[string]string{"t.dsl": src})
 	if len(errs) > 0 {
@@ -121,9 +115,10 @@ permissions:
 		t.Fatal(err)
 	}
 	op := eventstore.Actor{Type: eventstore.ActorHuman, ID: "op", Role: "Op"}
+	owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "root", Role: "Owner"}
 	basis := &eventstore.Basis{Type: "human", ID: "op"}
-	// the next Monday is a holiday in production_ru
-	if _, err := eng.Create(ctx, op, "Calendar", map[string]any{
+	// core.Calendar is written by the node's Owner; the next Monday is a holiday
+	if _, err := eng.Create(ctx, owner, "core.Calendar", map[string]any{
 		"code": "production_ru", "name": "Production RU",
 		"workdays":   []any{"Mon", "Tue", "Wed", "Thu", "Fri"},
 		"work_start": 540, "work_end": 1080,
