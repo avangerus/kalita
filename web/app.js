@@ -234,6 +234,43 @@ function Login() {
   </div>`;
 }
 
+// ApprovalCard: a signature request with "what am I signing?" — the record's net
+// change since creation (the agent's work) and any work-product text, inline, so
+// a human signs informed, not blind. The whole point of HITL over agent output.
+function ApprovalCard({ a, meta, onDecide }) {
+  const [open, setOpen] = useState(false);
+  const [rec, setRec] = useState(null);
+  const ent = meta.entities.find(e => e.name === a.entity) || { name: a.entity, fields: [] };
+  useEffect(() => {
+    if (open && !rec) api(`/api/records/${a.entity}/${a.record_id}`).then(setRec).catch(() => {});
+  }, [open, a.entity, a.record_id]);
+  // the agent's work product (long text: assessment/result/...) shown in full,
+  // the rest as a compact field summary — enough to sign informed.
+  const fields = (ent.fields || []).filter(f => f.readable !== false);
+  const textFields = fields.filter(f => f.type === 'text' && rec?.values?.[f.name]);
+  const scalarFields = fields.filter(f => f.type !== 'text' && rec?.values?.[f.name] != null && rec.values[f.name] !== '');
+  return html`<div class="card">
+    <b>${humanize(a.action)}</b>: ${elab(ent)} <span class="pill">${a.from} → ${a.to}</span>
+    <div class="muted">requested by ${a.requested_by.id} (${a.requested_by.type}) · <a onClick=${() => nav(`/e/${a.entity}/${a.record_id}`)}>open record</a></div>
+    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn green" onClick=${() => onDecide(a.id, true)}>Approve ✍</button>
+      <button class="btn red" onClick=${() => onDecide(a.id, false)}>Reject</button>
+      <button class="btn ${open ? 'on' : ''}" onClick=${() => setOpen(!open)}>${open ? 'hide' : '👁 what am I signing?'}</button>
+    </div>
+    ${open && html`<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+      ${!rec ? html`<div class="muted">loading preview…</div>` : html`
+        ${textFields.map(f => html`<div style="margin-bottom:8px">
+          <div class="muted" style="font-size:12px">${flab(f)} — the work to sign off:</div>
+          <div style="white-space:pre-wrap;font-size:13px;max-height:260px;overflow:auto;background:#161b22;padding:8px;border-radius:6px">${rec.values[f.name]}</div></div>`)}
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 18px">
+          ${scalarFields.map(f => html`<div style="font-size:13px;padding:2px 0">
+            <span class="muted">${flab(f)}:</span> ${
+              f.type === 'ref' ? html`<${RefValue} field=${f} value=${rec.values[f.name]} />` : fmtVal(f, rec.values[f.name])}</div>`)}
+        </div>`}
+    </div>`}
+  </div>`;
+}
+
 function Inbox({ meta, refresh }) {
   const [data, setData] = useState({ approvals: [], proposals: [], tasks: [] });
   const [err, setErr] = useState(null);
@@ -257,13 +294,7 @@ function Inbox({ meta, refresh }) {
     <h2>Inbox</h2>
     ${err && html`<div class="err">${err.message || JSON.stringify(err)}</div>`}
     <h3>Signatures requested · ${data.approvals.length}</h3>
-    ${data.approvals.map(a => html`<div class="card">
-      <b>${a.action}</b>: ${a.entity} <span class="pill">${a.from} → ${a.to}</span>
-      <div class="muted">requested by ${a.requested_by.id} (${a.requested_by.type}) · record <a onClick=${() => nav(`/e/${a.entity}/${a.record_id}`)}>${a.record_id.slice(0, 8)}…</a></div>
-      <div style="margin-top:8px">
-        <button class="btn green" onClick=${() => decide(a.id, true)}>Approve</button>
-        <button class="btn red" onClick=${() => decide(a.id, false)}>Reject</button>
-      </div></div>`)}
+    ${data.approvals.map(a => html`<${ApprovalCard} a=${a} meta=${meta} onDecide=${decide} />`)}
     <h3>Definition changes · ${data.proposals.length}</h3>
     ${data.proposals.map(p => html`<div class="card">
       <b>${p.description || 'proposal'}</b> <span class="muted">by ${p.author.id}</span>

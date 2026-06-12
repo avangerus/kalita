@@ -80,8 +80,12 @@ A pack-agnostic, notation-driven client so L2 packs render for free. Build the
     a failed lane), a card opens the record the agent is on, auto-refreshing.
     Verified live on devtrack (a queued pick_up shows as waiting, then taken_by the
     agent once taken); api regression test added.
-  - still to surface: **HITL approval inbox** polish (exists as Inbox), richer
-    diff views, white-label/portal.
+  - **HITL approval inbox** — **DONE**: each signature request expands to "what am
+    I signing?" — the agent's work product (long-text fields like assessment/result
+    in full) plus a compact field summary of the record, so a human signs informed,
+    not blind. Verified live (a legal agent's assessment surfaces in the Lawyer's
+    approval card before clear_legal is signed).
+  - still to surface: white-label/portal polish, richer side-by-side diff views.
 - **White-label / branding.** Per-client theming for the studio's multi-tenant
   on-prem model (one client = one node).
 - **Customer portal.** Invite-based, row-level visibility (already specced).
