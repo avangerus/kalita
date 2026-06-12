@@ -372,6 +372,10 @@ func serve(args []string) {
 	if tls {
 		log.Fatal(http.ListenAndServeTLS(*listen, *tlsCert, *tlsKey, handler))
 	}
+	if !isLoopback(*listen) {
+		log.Print("WARNING: serving plaintext HTTP on a non-loopback address — bearer tokens travel in the clear. " +
+			"Set --tls-cert/--tls-key, or terminate TLS in a reverse proxy in front of the node (SECURITY.md P0-2).")
+	}
 	log.Fatal(http.ListenAndServe(*listen, handler))
 }
 

@@ -30,9 +30,11 @@ a customer touches it. Do the **known** work only.
   measure ADR-001's claim (100k-event restart < 5 s), define the projection
   recovery story. Today projections are in-memory — fine for the SMB profile, but
   the persistence path must be *proven*, not claimed.
-- **Security P0** (SECURITY.md §3): remove the REST dev headers
-  (`X-Actor-Id/Role` = impersonation), TLS, same-origin CORS/CSRF. These gate any
-  deployment beyond localhost and any UI release.
+- **Security P0** (SECURITY.md §3) — **DONE**: token-only auth (dev headers
+  off by default behind `--insecure-dev-auth`), TLS via `--tls-cert/--tls-key`
+  with a non-loopback-plaintext start refusal, same-origin enforcement + CSP.
+  Next on this axis is **P1**: WebAuthn for human non-repudiation, secrets
+  management (config file / docker secrets), emergency token revocation.
 - **Deploy unit.** One-command on-prem node (binary + Postgres + TLS), the
   "inside the client's contour" promise made real.
 

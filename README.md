@@ -249,5 +249,8 @@ docs/          design documents + ADRs
 ## Status
 
 Pre-alpha. The MVP kernel is code-complete and the generated UI runs; the
-Service Desk / HR / CRM cores build on it without kernel gaps. **Do not deploy
-outside a trusted network** — see the P0 list in [SECURITY.md](docs/SECURITY.md).
+Service Desk / HR / CRM cores build on it without kernel gaps. The deploy-blocking
+**P0 security items are closed** (token-only auth, TLS with a non-loopback-plaintext
+refusal, same-origin + CSP); **P1** — WebAuthn for human non-repudiation, secrets
+management, token revocation — remains before the first external user. See
+[SECURITY.md](docs/SECURITY.md).

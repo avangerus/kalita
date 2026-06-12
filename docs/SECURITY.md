@@ -38,20 +38,34 @@ work), not an appendage to it.
 - **T6 (partially):** rate limit per actor in MCP; failed authentication attempts
   are intentionally NOT written to the log (otherwise token brute-force = log
   flood).
+- **T3 (transport):** REST and MCP authenticate by bearer token through the
+  registry — the same model for humans and agents, no parallel access path. The
+  `X-Actor-*` dev headers are OFF by default, reachable only behind the explicit
+  `--insecure-dev-auth` flag (logged as a warning) for local dev/tests. TLS is
+  served from `--tls-cert`/`--tls-key`; the node **refuses to bind a non-loopback
+  address over plaintext** unless `--insecure-http` is passed (which then warns
+  that tokens travel in the clear). Browser requests are same-origin enforced
+  (cross-origin `Origin` → 403) with `nosniff` / `X-Frame-Options: DENY` /
+  `Referrer-Policy: no-referrer` / a `'self'` CSP on every response.
 - Expressions fail-closed: an unevaluable condition = deny, not allow.
 
 ## 3. Known Gaps (by priority)
 
 ### P0 — Fix BEFORE any deployment outside localhost
-1. **REST dev headers (X-Actor-Id/Role)** — impersonation by anyone who can
-   reach the port. Remove; for humans — token-based sessions (same as agents)
-   until WebAuthn arrives.
-2. **No TLS.** The node must either set up TLS itself (autocert/files) or
-   strictly document a reverse-proxy requirement; tokens over plaintext HTTP = T3.
-3. **CORS/CSRF not configured** — same-origin mode is mandatory before the UI
-   is released.
+**All three original P0 items are now closed** (see T3 above); they are kept here
+for the audit trail, struck through, with the mechanism that closed each.
+1. ~~**REST dev headers (X-Actor-Id/Role)** — impersonation.~~ **Closed:** bearer
+   tokens are the only ambient auth; dev headers require `--insecure-dev-auth`
+   (off by default, warned). WebAuthn for non-repudiation remains P1 (#4).
+2. ~~**No TLS.**~~ **Closed:** `--tls-cert`/`--tls-key`, and the node refuses to
+   serve plaintext on a non-loopback address without an explicit `--insecure-http`
+   override (which warns). Autocert/Let's Encrypt is deferred (on-prem nodes
+   usually have no public domain; cert files or a TLS proxy are the path).
+3. ~~**CORS/CSRF not configured.**~~ **Closed:** same-origin enforcement +
+   security headers in the `Secure` middleware on the whole handler. Auth is
+   header-bearer (not cookie), so classic CSRF does not apply.
 
-### P1 — Before the first external user
+### P1 — Before the first external user (now the front line)
 4. **WebAuthn for humans** — currently human decisions are signed only when a
    registered key is present; a token ≠ non-repudiation. A passkey makes the
    signature evidential (key on device, Event Store spec §4).
