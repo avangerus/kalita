@@ -171,7 +171,7 @@ func loadPack(dir string) (*dsl.Model, []*dsl.Error) {
 		log.Fatalf("read pack dir: %v", err)
 	}
 	for _, e := range entries {
-		if filepath.Ext(e.Name()) != ".kal" {
+		if filepath.Ext(e.Name()) != ".dsl" {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
@@ -181,7 +181,7 @@ func loadPack(dir string) (*dsl.Model, []*dsl.Error) {
 		files[e.Name()] = string(raw)
 	}
 	if len(files) == 0 {
-		log.Fatalf("no .kal files in %s", dir)
+		log.Fatalf("no .dsl files in %s", dir)
 	}
 	return dsl.Compile(files)
 }

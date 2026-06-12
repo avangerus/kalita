@@ -30,7 +30,7 @@ func TestComposePack(t *testing.T) {
 		},
 	}
 	src := RenderPack(spec)
-	_, errs := Compile(map[string]string{"mini.kal": src})
+	_, errs := Compile(map[string]string{"mini.dsl": src})
 	if len(errs) > 0 {
 		t.Fatalf("composed pack must compile, got:\n%s\nerror: %v", src, errs[0])
 	}

@@ -5,7 +5,7 @@ import (
 	"unicode"
 )
 
-// The lexer is line-oriented: a .kal file is a sequence of logical lines with
+// The lexer is line-oriented: a .dsl file is a sequence of logical lines with
 // an indent level and a flat token list. Block structure comes from indents,
 // which keeps both the parser and the constrained-decoding grammar small.
 

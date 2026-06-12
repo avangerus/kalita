@@ -17,7 +17,7 @@ entity Incident "Инцидент":
 workflow Incident on status:
     New -> Done: finish label="Завершить"
 `
-	m, errs := Compile(map[string]string{"t.kal": src})
+	m, errs := Compile(map[string]string{"t.dsl": src})
 	if len(errs) > 0 {
 		t.Fatalf("must compile: %v", errs[0])
 	}

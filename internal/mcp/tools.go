@@ -82,7 +82,7 @@ var toolDefs = []map[string]any{
 		"required": []string{"pack", "entities"},
 	}},
 	{"name": "field_types", "description": "The closed list of field types — discover types without the prose grammar.", "inputSchema": schema(map[string]any{})},
-	{"name": "validate_dsl", "description": "Dry-run compile of .kal sources. Returns structured errors with fix hints; loop until ok.", "inputSchema": schema(map[string]any{"files": obj}, "files")},
+	{"name": "validate_dsl", "description": "Dry-run compile of .dsl sources. Returns structured errors with fix hints; loop until ok.", "inputSchema": schema(map[string]any{"files": obj}, "files")},
 	{"name": "propose_change", "description": "Propose new/changed pack sources. Validated, then parked for a human signature; base_def_version must match the live system (describe_system).", "inputSchema": schema(map[string]any{"files": obj, "base_def_version": num, "description": str, "basis": basisSchema}, "files", "base_def_version", "description", "basis")},
 	{"name": "get_proposal", "description": "Status of a proposal: pending, applied or rejected with reason.", "inputSchema": schema(map[string]any{"proposal_id": str}, "proposal_id")},
 	{"name": "list_dashboards", "description": "Names and titles of the dashboards declared in the loaded packs.", "inputSchema": schema(map[string]any{})},
@@ -261,7 +261,7 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 				"fix_hint": "pass {pack, entities:[{name, fields:[{name, type, ...}]}], workflows, roles, permissions}"}
 		}
 		rendered := dsl.RenderPack(&spec)
-		_, errs := dsl.Compile(map[string]string{spec.Pack + ".kal": rendered})
+		_, errs := dsl.Compile(map[string]string{spec.Pack + ".dsl": rendered})
 		out := map[string]any{"dsl": rendered, "ok": len(errs) == 0}
 		if len(errs) > 0 {
 			out["errors"] = errs
@@ -276,7 +276,7 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		_ = json.Unmarshal(args, &a)
 		if len(a.Files) == 0 {
 			return nil, map[string]any{"code": "VALIDATION_ERROR", "message": "files is empty",
-				"fix_hint": `pass {"files": {"my_pack.kal": "<dsl source>"}}`}
+				"fix_hint": `pass {"files": {"my_pack.dsl": "<dsl source>"}}`}
 		}
 		_, errs := dsl.Compile(a.Files)
 		if len(errs) == 0 {

@@ -53,7 +53,7 @@ permissions:
 
 func newEngine(t *testing.T) (*Engine, eventstore.Store) {
 	t.Helper()
-	model, errs := dsl.Compile(map[string]string{"test.kal": testPack})
+	model, errs := dsl.Compile(map[string]string{"test.dsl": testPack})
 	if len(errs) > 0 {
 		t.Fatalf("test pack must compile: %v", errs[0])
 	}
@@ -197,7 +197,7 @@ permissions:
     Owner:
         full [Card]
 `
-	model, errs := dsl.Compile(map[string]string{"t.kal": src})
+	model, errs := dsl.Compile(map[string]string{"t.dsl": src})
 	if len(errs) > 0 {
 		t.Fatalf("rich types must compile: %v", errs[0])
 	}
@@ -322,7 +322,7 @@ permissions:
     Owner:
         full [Settings]
 `
-	model, errs := dsl.Compile(map[string]string{"t.kal": src})
+	model, errs := dsl.Compile(map[string]string{"t.dsl": src})
 	if len(errs) > 0 {
 		t.Fatal(errs[0])
 	}
@@ -365,7 +365,7 @@ func TestAdditiveMigration(t *testing.T) {
 	e, store := newEngine(t)
 	doc, _ := e.Create(ctx, admin, "Doc", map[string]any{"title": "a"}, basis, "")
 
-	model2, errs := dsl.Compile(map[string]string{"test.kal": testPackV2})
+	model2, errs := dsl.Compile(map[string]string{"test.dsl": testPackV2})
 	if len(errs) > 0 {
 		t.Fatalf("v2 must compile: %v", errs[0])
 	}
@@ -396,7 +396,7 @@ func TestAdditiveMigration(t *testing.T) {
 func TestDestructiveMigrationRejected(t *testing.T) {
 	e, _ := newEngine(t)
 	// v2 drops the Doc entity entirely
-	model2, errs := dsl.Compile(map[string]string{"test.kal": "entity Other:\n    x: int\n"})
+	model2, errs := dsl.Compile(map[string]string{"test.dsl": "entity Other:\n    x: int\n"})
 	if len(errs) > 0 {
 		t.Fatal(errs[0])
 	}
@@ -408,7 +408,7 @@ func TestDestructiveMigrationRejected(t *testing.T) {
 
 func TestCollectionsEndToEnd(t *testing.T) {
 	files := map[string]string{}
-	for _, name := range []string{"pack.kal", "collections.kal"} {
+	for _, name := range []string{"pack.dsl", "collections.dsl"} {
 		raw, err := os.ReadFile("../../examples/collections/" + name)
 		if err != nil {
 			t.Fatal(err)

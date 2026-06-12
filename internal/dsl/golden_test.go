@@ -56,7 +56,7 @@ func TestBrokenSources(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, errs := Compile(map[string]string{"bad.kal": tc.src})
+			_, errs := Compile(map[string]string{"bad.dsl": tc.src})
 			if len(errs) == 0 {
 				t.Fatalf("must not compile clean")
 			}
@@ -84,7 +84,7 @@ func TestMultipleErrorsInOnePass(t *testing.T) {
     y: ref[Ghost]
     z: enum[On, Off] default=Maybe
 `
-	_, errs := Compile(map[string]string{"bad.kal": src})
+	_, errs := Compile(map[string]string{"bad.dsl": src})
 	if len(errs) < 3 {
 		t.Fatalf("want at least 3 independent diagnostics, got %d: %v", len(errs), errs)
 	}

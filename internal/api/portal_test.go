@@ -42,7 +42,7 @@ permissions:
 `
 
 func TestCustomerPortalSelfRegistration(t *testing.T) {
-	model, errs := dsl.Compile(map[string]string{"portal.kal": portalPack})
+	model, errs := dsl.Compile(map[string]string{"portal.dsl": portalPack})
 	if len(errs) > 0 {
 		t.Fatal(errs[0])
 	}

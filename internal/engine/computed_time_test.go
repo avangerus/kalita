@@ -28,7 +28,7 @@ permissions:
     Op:
         full [Tkt]
 `
-	model, errs := dsl.Compile(map[string]string{"t.kal": src})
+	model, errs := dsl.Compile(map[string]string{"t.dsl": src})
 	if len(errs) > 0 {
 		t.Fatal(errs[0])
 	}

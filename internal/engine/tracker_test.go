@@ -12,7 +12,7 @@ import (
 // fields, named links, a workflow with HITL — proving the primitives suffice.
 func TestTrackerPackEndToEnd(t *testing.T) {
 	files := map[string]string{}
-	for _, n := range []string{"pack.kal", "tracker.kal"} {
+	for _, n := range []string{"pack.dsl", "tracker.dsl"} {
 		raw, err := os.ReadFile("../../packs/tracker/" + n)
 		if err != nil {
 			t.Fatal(err)

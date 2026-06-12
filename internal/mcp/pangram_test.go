@@ -11,11 +11,11 @@ import (
 // served over MCP (the grammar is the teaching path), but it stays a compile
 // guard: if it stops compiling, the language drifted from its own showcase.
 func TestPangramCompiles(t *testing.T) {
-	src, err := os.ReadFile("../../examples/pangram/pangram.kal")
+	src, err := os.ReadFile("../../examples/pangram/pangram.dsl")
 	if err != nil {
 		t.Fatalf("read pangram: %v", err)
 	}
-	_, errs := dsl.Compile(map[string]string{"pangram.kal": string(src)})
+	_, errs := dsl.Compile(map[string]string{"pangram.dsl": string(src)})
 	if len(errs) > 0 {
 		t.Fatalf("the pangram example must compile: %v", errs[0])
 	}

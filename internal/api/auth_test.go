@@ -18,7 +18,7 @@ import (
 
 func newSecureServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
-	model, errs := dsl.Compile(map[string]string{"t.kal": "entity Doc:\n    title: string required\n\nroles:\n    Owner\n\npermissions:\n    Owner:\n        full [Doc]\n"})
+	model, errs := dsl.Compile(map[string]string{"t.dsl": "entity Doc:\n    title: string required\n\nroles:\n    Owner\n\npermissions:\n    Owner:\n        full [Doc]\n"})
 	if len(errs) > 0 {
 		t.Fatal(errs[0])
 	}

@@ -23,7 +23,7 @@ import (
 func newMCP(t *testing.T) (*httptest.Server, string, string) {
 	t.Helper()
 	files := map[string]string{}
-	for _, name := range []string{"pack.kal", "collections.kal"} {
+	for _, name := range []string{"pack.dsl", "collections.dsl"} {
 		raw, err := os.ReadFile("../../examples/collections/" + name)
 		if err != nil {
 			t.Fatal(err)
@@ -209,7 +209,7 @@ permissions:
         read [A]
 `
 	out, _ := call(t, srv.URL, collectorToken, "validate_dsl", map[string]any{
-		"files": map[string]string{"a.kal": broken}})
+		"files": map[string]string{"a.dsl": broken}})
 	if out["ok"] != false {
 		t.Fatal("broken DSL must not validate")
 	}
@@ -226,7 +226,7 @@ permissions:
 	fixed := strings.ReplaceAll(broken, "default=Z", "default=X") +
 		"        deny [delete *, update A.*]\n"
 	out, _ = call(t, srv.URL, collectorToken, "validate_dsl", map[string]any{
-		"files": map[string]string{"a.kal": fixed}})
+		"files": map[string]string{"a.dsl": fixed}})
 	if out["ok"] != true {
 		t.Fatalf("fixed DSL must validate: %v", out)
 	}
@@ -237,7 +237,7 @@ func TestMCPGrammar(t *testing.T) {
 	g, _ := call(t, srv.URL, collectorToken, "get_grammar", map[string]any{})
 	example := g["example"].(string)
 	// the canonical example must itself compile — grammar and compiler in lockstep
-	if _, errs := dsl.Compile(map[string]string{"example.kal": example}); len(errs) > 0 {
+	if _, errs := dsl.Compile(map[string]string{"example.dsl": example}); len(errs) > 0 {
 		t.Fatalf("grammar example must compile: %v", errs[0])
 	}
 }

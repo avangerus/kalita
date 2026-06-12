@@ -22,7 +22,7 @@ type tickEngine struct {
 func automationEngine(t *testing.T) *tickEngine {
 	t.Helper()
 	files := map[string]string{}
-	for _, name := range []string{"pack.kal", "collections.kal"} {
+	for _, name := range []string{"pack.dsl", "collections.dsl"} {
 		raw, err := os.ReadFile("../../examples/collections/" + name)
 		if err != nil {
 			t.Fatal(err)

@@ -21,7 +21,7 @@ import (
 func TestDogfoodServiceDeskPack(t *testing.T) {
 	ctx := context.Background()
 	files := map[string]string{}
-	for _, f := range []string{"pack.kal", "servicedesk.kal"} {
+	for _, f := range []string{"pack.dsl", "servicedesk.dsl"} {
 		src, err := os.ReadFile("../../packs/servicedesk/" + f)
 		if err != nil {
 			t.Fatalf("read %s: %v", f, err)

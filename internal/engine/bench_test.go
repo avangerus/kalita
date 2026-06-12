@@ -15,7 +15,7 @@ import (
 
 func benchEngine(b *testing.B) *Engine {
 	b.Helper()
-	model, errs := dsl.Compile(map[string]string{"t.kal": testPack})
+	model, errs := dsl.Compile(map[string]string{"t.dsl": testPack})
 	if len(errs) > 0 {
 		b.Fatal(errs[0])
 	}

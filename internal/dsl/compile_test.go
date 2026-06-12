@@ -14,7 +14,7 @@ func compilePackDir(t *testing.T, dir string) (*Model, []*Error) {
 		t.Fatalf("read %s: %v", dir, err)
 	}
 	for _, e := range entries {
-		if filepath.Ext(e.Name()) != ".kal" {
+		if filepath.Ext(e.Name()) != ".dsl" {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))

@@ -18,7 +18,7 @@ import (
 func collectionsEngine(t *testing.T) (*Engine, eventstore.Store, *identity.Registry, ed25519.PrivateKey) {
 	t.Helper()
 	files := map[string]string{}
-	for _, name := range []string{"pack.kal", "collections.kal"} {
+	for _, name := range []string{"pack.dsl", "collections.dsl"} {
 		raw, err := os.ReadFile("../../examples/collections/" + name)
 		if err != nil {
 			t.Fatal(err)
@@ -187,7 +187,7 @@ permissions:
 workflow Job on status:
     New -> Done: finish when score >= 100
 `
-	model, errs := dsl.Compile(map[string]string{"t.kal": src})
+	model, errs := dsl.Compile(map[string]string{"t.dsl": src})
 	if len(errs) > 0 {
 		t.Fatal(errs[0])
 	}

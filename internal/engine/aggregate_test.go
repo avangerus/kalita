@@ -30,7 +30,7 @@ permissions:
     Owner:
         full [Epic, Task]
 `
-	model, errs := dsl.Compile(map[string]string{"t.kal": src})
+	model, errs := dsl.Compile(map[string]string{"t.dsl": src})
 	if len(errs) > 0 {
 		t.Fatalf("compile: %v", errs[0])
 	}

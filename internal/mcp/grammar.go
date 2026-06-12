@@ -5,7 +5,7 @@ package mcp
 // generate a valid pack. Keep in lockstep with the compiler.
 
 const grammarText = `kalita DSL v0 — grammar summary
-Indentation: 4 spaces, no tabs. Comments: # to end of line. One pack = pack.kal manifest + *.kal modules.
+Indentation: 4 spaces, no tabs. Comments: # to end of line. One pack = pack.dsl manifest + *.dsl modules.
 
 MANIFEST:    pack <name> / version <semver> / requires kalita >= 0.1 / depends core >= 0.1
 ENTITY:      entity Name ["Человекочитаемая метка"]:   # or: entity Name singleton:  (at most one record)

@@ -47,7 +47,7 @@ func TestAcceptanceAgentBuildsItsWorkplace(t *testing.T) {
 	// (2) iterates broken DSL to green via fix hints
 	broken := strings.Replace(example, "default=New", "default=Missing", 1)
 	out, _ := call(t, srv.URL, builderToken, "validate_dsl", map[string]any{
-		"files": map[string]string{"ticket.kal": broken}})
+		"files": map[string]string{"ticket.dsl": broken}})
 	if out["ok"] != true && out["ok"] != false {
 		t.Fatal("validate_dsl must answer")
 	}
@@ -55,7 +55,7 @@ func TestAcceptanceAgentBuildsItsWorkplace(t *testing.T) {
 		t.Fatal("broken example must not validate")
 	}
 	out, _ = call(t, srv.URL, builderToken, "validate_dsl", map[string]any{
-		"files": map[string]string{"ticket.kal": example}})
+		"files": map[string]string{"ticket.dsl": example}})
 	if out["ok"] != true {
 		t.Fatalf("canonical example must validate: %v", out)
 	}
@@ -64,7 +64,7 @@ func TestAcceptanceAgentBuildsItsWorkplace(t *testing.T) {
 	sys, _ := call(t, srv.URL, builderToken, "describe_system", map[string]any{})
 	baseDef := sys["def_version"].(float64)
 	prop, isErr := call(t, srv.URL, builderToken, "propose_change", map[string]any{
-		"files": map[string]string{"ticket.kal": example},
+		"files": map[string]string{"ticket.dsl": example},
 		"base_def_version": baseDef, "description": "ticket tracker pack", "basis": agentBasis,
 	})
 	if isErr || prop["ok"] != true {

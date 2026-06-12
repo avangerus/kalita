@@ -2,7 +2,7 @@ package dsl
 
 import "sort"
 
-// Compile parses and analyzes a set of .kal sources (path → content) as one
+// Compile parses and analyzes a set of .dsl sources (path → content) as one
 // pack. It returns the model and ALL diagnostics found — compilation does not
 // stop at the first error, because an agent fixing the file needs the full
 // picture in a single round trip.

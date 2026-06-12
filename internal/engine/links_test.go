@@ -23,7 +23,7 @@ permissions:
 
 link Task -> Task as blocks / blocked_by
 `
-	model, errs := dsl.Compile(map[string]string{"t.kal": src})
+	model, errs := dsl.Compile(map[string]string{"t.dsl": src})
 	if len(errs) > 0 {
 		t.Fatalf("link pack must compile: %v", errs[0])
 	}
@@ -95,7 +95,7 @@ func TestLinkSemanticErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, errs := dsl.Compile(map[string]string{"t.kal": tc.src})
+			_, errs := dsl.Compile(map[string]string{"t.dsl": tc.src})
 			found := false
 			for _, e := range errs {
 				if e.Code == tc.code {

@@ -81,12 +81,12 @@ func TestDogfoodSalesFunnelDashboard(t *testing.T) {
 
 	// author + propose the CRM pack against the live def_version
 	sys, _ := call(t, srv.URL, mgrTok, "describe_system", map[string]any{})
-	v := call2ok(t, srv.URL, mgrTok, "validate_dsl", map[string]any{"files": map[string]string{"crm.kal": crmPack}})
+	v := call2ok(t, srv.URL, mgrTok, "validate_dsl", map[string]any{"files": map[string]string{"crm.dsl": crmPack}})
 	if v["ok"] != true {
 		t.Fatalf("crm pack must validate: %v", v)
 	}
 	prop, isErr := call(t, srv.URL, mgrTok, "propose_change", map[string]any{
-		"files": map[string]string{"crm.kal": crmPack}, "base_def_version": sys["def_version"],
+		"files": map[string]string{"crm.dsl": crmPack}, "base_def_version": sys["def_version"],
 		"description": "crm with sales funnel", "basis": basis})
 	if isErr || prop["ok"] != true {
 		t.Fatalf("propose: %v", prop)
