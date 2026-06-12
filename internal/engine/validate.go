@@ -150,18 +150,20 @@ func checkScalar(f *dsl.FieldDecl, v any) *Err {
 			return bad()
 		}
 	case "int":
-		n, ok := toFloat(v)
+		n, ok := numberScalar(v)
 		if !ok || n != float64(int64(n)) {
 			return bad()
 		}
 	case "float":
-		if _, ok := toFloat(v); !ok {
+		if _, ok := numberScalar(v); !ok {
 			return bad()
 		}
 	case "money":
 		// money accepts a bare number (default currency) OR {amount, currency}
 		// for multi-currency ERP/CRM. Currency must be a 3-letter code.
-		if _, ok := toFloat(v); ok {
+		// Validation is strict: a {amount,currency} object goes through the
+		// object path below (toFloat would accept it by extracting amount).
+		if _, ok := numberScalar(v); ok {
 			break
 		}
 		m, ok := v.(map[string]any)

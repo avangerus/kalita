@@ -443,7 +443,9 @@ func valuesEqual(a, b any) bool {
 	return a == b
 }
 
-func toFloat(v any) (float64, bool) {
+// numberScalar coerces only true numeric scalars — used by validation, where a
+// money object must NOT pass as a bare number.
+func numberScalar(v any) (float64, bool) {
 	switch n := v.(type) {
 	case float64:
 		return n, true
@@ -451,6 +453,21 @@ func toFloat(v any) (float64, bool) {
 		return float64(n), true
 	case int64:
 		return float64(n), true
+	}
+	return 0, false
+}
+
+// toFloat coerces a value to a number for arithmetic and comparison. Beyond
+// scalars it understands a multi-currency money value {amount, currency},
+// returning its amount, so money participates in computed fields and aggregates.
+func toFloat(v any) (float64, bool) {
+	if f, ok := numberScalar(v); ok {
+		return f, true
+	}
+	if m, ok := v.(map[string]any); ok {
+		if a, ok := m["amount"]; ok {
+			return toFloat(a)
+		}
 	}
 	return 0, false
 }
