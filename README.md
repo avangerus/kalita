@@ -1,13 +1,6 @@
-```
-       ██   ██  █████  ██      ██ ████████  █████
-       ██  ██  ██   ██ ██      ██    ██    ██   ██
-       █████   ███████ ██      ██    ██    ███████
-       ██  ██  ██   ██ ██      ██    ██    ██   ██
-       ██   ██ ██   ██ ███████ ██    ██    ██   ██
+# Kalita
 
-       an executable runtime for business systems
-       ·  in the agent era  ·
-```
+**An executable runtime for business systems in the agent era.**
 
 > Agents and humans **describe** a business system in a constrained DSL —
 > entities, workflows, permissions, automation, dashboards, UI. Kalita
@@ -16,49 +9,35 @@
 > agent is an employee with an identity, permissions and an audit trail.
 
 **Why.** LLM agents silently corrupt what they are trusted with when the artifact
-is free-form (code, documents). Kalita replaces *welding* with *Lego*: a grammar
-where drift does not compile, critical transitions require a human signature,
-and nothing happens silently.
-
----
+is free-form (code, documents). Kalita replaces *welding* with *bricks*: a
+grammar where drift does not compile, critical transitions require a human
+signature, and nothing happens silently.
 
 ## How it fits together
 
-```
-            humans                          AI agents
-              │                                 │
-              ▼                                 ▼
-      ┌──────────────┐                  ┌──────────────┐
-      │   Web UI     │                  │ MCP gateway  │   same engine,
-      │ (notation-   │                  │   /mcp       │   same checks,
-      │  driven)     │                  │  ~22 tools   │   same journal
-      └──────┬───────┘                  └──────┬───────┘
-             │           REST  /  JSON-RPC     │
-             └────────────────┬────────────────┘
-                              ▼
-            ┌─────────────────────────────────────┐
-            │               ENGINE                 │
-            │  DSL compiler · ABAC permissions ·   │
-            │  workflows (HITL) · automation ·     │
-            │  computed fields · dashboards        │
-            └─────────────────┬───────────────────┘
-                              │   every change → signed diff
-                              │   every action → one event
-                              ▼
-            ┌─────────────────────────────────────┐
-            │      append-only event journal       │
-            │  SHA-256 hash chain · DB-immutable   │
-            │  projections replay from here alone  │
-            └─────────────────────────────────────┘
+```mermaid
+flowchart TD
+    H["Humans"] --> UI["Web UI<br/>notation-driven"]
+    A["AI agents"] --> MCP["MCP gateway<br/>~22 tools"]
+    UI -->|REST| ENG
+    MCP -->|JSON-RPC| ENG
+    ENG["ENGINE<br/>DSL compiler · ABAC permissions<br/>workflows + HITL · automation<br/>computed fields · dashboards"]
+    ENG -->|"signed diff · one event"| J[("Append-only journal<br/>SHA-256 hash chain · immutable")]
+    J -.->|"projections replay"| ENG
 ```
 
+Humans and agents hit the **same engine** — same permission checks, same journal.
 The DSL is a closed grammar, not arbitrary code, so the guarantees hold: a
 permission can't fail open, an agent role without a `deny` block won't compile,
 and the workflow state field can only move through declared transitions.
 
-## Lego, not welding
+## The language, illustrated
 
-A whole module is one `.dsl` file. This is a slice of the Service Desk pack:
+A whole module is one `.dsl` file. Each entity declares its shape, its state
+machine, its permissions and its dashboards — and the runtime executes that
+description. Below, the language and the diagram it produces, side by side.
+
+### Incident — fields, a live SLA, a workflow
 
 ```dsl
 entity Incident "Инцидент":
@@ -71,36 +50,83 @@ entity Incident "Инцидент":
     opened:    datetime default=$now
     # live SLA: minutes left before the linked policy's threshold is breached
     sla_left:  int computed = sla_policy.resolution_minutes - minutes_since(opened)
-    status:    enum[New, Investigating, Identified, Resolved, Closed] default=New label="Статус"
+    status:    enum[New, Investigating, Identified, Resolved, Closed] default=New
 
 workflow Incident on status:
-    New           -> Investigating: investigate assignee=OperatorL2 label="Взять в работу"
-    Investigating -> Identified:    identify label="Причина найдена"
-    Identified    -> Resolved:      resolve_incident label="Решить"
-    Resolved      -> Closed:        close_incident label="Закрыть"
+    New           -> Investigating: investigate assignee=OperatorL2
+    Investigating -> Identified:    identify
+    Identified    -> Resolved:      resolve_incident
+    Resolved      -> Closed:        close_incident
+    Resolved      -> Investigating: reopen_incident
+    New           -> Closed:        auto_close when source = Tivoli
+```
 
+```mermaid
+stateDiagram-v2
+    [*] --> New
+    New --> Investigating: investigate
+    Investigating --> Identified: identify
+    Identified --> Resolved: resolve
+    Resolved --> Closed: close
+    Resolved --> Investigating: reopen
+    New --> Closed: auto_close
+```
+
+### Human-in-the-loop — the ServiceRequest approval
+
+A transition declared `requires approval(Role)` does not happen when an agent
+calls it. It parks as **pending** (✍) until a human signs it — Ed25519,
+offline-verifiable; the agent cannot rush it.
+
+```dsl
+workflow ServiceRequest on status:
+    Submitted       -> ApprovalPending: require_approval when approval_required = true
+    Submitted       -> Fulfilling:      auto_approve   when approval_required = false
+    ApprovalPending -> Approved:        approve_request requires approval(Supervisor)
+    ApprovalPending -> Rejected:        reject_request  requires approval(Supervisor)
+    Approved        -> Fulfilling:      start_fulfillment
+    Fulfilling      -> Fulfilled:       fulfill
+    Fulfilled       -> Closed:          close_request
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> Submitted
+    Submitted --> ApprovalPending: needs approval
+    Submitted --> Fulfilling: auto-approve
+    ApprovalPending --> Approved: approve ✍
+    ApprovalPending --> Rejected: reject ✍
+    Approved --> Fulfilling
+    Fulfilling --> Fulfilled
+    Fulfilled --> Closed
+```
+
+### Change — the CAB gate
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft
+    Draft --> Assessment: submit
+    Assessment --> CabApproval: request CAB
+    CabApproval --> Approved: approve ✍
+    CabApproval --> Rejected: reject ✍
+    Approved --> Scheduled: schedule
+    Scheduled --> Implementing: implement
+    Implementing --> Review: complete
+    Review --> Closed: close
+```
+
+### Dashboards — table-wide aggregates, ABAC-aware
+
+```dsl
 dashboard OperatorBoard "Очередь оператора":
     tile "Открытые инциденты": count Incident where status != Closed and status != Resolved
     tile "Просрочка SLA":      count Incident where sla_left < 0
     tile "По приоритету":      count Incident group by priority
 ```
 
-## Human-in-the-loop is a first-class gate
-
-```
-   agent ── act("approve_change") ──▶  engine
-                                          │
-                          requires approval(ChangeManager)
-                                          ▼
-                              ┌───────────────────────┐
-                              │  PENDING  ───────────  │   nothing happens
-                              │  a human signs it      │   until a person
-                              │  (Ed25519, offline-    │   signs — the agent
-                              │   verifiable)          │   cannot rush it
-                              └───────────┬───────────┘
-                                          ▼
-                                     applied ✓   (one journaled event)
-```
+Totals respect each viewer's row permissions: a manager sees the whole table, a
+row-scoped user sees totals over only their own rows — no separate "see all" grant.
 
 ## What works today
 
