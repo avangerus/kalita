@@ -20,6 +20,14 @@ are rebuilt by replaying the journal at startup. PostgreSQL stores events only.
 rebuilds projections in under 5 seconds on commodity hardware. If real packs
 blow past this budget, this ADR is superseded by SQL projections (v1).
 
+**Measured (2026-06-12, real Postgres 16 in Docker, i7-13700KF):** a 100,000-event
+journal replays in **~1.07 s** (all 100k records reconstructed) — comfortably
+inside the 5 s budget. The DB-level immutability holds on real Postgres too:
+`UPDATE` and `DELETE` against `events` are both rejected by the trigger (T4).
+The in-memory-projection bet stands for the SMB profile; revisit only when a
+single node's journal approaches a size where ~1 s/100k events stops being
+acceptable at boot.
+
 **Consequences:** query scale is bounded by RAM (fine for the SMB profile,
 one client = one node); `simulate` (layer 2) becomes a free byproduct; the
 PG projection path returns in v1 only where measurements demand it.

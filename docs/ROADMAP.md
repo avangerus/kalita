@@ -26,10 +26,12 @@ Everything above rests on this; it must be durable and safe before a UI ships or
 a customer touches it. Do the **known** work only.
 
 **Core / runtime**
-- **Durability.** Verify the PostgreSQL journal against a real Postgres (Docker),
-  measure ADR-001's claim (100k-event restart < 5 s), define the projection
-  recovery story. Today projections are in-memory — fine for the SMB profile, but
-  the persistence path must be *proven*, not claimed.
+- **Durability** — **VERIFIED**: against a real Postgres 16, a record survives a
+  node restart (pure journal replay, identity included), a 100k-event journal
+  replays in **~1.07 s** (ADR-001's 5 s budget holds), and DB-level immutability
+  (`UPDATE`/`DELETE` blocked) is confirmed. Remaining: the projection recovery
+  story for a corrupt/partial journal, and tiered storage (ADR-002) for entities
+  too large for the in-memory projection — both later, only where measured.
 - **Security P0** (SECURITY.md §3) — **DONE**: token-only auth (dev headers
   off by default behind `--insecure-dev-auth`), TLS via `--tls-cert/--tls-key`
   with a non-loopback-plaintext start refusal, same-origin enforcement + CSP.
