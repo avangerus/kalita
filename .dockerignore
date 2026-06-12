@@ -1,0 +1,10 @@
+.git
+.gitignore
+*.exe
+*.log
+kalita-data/
+kalita.exe
+node_modules/
+**/__pycache__/
+docs/
+.claude/

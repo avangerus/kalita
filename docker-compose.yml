@@ -1,6 +1,13 @@
-# Kalita node in one command: docker compose up
-# The journal lives in postgres; the node starts as genesis (empty definition)
-# unless KALITA_PACK points at a pack directory.
+# Kalita on your own iron, in one command:  docker compose up --build
+#
+# What you get: a node serving HTTPS (self-signed cert generated on first boot),
+# with its journal in Postgres and its node key persisted — restart-safe, audited,
+# inside your perimeter. Visit https://localhost:8443 (accept the self-signed cert)
+# or point an MCP agent at https://localhost:8443/mcp.
+#
+# Production: mount real certs into the node-data volume's tls/ dir (node.crt /
+# node.key), or set KALITA_TLS= empty and run behind a TLS-terminating proxy with
+# --insecure-http. Copy .env.example to .env and set POSTGRES_PASSWORD.
 services:
   postgres:
     image: postgres:16-alpine
@@ -8,7 +15,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kalita}
       POSTGRES_DB: kalita
     volumes:
-      - journal:/var/lib/postgresql/data
+      - journal:/var/lib/postgresql/data   # the source of truth — back this up
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -21,11 +28,16 @@ services:
         condition: service_healthy
     environment:
       KALITA_PG_DSN: postgres://postgres:${POSTGRES_PASSWORD:-kalita}@postgres:5432/kalita
-    # --insecure-http: TLS is expected to terminate at your proxy; the node
-    # itself refuses non-loopback plaintext without this explicit flag
-    command: ["serve", "--listen", ":8080", "--insecure-http", "--pack", "${KALITA_PACK:-/opt/kalita/examples/collections}"]
+      KALITA_TLS: ${KALITA_TLS:-self-signed}   # self-contained HTTPS; empty + --insecure-http for proxy mode
+      KALITA_TLS_CN: ${KALITA_TLS_CN:-localhost}
+    command: ["serve", "--listen", ":8443", "--data-dir", "/data",
+              "--pack", "${KALITA_PACK:-/opt/kalita/packs/contracts}",
+              "--ui-dir", "/opt/kalita/web"]
+    volumes:
+      - nodedata:/data                      # node key + self-signed cert: persist for audit continuity
     ports:
-      - "8080:8080"
+      - "${KALITA_PORT:-8443}:8443"
 
 volumes:
   journal:
+  nodedata:

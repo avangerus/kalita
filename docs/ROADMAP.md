@@ -37,8 +37,12 @@ a customer touches it. Do the **known** work only.
   with a non-loopback-plaintext start refusal, same-origin enforcement + CSP.
   Next on this axis is **P1**: WebAuthn for human non-repudiation, secrets
   management (config file / docker secrets), emergency token revocation.
-- **Deploy unit.** One-command on-prem node (binary + Postgres + TLS), the
-  "inside the client's contour" promise made real.
+- **Deploy unit** — **DONE**: `docker compose up --build` brings up a node that
+  serves HTTPS itself (self-signed cert generated on first boot), with the journal
+  in Postgres and the node key persisted in a volume. Verified end-to-end: a
+  record created over HTTPS survives a restart (journal replay), the same token
+  still authenticates, and the cert/node key are reused (audit continuity), not
+  regenerated. See `deploy/QUICKSTART.md`.
 
 **Language (DSL)**
 - **Lock the spec** — **DONE**: DSL-SPEC-v0 reconciled to the shipped compiler
