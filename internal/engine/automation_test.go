@@ -11,6 +11,28 @@ import (
 )
 
 
+func TestScheduleInterval(t *testing.T) {
+	cases := []struct {
+		in   string
+		want time.Duration
+		ok   bool
+	}{
+		{"every 5m", 5 * time.Minute, true},
+		{"every 2h", 2 * time.Hour, true},
+		{"every 1d", 24 * time.Hour, true},
+		{"daily at 09:00", 0, false}, // wall-clock form: falls back to per-day
+		{"every 0m", 0, false},       // zero interval rejected (no div-by-zero)
+		{"", 0, false},
+		{"every", 0, false},
+	}
+	for _, c := range cases {
+		got, ok := scheduleInterval(c.in)
+		if ok != c.ok || got != c.want {
+			t.Errorf("scheduleInterval(%q) = (%v, %v), want (%v, %v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
 // Week 5 DoD: the debtor scenario lives without humans up to the HITL point —
 // overdue → reminder task to the agent → claim → stuck → escalation.
 

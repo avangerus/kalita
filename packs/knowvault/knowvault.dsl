@@ -68,6 +68,12 @@ permissions:
         deny   [delete *, update Source.*, update Workspace.*, read Source where kind = Database]
 
 automation:
+    # Keep the index fresh without anyone clicking reindex: every couple of
+    # minutes re-sync each indexed source, so edits to the underlying files flow
+    # into the index on their own. resync is an Indexer agent task, NOT a workflow
+    # move — the source stays Indexed and the worker only re-embeds what changed.
+    on schedule every 2m for Source when status = Indexed:
+        agent Indexer: resync()
     on stuck Source in Indexing for 12h:
         escalate_to VaultAdmin
 

@@ -150,19 +150,11 @@ def drop_file(collection, sid, fname):
                                    {"key": "file", "match": {"value": fname}}]}})
 
 
-def index_source(task):
-    tid, sid = task["id"], task["record_id"]
-    basis = {"type": "task", "id": tid}
-    src = tool("get_record", {"entity": "Source", "id": sid})
-    status = src["values"].get("status")
-    if status in ("New", "Failed"):
-        tool("act", {"entity": "Source", "id": sid,
-                     "action": "start_index" if status == "New" else "retry_index", "basis": basis})
-        status = "Indexing"
-    if status != "Indexing":
-        tool("complete_task", {"task_id": tid, "result": f"stale: source is {status}"})
-        return
-
+def sync_source(sid, src, basis, tid):
+    """The pure incremental ingest step: skip unchanged files, re-embed changed,
+    drop deleted. No workflow transitions — so it serves BOTH first-index (inside
+    the Indexing->Indexed flow) and resync (the source stays Indexed). Returns
+    the human note; raises on I/O failure for the caller to translate."""
     workspace = src["values"].get("workspace", "")
     collection = f"kv_{workspace}"
     model, chunk_size = settings()
@@ -194,48 +186,65 @@ def index_source(task):
                 rel = os.path.relpath(full, base).replace("\\", "/")  # "where is it?"
                 yield rel, fp, (lambda p=full: extract.extract_text(p))
 
-    try:
-        # what's already in the index: skip unchanged, re-embed changed, drop gone
-        prior = indexed_fingerprints(collection, sid)
-        seen, changed, chunks_total = set(), 0, 0
-        for fname, fp, load in units():
-            seen.add(fname)
-            if prior.get(fname) == fp:
-                continue  # unchanged since last index — leave it
-            text = load()
-            if not text or not text.strip():
-                continue
-            pieces = chunk(text, chunk_size)
-            if not pieces:
-                continue
-            if fname in prior:
-                drop_file(collection, sid, fname)  # changed — replace its chunks
-            print(f"  {fname}: {len(pieces)} chunks — embedding…", flush=True)
-            for off in range(0, len(pieces), 32):
-                batch = pieces[off:off + 32]
-                vectors = embed(model, batch)
-                ensure_collection(collection, len(vectors[0]))
-                points = [{
-                    "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}|{fname}|{off + i}")),
-                    "vector": vec,
-                    "payload": {"source": sid, "file": fname, "fp": fp, "text": piece},
-                } for i, (piece, vec) in enumerate(zip(batch, vectors))]
-                http(f"{QDRANT}/collections/{collection}/points?wait=true", method="PUT",
-                     body={"points": points})
-                chunks_total += len(points)
-            changed += 1
-        # files that vanished from the source drop out of the index too
-        removed = 0
-        for fname in set(prior) - seen:
-            drop_file(collection, sid, fname)
-            removed += 1
+    # what's already in the index: skip unchanged, re-embed changed, drop gone
+    prior = indexed_fingerprints(collection, sid)
+    seen, changed = set(), 0
+    for fname, fp, load in units():
+        seen.add(fname)
+        if prior.get(fname) == fp:
+            continue  # unchanged since last index — leave it
+        text = load()
+        if not text or not text.strip():
+            continue
+        pieces = chunk(text, chunk_size)
+        if not pieces:
+            continue
+        if fname in prior:
+            drop_file(collection, sid, fname)  # changed — replace its chunks
+        print(f"  {fname}: {len(pieces)} chunks — embedding…", flush=True)
+        for off in range(0, len(pieces), 32):
+            batch = pieces[off:off + 32]
+            vectors = embed(model, batch)
+            ensure_collection(collection, len(vectors[0]))
+            points = [{
+                "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}|{fname}|{off + i}")),
+                "vector": vec,
+                "payload": {"source": sid, "file": fname, "fp": fp, "text": piece},
+            } for i, (piece, vec) in enumerate(zip(batch, vectors))]
+            http(f"{QDRANT}/collections/{collection}/points?wait=true", method="PUT",
+                 body={"points": points})
+        changed += 1
+    # files that vanished from the source drop out of the index too
+    removed = 0
+    for fname in set(prior) - seen:
+        drop_file(collection, sid, fname)
+        removed += 1
 
-        note = f"{len(seen)} files ({changed} re-embedded, {removed} removed) -> {collection}"
-        tool("report_progress", {"task_id": tid, "note": note})
-        tool("update_record", {"entity": "Source", "id": sid, "basis": basis, "values": {
-            "documents": len(seen),
-            "last_indexed": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        }})
+    note = f"{len(seen)} files ({changed} re-embedded, {removed} removed) -> {collection}"
+    tool("report_progress", {"task_id": tid, "note": note})
+    tool("update_record", {"entity": "Source", "id": sid, "basis": basis, "values": {
+        "documents": len(seen),
+        "last_indexed": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }})
+    return note
+
+
+def index_source(task):
+    """First index / retry: drive New|Failed -> Indexing -> Indexed around the
+    incremental sync."""
+    tid, sid = task["id"], task["record_id"]
+    basis = {"type": "task", "id": tid}
+    src = tool("get_record", {"entity": "Source", "id": sid})
+    status = src["values"].get("status")
+    if status in ("New", "Failed"):
+        tool("act", {"entity": "Source", "id": sid,
+                     "action": "start_index" if status == "New" else "retry_index", "basis": basis})
+        status = "Indexing"
+    if status != "Indexing":
+        tool("complete_task", {"task_id": tid, "result": f"stale: source is {status}"})
+        return
+    try:
+        note = sync_source(sid, src, basis, tid)
         tool("act", {"entity": "Source", "id": sid, "action": "finish_index", "basis": basis})
         tool("complete_task", {"task_id": tid, "result": note})
         print(f"[ok] {sid[:8]}: {note}")
@@ -243,6 +252,27 @@ def index_source(task):
         tool("act", {"entity": "Source", "id": sid, "action": "fail_index", "basis": basis})
         tool("fail_task", {"task_id": tid, "reason": str(e)})
         print(f"[fail] {sid[:8]}: {e}")
+
+
+def resync_source(task):
+    """Scheduled freshness pass: the `on schedule every Nm … agent Indexer:
+    resync()` automation fires this per indexed source. Re-syncs in place — the
+    source stays Indexed; a transient failure fails the task but never knocks a
+    good source into Failed, so the next schedule tick simply retries."""
+    tid, sid = task["id"], task["record_id"]
+    basis = {"type": "task", "id": tid}
+    src = tool("get_record", {"entity": "Source", "id": sid})
+    status = src["values"].get("status")
+    if status != "Indexed":
+        tool("complete_task", {"task_id": tid, "result": f"skip resync: source is {status}"})
+        return
+    try:
+        note = sync_source(sid, src, basis, tid)
+        tool("complete_task", {"task_id": tid, "result": f"resync: {note}"})
+        print(f"[resync] {sid[:8]}: {note}")
+    except (OSError, urllib.error.URLError, urllib.error.HTTPError) as e:
+        tool("fail_task", {"task_id": tid, "reason": str(e)})
+        print(f"[resync-fail] {sid[:8]}: {e}")
 
 
 def main():
@@ -257,7 +287,10 @@ def main():
                 except ToolError:
                     continue
                 if task.get("entity") == "Source":
-                    index_source(task)
+                    if task.get("action") == "resync":
+                        resync_source(task)
+                    else:
+                        index_source(task)
                 else:
                     tool("complete_task", {"task_id": task["id"], "result": "not an indexer task"})
         except (ToolError, urllib.error.URLError) as e:

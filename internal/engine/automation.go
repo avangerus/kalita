@@ -27,8 +27,14 @@ func (e *Engine) Tick(ctx context.Context) error {
 		key := fmt.Sprintf("%s:%d", rule.File, rule.Line)
 		switch rule.Trigger {
 		case "schedule":
+			// dedup bucket: wall-clock schedules ("daily at 09:00") fire once a
+			// day; interval schedules ("every 5m") fire once per interval window.
+			bucket := day
+			if iv, ok := scheduleInterval(rule.Schedule); ok {
+				bucket = "iv" + strconv.FormatInt(e.now().UTC().Unix()/int64(iv/time.Second), 10)
+			}
 			if rule.Entity == "" {
-				e.fireActions(ctx, rule, "", "", fmt.Sprintf("auto|%s|%s", key, day))
+				e.fireActions(ctx, rule, "", "", fmt.Sprintf("auto|%s|%s", key, bucket))
 				continue
 			}
 			decl := e.model.Entities[rule.Entity]
@@ -38,7 +44,7 @@ func (e *Engine) Tick(ctx context.Context) error {
 				if rule.When != "" && !evalWhere(rule.When, e.ctxFor(rec.ID, eventstore.Actor{}, full)) {
 					continue
 				}
-				e.fireActions(ctx, rule, rule.Entity, id, fmt.Sprintf("auto|%s|%s|%s", key, id, day))
+				e.fireActions(ctx, rule, rule.Entity, id, fmt.Sprintf("auto|%s|%s|%s", key, id, bucket))
 			}
 		case "stuck":
 			wf := e.model.Workflows[rule.Entity]
@@ -113,6 +119,22 @@ func (e *Engine) fireActions(ctx context.Context, rule *dsl.AutomationRule, enti
 			}, ruleBasis, idem)
 		}
 	}
+}
+
+// scheduleInterval parses an interval schedule ("every 5m", "every 2h") into a
+// duration. Wall-clock forms ("daily at 09:00") don't match and fall back to
+// per-day dedup. This is the seam where v0's carried-but-unparsed schedule text
+// grows real cadence: the kernel now honors "every <dur>" exactly.
+func scheduleInterval(s string) (time.Duration, bool) {
+	f := strings.Fields(s)
+	if len(f) != 2 || f[0] != "every" {
+		return 0, false
+	}
+	d, err := parseDuration(f[1])
+	if err != nil || d <= 0 {
+		return 0, false
+	}
+	return d, true
 }
 
 // parseDuration: 10d / 48h / 30m (closed list, days are the unit that matters).
