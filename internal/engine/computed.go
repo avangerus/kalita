@@ -224,6 +224,19 @@ func (p *arith) parseAtom() (float64, bool) {
 	return f, fok
 }
 
+// fieldDecl finds a field declaration by name (nil-safe).
+func fieldDecl(decl *dsl.EntityDecl, name string) *dsl.FieldDecl {
+	if decl == nil {
+		return nil
+	}
+	for _, f := range decl.Fields {
+		if f.Name == name {
+			return f
+		}
+	}
+	return nil
+}
+
 // evalSince computes whole elapsed units (unit = 24h/1h/1m) from a date or
 // datetime field to now. days_since/hours_since/minutes_since share it; the
 // finer units are what sub-day SLA timers need (response/resolution minutes).
@@ -273,7 +286,15 @@ func (e *Engine) evalAggregate(fn, body, selfID string) (any, bool) {
 		if fn == "count" {
 			continue
 		}
-		n, ok := toFloat(rec.Values[field])
+		// the aggregated field may itself be computed (e.g. an order line's
+		// line_total) — evaluate it for this row, not just read raw storage.
+		raw := rec.Values[field]
+		if fd := fieldDecl(e.model.Entities[entity], field); fd != nil && fd.Computed != "" {
+			if v, ok := e.evalComputed(fd.Computed, rec.ID, rec.Values); ok {
+				raw = v
+			}
+		}
+		n, ok := toFloat(raw)
 		if !ok {
 			continue
 		}

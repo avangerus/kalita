@@ -200,17 +200,23 @@ and an empty node accepts its first pack through `propose_change` + a signature.
 
 ## Modules & examples
 
+Reference packs show how to run real domains on kalita, with zero domain code in
+the kernel:
+
 ```
-packs/servicedesk/   ITSM Service Desk (incidents, problems, changes, SLA, KB, CMDB)
-packs/hr/            leave & balances           packs/tracker/   Jira-like issues
-packs/knowvault/     RAG knowledge base box     packs/boards/    simple boards
+packs/servicedesk/   ITSM Service Desk — incidents, problems, changes, SLA, KB, CMDB
+packs/crm/           Sales CRM — accounts, leads, pipeline, weighted forecast
+packs/eshop/         Online store — catalog, master-detail orders, fulfilment
+packs/hr/            leave & balances        packs/tracker/   Jira-like issues
+packs/knowvault/     RAG knowledge base      packs/boards/    simple boards
 examples/collections, examples/dev_department, examples/pangram (every construct)
 ```
 
-The Service Desk pack is a functional ITSM core built from a real enterprise
-spec — 10 entities, state machines, RBAC across 10 roles, HITL on approvals/CAB,
-live SLA timers and operator dashboards — running on the kernel with **zero**
-domain code.
+Each is built and exercised end-to-end through the MCP path (dogfood): the
+Service Desk runs an ITSM flow with HITL on CAB approvals and live SLA timers,
+the CRM rolls up a weighted sales forecast, the e-shop sums order lines into an
+order total. KnowVault and the Service Desk are **separate products built on
+kalita**, not parts of it.
 
 ## Design documents
 

@@ -130,21 +130,21 @@ func TestDogfoodServiceDeskPack(t *testing.T) {
 		t.Fatalf("dashboard: %v", dash)
 	}
 	// inc1 is Closed, the second incident is still New -> one "open" incident
-	if got := tileValue(t, dash, "Открытые инциденты"); got != 1 {
+	if got := tileValue(t, dash, "Open incidents"); got != 1 {
 		t.Errorf("Открытые инциденты = %v, want 1 (the un-driven New incident)", got)
 	}
 	// neither incident ever got an assignee set -> both unassigned
-	if got := tileValue(t, dash, "Не назначены"); got != 2 {
+	if got := tileValue(t, dash, "Unassigned"); got != 2 {
 		t.Errorf("Не назначены = %v, want 2 (assignee = null on both)", got)
 	}
-	byStatus := tileGroups(t, dash, "Инциденты по статусу")
+	byStatus := tileGroups(t, dash, "Incidents by status")
 	if byStatus["New"] != 1 || byStatus["Closed"] != 1 {
 		t.Errorf("Инциденты по статусу = %v, want New:1 Closed:1", byStatus)
 	}
 
 	// (6) the change dashboard sees the RFC stuck at CAB
 	cdash, _ := call(t, srv.URL, chg, "dashboard", map[string]any{"name": "ChangesBoard"})
-	if got := tileValue(t, cdash, "Ждут CAB"); got != 1 {
+	if got := tileValue(t, cdash, "Awaiting CAB"); got != 1 {
 		t.Errorf("Ждут CAB = %v, want 1", got)
 	}
 
@@ -169,7 +169,7 @@ func TestDogfoodServiceDeskPack(t *testing.T) {
 		t.Errorf("sla_left = %v, want negative (opened in 2020, 30-min SLA)", left)
 	}
 	sdash, _ := call(t, srv.URL, adm, "dashboard", map[string]any{"name": "OperatorBoard"})
-	if got := tileValue(t, sdash, "Просрочка SLA"); got != 1 {
+	if got := tileValue(t, sdash, "SLA breaches"); got != 1 {
 		t.Errorf("Просрочка SLA = %v, want 1 (only the breaching incident has a policy)", got)
 	}
 
