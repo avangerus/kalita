@@ -22,6 +22,7 @@ type MetaField struct {
 
 type MetaAction struct {
 	Action           string `json:"action"`
+	Label            string `json:"label,omitempty"`
 	From             string `json:"from"`
 	To               string `json:"to"`
 	RequiresApproval bool   `json:"requires_approval"`
@@ -98,7 +99,8 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 				Name: f.Name, Label: f.Label, Required: f.Required, Computed: f.Computed != "",
 				Readable: e.can(role, "read", name, f.Name, nil, actorID).allowed ||
 					e.hasAnyRule(role, "read", name),
-				Writable: f.Computed == "" && e.can(role, "update", name, f.Name, nil, actorID).allowed,
+				Writable: f.Computed == "" && f.Type.Scalar != "serial" &&
+					e.can(role, "update", name, f.Name, nil, actorID).allowed,
 			}
 			switch f.Type.Kind {
 			case dsl.TyScalar:
@@ -133,7 +135,7 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 					continue
 				}
 				me.Actions = append(me.Actions, MetaAction{
-					Action: tr.Action, From: tr.From, To: tr.To,
+					Action: tr.Action, Label: tr.Label, From: tr.From, To: tr.To,
 					RequiresApproval: tr.ApprovalRole != "",
 					CanAct:           e.canNamed(role, "act", tr.Action),
 				})

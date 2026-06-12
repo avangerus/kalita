@@ -49,11 +49,11 @@ entity Problem "Проблема":
     status: enum[New, Investigating, RootCauseIdentified, KnownErrorState, Resolved, Closed] default=New
 
 workflow Problem on status:
-    New                 -> Investigating:       investigate_problem
-    Investigating       -> RootCauseIdentified: identify_rca
-    RootCauseIdentified -> KnownErrorState:     register_known_error
-    KnownErrorState     -> Resolved:            resolve_problem
-    Resolved            -> Closed:              close_problem
+    New                 -> Investigating:       investigate_problem label="Расследовать"
+    Investigating       -> RootCauseIdentified: identify_rca label="Первопричина найдена"
+    RootCauseIdentified -> KnownErrorState:     register_known_error label="В известные ошибки"
+    KnownErrorState     -> Resolved:            resolve_problem label="Решить"
+    Resolved            -> Closed:              close_problem label="Закрыть"
 
 entity KnownError "Известная ошибка":
     problem: ref[Problem] on_delete=cascade
@@ -75,9 +75,9 @@ entity KBArticle "Статья базы знаний":
     status: enum[Draft, Published, Archived] default=Draft
 
 workflow KBArticle on status:
-    Draft     -> Published: publish_article requires approval(KbEditor)
-    Published -> Archived:  archive_article
-    Archived  -> Draft:     revise_article
+    Draft     -> Published: publish_article requires approval(KbEditor) label="Опубликовать"
+    Published -> Archived:  archive_article label="В архив"
+    Archived  -> Draft:     revise_article label="Вернуть в черновик"
 
 # --- инциденты ----------------------------------------------------------------
 
@@ -106,12 +106,12 @@ entity Incident "Инцидент":
     status: enum[New, Investigating, Identified, Resolved, Closed] default=New label="Статус"
 
 workflow Incident on status:
-    New           -> Investigating: investigate assignee=OperatorL2
-    Investigating -> Identified:    identify
-    Identified    -> Resolved:      resolve_incident
-    Resolved      -> Closed:        close_incident
-    Resolved      -> Investigating: reopen_incident
-    New           -> Closed:        auto_close when source = Tivoli
+    New           -> Investigating: investigate assignee=OperatorL2 label="Взять в работу"
+    Investigating -> Identified:    identify label="Причина найдена"
+    Identified    -> Resolved:      resolve_incident label="Решить"
+    Resolved      -> Closed:        close_incident label="Закрыть"
+    Resolved      -> Investigating: reopen_incident label="Переоткрыть"
+    New           -> Closed:        auto_close when source = Tivoli label="Автозакрытие"
 
 # дубли инцидентов — двунаправленная связь, синхронизируется рантаймом
 link Incident -> Incident as duplicates / duplicated_by
@@ -128,13 +128,13 @@ entity ServiceRequest "Запрос на обслуживание":
     status: enum[Submitted, ApprovalPending, Approved, Rejected, Fulfilling, Fulfilled, Closed] default=Submitted
 
 workflow ServiceRequest on status:
-    Submitted       -> ApprovalPending: require_approval when approval_required = true
-    Submitted       -> Fulfilling:      auto_approve when approval_required = false
-    ApprovalPending -> Approved:        approve_request requires approval(Supervisor)
-    ApprovalPending -> Rejected:        reject_request requires approval(Supervisor)
-    Approved        -> Fulfilling:      start_fulfillment
-    Fulfilling      -> Fulfilled:       fulfill
-    Fulfilled       -> Closed:          close_request
+    Submitted       -> ApprovalPending: require_approval when approval_required = true label="На согласование"
+    Submitted       -> Fulfilling:      auto_approve when approval_required = false label="В работу"
+    ApprovalPending -> Approved:        approve_request requires approval(Supervisor) label="Согласовать"
+    ApprovalPending -> Rejected:        reject_request requires approval(Supervisor) label="Отклонить"
+    Approved        -> Fulfilling:      start_fulfillment label="Начать выполнение"
+    Fulfilling      -> Fulfilled:       fulfill label="Выполнено"
+    Fulfilled       -> Closed:          close_request label="Закрыть"
 
 # --- запросы на изменение (RFC) с согласованием CAB --------------------------
 
@@ -152,14 +152,14 @@ entity Change "Запрос на изменение":
     status: enum[Draft, Assessment, CabApproval, Approved, Scheduled, Implementing, Review, Closed, Rejected] default=Draft
 
 workflow Change on status:
-    Draft        -> Assessment:   submit_change
-    Assessment   -> CabApproval:  request_cab
-    CabApproval  -> Approved:     approve_change requires approval(ChangeManager)
-    CabApproval  -> Rejected:     reject_change requires approval(ChangeManager)
-    Approved     -> Scheduled:    schedule_change
-    Scheduled    -> Implementing: implement_change
-    Implementing -> Review:       complete_change
-    Review       -> Closed:       close_change
+    Draft        -> Assessment:   submit_change label="На оценку"
+    Assessment   -> CabApproval:  request_cab label="На CAB"
+    CabApproval  -> Approved:     approve_change requires approval(ChangeManager) label="Согласовать (CAB)"
+    CabApproval  -> Rejected:     reject_change requires approval(ChangeManager) label="Отклонить"
+    Approved     -> Scheduled:    schedule_change label="Запланировать"
+    Scheduled    -> Implementing: implement_change label="Внедрять"
+    Implementing -> Review:       complete_change label="Завершить"
+    Review       -> Closed:       close_change label="Закрыть"
 
 # --- рабочие задания (наряды) -------------------------------------------------
 # ТЗ: полиморфный родитель (parent_type + parent_id). У kalita нет полиморфных
@@ -167,22 +167,22 @@ workflow Change on status:
 # дискриминатором parent_type. Заполняется одна из ссылок по типу.
 
 entity WorkOrder "Рабочее задание":
-    number: serial format="WO-{year}-{seq:6}"
-    parent_type: enum[Incident, ServiceRequest, Change, Problem] default=Incident
-    incident: ref[Incident]
-    request: ref[ServiceRequest]
-    change: ref[Change]
-    problem: ref[Problem]
-    assignee: ref[core.User]
-    due: datetime
-    result: text
-    status: enum[Created, Assigned, InProgress, Completed, Cancelled] default=Created
+    number: serial format="WO-{year}-{seq:6}" label="Номер"
+    parent_type: enum[Incident, ServiceRequest, Change, Problem] default=Incident label="Тип источника"
+    incident: ref[Incident] label="Инцидент-источник"
+    request: ref[ServiceRequest] label="Запрос-источник"
+    change: ref[Change] label="Изменение-источник"
+    problem: ref[Problem] label="Проблема-источник"
+    assignee: ref[core.User] label="Исполнитель"
+    due: datetime label="Срок"
+    result: text label="Результат"
+    status: enum[Created, Assigned, InProgress, Completed, Cancelled] default=Created label="Статус"
 
 workflow WorkOrder on status:
-    Created    -> Assigned:   assign_wo
-    Assigned   -> InProgress: start_wo
-    InProgress -> Completed:  complete_wo
-    Created    -> Cancelled:  cancel_wo
+    Created    -> Assigned:   assign_wo label="Назначить"
+    Assigned   -> InProgress: start_wo label="Начать"
+    InProgress -> Completed:  complete_wo label="Завершить"
+    Created    -> Cancelled:  cancel_wo label="Отменить"
 
 # --- роли RBAC (ТЗ Приложение 3) ---------------------------------------------
 

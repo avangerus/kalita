@@ -237,7 +237,7 @@ function Inbox({ meta, refresh }) {
 
 function CreateForm({ ent, onDone }) {
   const [vals, setVals] = useState({}); const [err, setErr] = useState(null);
-  const writable = ent.fields.filter(f => !f.computed && f.name !== ent.workflow_field);
+  const writable = ent.fields.filter(f => f.writable);
   const submit = async () => {
     setErr(null);
     try {
@@ -417,7 +417,7 @@ function RecordView({ ent, id, refresh }) {
   return html`<div>
     <h2>${elab(ent)} <span class="muted">${reclabel(rec.values)}</span> ${state && html`<span class="pill">${state}</span>`}</h2>
     <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
-      ${!editing && actions.map(a => html`<button class="btn ${a.requires_approval ? '' : 'green'}" onClick=${() => act(a.action)}>${humanize(a.action)}${a.requires_approval ? ' ✍' : ''}</button>`)}
+      ${!editing && actions.map(a => html`<button class="btn ${a.requires_approval ? '' : 'green'}" onClick=${() => act(a.action)}>${a.label || humanize(a.action)}${a.requires_approval ? ' ✍' : ''}</button>`)}
       ${!editing && ent.can_update && html`<button class="btn" onClick=${() => setEditing(true)}>✎ Редактировать</button>`}
       <button class="btn" onClick=${journal ? () => setJournal(null) : showJournal}>${journal ? 'скрыть журнал' : 'журнал'}</button>
     </div>

@@ -25,7 +25,7 @@ COMMENTS:    every record has a comment thread (no declaration needed) — the
              conversation surface: talk to a human in a task, reply to a customer.
              tools: comment / read_comments. internal=true = staff-only note.
 WORKFLOW:    workflow Entity on enum_field:
-                 From -> To: action [when <expr>] [assignee=agent(Role)|Role] [requires approval(Role)]
+                 From -> To: action [when <expr>] [assignee=agent(Role)|Role] [requires approval(Role)] [label="Кнопка"]
                  From -> To: auto when <expr>
                  any  -> To: ...
 ROLES:       roles:

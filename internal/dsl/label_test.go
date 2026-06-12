@@ -13,6 +13,9 @@ entity Incident "Инцидент":
     title: string required label="Тема"
     priority: enum[P1, P2] default=P1 label="Приоритет"
     plain: string
+    status: enum[New, Done] default=New
+workflow Incident on status:
+    New -> Done: finish label="Завершить"
 `
 	m, errs := Compile(map[string]string{"t.kal": src})
 	if len(errs) > 0 {
@@ -22,10 +25,13 @@ entity Incident "Инцидент":
 	if e.Label != "Инцидент" {
 		t.Errorf("entity label = %q, want Инцидент", e.Label)
 	}
-	want := map[string]string{"title": "Тема", "priority": "Приоритет", "plain": ""}
+	want := map[string]string{"title": "Тема", "priority": "Приоритет", "plain": "", "status": ""}
 	for _, f := range e.Fields {
 		if f.Label != want[f.Name] {
 			t.Errorf("field %s label = %q, want %q", f.Name, f.Label, want[f.Name])
 		}
+	}
+	if wf := m.Workflows["Incident"]; wf == nil || wf.Transitions[0].Label != "Завершить" {
+		t.Errorf("transition label not parsed: %v", m.Workflows["Incident"])
 	}
 }

@@ -109,6 +109,7 @@ type TransitionDecl struct {
 	AssigneeAgent bool
 	AssigneeRole  string
 	ApprovalRole  string // requires approval(Role)
+	Label         string // human button label (i18n), "" = humanized action name
 	Line          int
 }
 

@@ -83,9 +83,16 @@ func (p *parser) transition(ln *Line) *TransitionDecl {
 	for i < len(rest) {
 		switch rest[i].Text {
 		case "when":
-			expr, n := exprUntilStop(rest[i+1:], map[string]bool{"assignee": true, "requires": true})
+			expr, n := exprUntilStop(rest[i+1:], map[string]bool{"assignee": true, "requires": true, "label": true})
 			tr.When = expr
 			i += 1 + n
+		case "label":
+			if i+2 >= len(rest) || rest[i+1].Text != "=" || rest[i+2].Kind != TStr {
+				p.errs.add(EBadTransition, ln.File, ln.Num, `label must be label="Текст кнопки"`, `write e.g. label="Взять в работу"`)
+				return tr
+			}
+			tr.Label = rest[i+2].Text
+			i += 3
 		case "assignee":
 			if i+2 >= len(rest) || rest[i+1].Text != "=" {
 				p.errs.add(EBadTransition, ln.File, ln.Num, "assignee requires =", "write `assignee=agent(Role)` or `assignee=Role`")
@@ -113,7 +120,7 @@ func (p *parser) transition(ln *Line) *TransitionDecl {
 			i += 5
 		default:
 			p.errs.add(EBadTransition, ln.File, ln.Num, "unexpected "+rest[i].Text+" in transition",
-				"allowed clauses: auto, when <expr>, assignee=..., requires approval(Role)")
+				`allowed clauses: auto, when <expr>, assignee=..., requires approval(Role), label="..."`)
 			return tr
 		}
 	}
