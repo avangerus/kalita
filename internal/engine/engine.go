@@ -32,6 +32,7 @@ type Engine struct {
 	requireSig  bool   // enforce signatures on HITL decisions (WebAuthn era)
 	blobs      BlobStore
 	now        func() time.Time
+	cal        businessCalendar // working-time calendar for business_*_since
 	// verify checks an actor's signature (wired to identity.Registry by the
 	// node). When set, approval decisions REQUIRE a valid signature.
 	verify func(ctx context.Context, actorID string, msg, sig []byte) error
@@ -54,6 +55,10 @@ func WithTaskTTL(d time.Duration) Option { return func(e *Engine) { e.taskTTL = 
 // WithDefinitionApprover sets the role whose human signature applies
 // definition changes (default Owner).
 func WithDefinitionApprover(role string) Option { return func(e *Engine) { e.defApprover = role } }
+
+// WithBusinessCalendar sets the working-time calendar used by business_*_since
+// (default Mon-Fri 09:00-18:00, no holidays).
+func WithBusinessCalendar(cal businessCalendar) Option { return func(e *Engine) { e.cal = cal } }
 
 // WithRequireSignatures enforces a verified signature on every HITL decision
 // (the WebAuthn era). Off by default: token-authenticated decisions are
@@ -97,6 +102,7 @@ func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...
 		taskTTL:    time.Hour,
 		defApprover: "Owner",
 		now:        time.Now,
+		cal:        defaultCalendar(),
 	}
 	for _, opt := range opts {
 		opt(e)

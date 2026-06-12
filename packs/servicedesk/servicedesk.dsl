@@ -101,8 +101,10 @@ entity Incident "Incident":
     # live SLA: minutes elapsed since opening and minutes remaining before threshold
     # from related policy (ref path sla_policy.resolution_minutes). Negative
     # sla_left = SLA breached.
-    minutes_open: int computed = minutes_since(opened) label="In progress, min"
-    sla_left:     int computed = sla_policy.resolution_minutes - minutes_since(opened) label="Time to SLA, min"
+    # SLA counts WORKING minutes (8x5 via the node's business calendar), not wall
+    # clock — a ticket opened Friday evening is not "breached" by Monday morning
+    minutes_open: int computed = business_minutes_since(opened) label="In progress, min"
+    sla_left:     int computed = sla_policy.resolution_minutes - business_minutes_since(opened) label="Time to SLA, min"
     status: enum[New, Investigating, Identified, Resolved, Closed] default=New label="Status"
 
 workflow Incident on status:

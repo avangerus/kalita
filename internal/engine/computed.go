@@ -207,6 +207,12 @@ func (p *arith) parseAtom() (float64, bool) {
 			v, ok = p.e.evalSince(strings.TrimSpace(body), p.values, time.Hour)
 		case name == "minutes_since":
 			v, ok = p.e.evalSince(strings.TrimSpace(body), p.values, time.Minute)
+		case name == "business_days_since":
+			v, ok = p.e.evalBusinessSince(strings.TrimSpace(body), p.values, "day")
+		case name == "business_hours_since":
+			v, ok = p.e.evalBusinessSince(strings.TrimSpace(body), p.values, "hour")
+		case name == "business_minutes_since":
+			v, ok = p.e.evalBusinessSince(strings.TrimSpace(body), p.values, "min")
 		case aggFuncs[name]:
 			v, ok = p.e.evalAggregate(name, body+")", p.selfID)
 		default:
@@ -253,6 +259,42 @@ func (e *Engine) evalSince(path string, values map[string]any, unit time.Duratio
 		}
 	}
 	return float64(int(e.now().UTC().Sub(t) / unit)), true
+}
+
+// evalBusinessSince counts elapsed WORKING time from a date/datetime field to
+// now, per a business calendar (skips weekends/holidays/off-hours). The body is
+// `field` or `field, calendar_code` — the optional code selects a Calendar
+// entity record (production_ru, production_us…); without it, the node default
+// applies. unit is "day", "hour" or "min".
+func (e *Engine) evalBusinessSince(path string, values map[string]any, unit string) (any, bool) {
+	cal := e.cal
+	if datePath, code, ok := strings.Cut(path, ","); ok {
+		path = strings.TrimSpace(datePath)
+		code = strings.Trim(strings.TrimSpace(code), `"`)
+		if c, found := e.calendarByCode(code); found {
+			cal = c
+		}
+	}
+	raw, ok := e.resolvePath(path, values)
+	if !ok {
+		return nil, false
+	}
+	s, _ := raw.(string)
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		if t, err = time.Parse(time.RFC3339, s); err != nil {
+			return nil, false
+		}
+	}
+	now := e.now().UTC()
+	switch unit {
+	case "day":
+		return float64(cal.businessDaysBetween(t, now)), true
+	case "hour":
+		return float64(cal.businessMinutesBetween(t, now) / 60), true
+	default:
+		return float64(cal.businessMinutesBetween(t, now)), true
+	}
 }
 
 // evalAggregate computes count/sum/avg/min/max over records of a target entity
