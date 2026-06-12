@@ -42,6 +42,8 @@ workflow Source on status:
     Failed   -> Indexing: retry_index
     Indexing -> Indexed:  finish_index assignee=agent(Indexer)
     Indexing -> Failed:   fail_index assignee=agent(Indexer)
+    # re-sync an already-indexed source — the indexer only re-embeds CHANGED files
+    Indexed  -> New:      reindex
     any      -> Paused:   pause requires approval(VaultAdmin)
 
 roles:
@@ -53,7 +55,7 @@ permissions:
     VaultAdmin:
         full    [Workspace, Source, VaultSettings]
         read    [SearchQuery]
-        act     [retry_index, pause]
+        act     [retry_index, reindex, pause]
         approve [pause]
     Indexer:
         read   [Workspace, Source, VaultSettings]

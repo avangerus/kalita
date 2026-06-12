@@ -117,6 +117,39 @@ def ensure_collection(name, dim):
             raise
 
 
+def indexed_fingerprints(collection, sid):
+    """{file: fingerprint} already in the index for this source — so re-indexing
+    skips unchanged files and only re-embeds what you actually edited. The index
+    is the record of what's indexed; KnowVault keeps no copy of the files."""
+    out, offset = {}, None
+    while True:
+        body = {"filter": {"must": [{"key": "source", "match": {"value": sid}}]},
+                "with_payload": ["file", "fp"], "limit": 512}
+        if offset:
+            body["offset"] = offset
+        try:
+            r = http(f"{QDRANT}/collections/{collection}/points/scroll", method="POST", body=body)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:  # collection not created yet — nothing indexed
+                return {}
+            raise
+        result = r.get("result", {})
+        for p in result.get("points", []):
+            pl = p.get("payload", {})
+            if pl.get("file"):
+                out[pl["file"]] = pl.get("fp")
+        offset = result.get("next_page_offset")
+        if not offset:
+            return out
+
+
+def drop_file(collection, sid, fname):
+    """Remove a file's chunks from the index (it changed or was deleted)."""
+    http(f"{QDRANT}/collections/{collection}/points/delete?wait=true", method="POST",
+         body={"filter": {"must": [{"key": "source", "match": {"value": sid}},
+                                   {"key": "file", "match": {"value": fname}}]}})
+
+
 def index_source(task):
     tid, sid = task["id"], task["record_id"]
     basis = {"type": "task", "id": tid}
@@ -134,13 +167,15 @@ def index_source(task):
     collection = f"kv_{workspace}"
     model, chunk_size = settings()
 
-    # an indexable unit is (filename, text): either a single uploaded document
-    # or every text file under a crawled path
+    # an indexable unit is (relpath, fingerprint, loader): a single uploaded
+    # document, or every supported file under a crawled path. The fingerprint
+    # (mtime:size) is read WITHOUT opening the file, so unchanged files are
+    # skipped cheaply; the loader pulls the text only when we actually re-index.
     def units():
         doc = src["values"].get("document")
         if src["values"].get("kind") == "Upload" and doc:
-            raw = http_bytes(f"{NODE}/api/files/{doc['hash']}")
-            yield doc.get("name", "document"), raw.decode("utf-8", "ignore")
+            yield doc.get("name", "document"), doc.get("hash", ""), \
+                lambda: http_bytes(f"{NODE}/api/files/{doc['hash']}").decode("utf-8", "ignore")
             return
         base = src["values"].get("path", "")
         for root, dirs, files in os.walk(base):
@@ -150,50 +185,60 @@ def index_source(task):
                     continue
                 full = os.path.join(root, name)
                 try:
-                    if os.path.getsize(full) > MAX_FILE_BYTES:
+                    size = os.path.getsize(full)
+                    if size > MAX_FILE_BYTES:
                         continue
-                    with open(full, encoding="utf-8", errors="ignore") as f:
-                        # the relative path is the answer to "where is it?"
-                        yield os.path.relpath(full, base).replace("\\", "/"), f.read()
+                    fp = f"{int(os.path.getmtime(full))}:{size}"
                 except OSError:
                     continue
+                rel = os.path.relpath(full, base).replace("\\", "/")  # "where is it?"
+                yield rel, fp, (lambda p=full: extract.extract_text(p))
 
     try:
-        docs, chunks_total = 0, 0
-        for fname, text in units():
+        # what's already in the index: skip unchanged, re-embed changed, drop gone
+        prior = indexed_fingerprints(collection, sid)
+        seen, changed, chunks_total = set(), 0, 0
+        for fname, fp, load in units():
+            seen.add(fname)
+            if prior.get(fname) == fp:
+                continue  # unchanged since last index — leave it
+            text = load()
+            if not text or not text.strip():
+                continue
             pieces = chunk(text, chunk_size)
             if not pieces:
                 continue
+            if fname in prior:
+                drop_file(collection, sid, fname)  # changed — replace its chunks
             print(f"  {fname}: {len(pieces)} chunks — embedding…", flush=True)
-            # embed in batches so a big file makes steady progress and one slow
-            # request can't stall the whole source
-            ensure_collection_done = False
             for off in range(0, len(pieces), 32):
                 batch = pieces[off:off + 32]
                 vectors = embed(model, batch)
-                if not ensure_collection_done:
-                    ensure_collection(collection, len(vectors[0]))
-                    ensure_collection_done = True
+                ensure_collection(collection, len(vectors[0]))
                 points = [{
                     "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}|{fname}|{off + i}")),
                     "vector": vec,
-                    "payload": {"source": sid, "file": fname, "text": piece},
+                    "payload": {"source": sid, "file": fname, "fp": fp, "text": piece},
                 } for i, (piece, vec) in enumerate(zip(batch, vectors))]
                 http(f"{QDRANT}/collections/{collection}/points?wait=true", method="PUT",
                      body={"points": points})
                 chunks_total += len(points)
-            docs += 1
-            print(f"  {fname}: done ({chunks_total} total)", flush=True)
+            changed += 1
+        # files that vanished from the source drop out of the index too
+        removed = 0
+        for fname in set(prior) - seen:
+            drop_file(collection, sid, fname)
+            removed += 1
 
-        tool("report_progress", {"task_id": tid,
-             "note": f"{docs} docs -> {chunks_total} chunks -> {collection} (model {model})"})
+        note = f"{len(seen)} files ({changed} re-embedded, {removed} removed) -> {collection}"
+        tool("report_progress", {"task_id": tid, "note": note})
         tool("update_record", {"entity": "Source", "id": sid, "basis": basis, "values": {
-            "documents": docs,
+            "documents": len(seen),
             "last_indexed": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }})
         tool("act", {"entity": "Source", "id": sid, "action": "finish_index", "basis": basis})
-        tool("complete_task", {"task_id": tid, "result": f"indexed {docs} docs, {chunks_total} chunks"})
-        print(f"[ok] {sid[:8]}: {docs} docs, {chunks_total} chunks -> {collection}")
+        tool("complete_task", {"task_id": tid, "result": note})
+        print(f"[ok] {sid[:8]}: {note}")
     except (OSError, urllib.error.URLError, urllib.error.HTTPError) as e:
         tool("act", {"entity": "Source", "id": sid, "action": "fail_index", "basis": basis})
         tool("fail_task", {"task_id": tid, "reason": str(e)})
