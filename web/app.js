@@ -172,23 +172,54 @@ function TagsInput({ value, onChange, options, entity, fieldName }) {
   </div>`;
 }
 
+// ArrayRefInput: many refs — pick with the same async picker, remove as chips.
+function ArrayRefInput({ field, value, onChange }) {
+  const list = Array.isArray(value) ? value : [];
+  const add = (id) => { if (id && !list.includes(id)) onChange([...list, id]); };
+  return html`<div style="margin:3px 0 10px">
+    <div>${list.map(id => html`<span class="pill" style="margin:0 6px 4px 0;display:inline-block">
+      <${RefValue} field=${field} value=${id} />
+      <span style="cursor:pointer;color:var(--dim)" onClick=${() => onChange(list.filter(x => x !== id))}> ✕</span></span>`)}</div>
+    <${RefInput} field=${field} value="" onChange=${add} />
+  </div>`;
+}
+
+// ArrayFileInput: many attachments — upload one at a time, remove as chips.
+function ArrayFileInput({ value, onChange }) {
+  const list = Array.isArray(value) ? value : [];
+  return html`<div style="margin:3px 0 10px">
+    ${list.map((f, i) => html`<span class="pill" style="display:inline-block;margin:0 6px 4px 0">📄 ${f?.name || 'file'}
+      <span style="cursor:pointer;color:var(--dim)" onClick=${() => onChange(list.filter((_, j) => j !== i))}> ✕</span></span>`)}
+    <${FileInput} value=${null} onChange=${f => f && onChange([...list, f])} />
+  </div>`;
+}
+
 function FieldInput({ field, value, onChange, entity }) {
   if (field.type === 'file') return html`<${FileInput} value=${value} onChange=${onChange} />`;
+  if (field.type === 'array_file') return html`<${ArrayFileInput} value=${value} onChange=${onChange} />`;
   if (field.type === 'ref') return html`<${RefInput} field=${field} value=${value} onChange=${onChange} />`;
+  if (field.type === 'array_ref') return html`<${ArrayRefInput} field=${field} value=${value} onChange=${onChange} />`;
   if (field.type === 'tags') return html`<${TagsInput} value=${value} onChange=${onChange} entity=${entity} fieldName=${field.name} />`;
   if (field.type === 'multiselect') return html`<${TagsInput} value=${value} onChange=${onChange} options=${field.values} />`;
   if (field.type === 'enum') return html`<select value=${value || ''} onChange=${e => onChange(e.target.value)}>
     <option value="">—</option>${field.values.map(v => html`<option value=${v}>${v}</option>`)}</select>`;
   if (field.type === 'bool') return html`<select value=${String(value ?? '')} onChange=${e => onChange(e.target.value === 'true')}>
     <option value="">—</option><option value="true">true</option><option value="false">false</option></select>`;
-  if (field.type === 'text') return html`<textarea rows="3" value=${value || ''} onInput=${e => onChange(e.target.value)} />`;
+  if (field.type === 'color') return html`<input type="color" value=${value || '#000000'} onInput=${e => onChange(e.target.value)}
+    style="width:56px;height:34px;padding:2px;cursor:pointer" />`;
+  if (field.type === 'text' || field.type === 'json')
+    return html`<textarea rows=${field.type === 'json' ? 4 : 3}
+      value=${typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : (value || '')}
+      onInput=${e => onChange(e.target.value)} />`;
+  if (field.type === 'email' || field.type === 'url' || field.type === 'phone')
+    return html`<input type=${field.type === 'phone' ? 'tel' : field.type} value=${value || ''} onInput=${e => onChange(e.target.value)} />`;
   if (field.type === 'datetime') {
     // native picker; store RFC3339 (engine format), edit the wall-clock part
     const local = value ? String(value).slice(0, 16) : '';
     return html`<input type="datetime-local" value=${local}
       onInput=${e => { const v = e.target.value; onChange(v ? (v.length === 16 ? v + ':00Z' : v + 'Z') : ''); }} />`;
   }
-  const numeric = ['int', 'float', 'money'].includes(field.type);
+  const numeric = ['int', 'float', 'money', 'percent', 'decimal'].includes(field.type);
   return html`<input type=${numeric ? 'number' : field.type === 'date' ? 'date' : 'text'}
     value=${value ?? ''} onInput=${e => onChange(numeric ? Number(e.target.value) : e.target.value)} />`;
 }
@@ -200,13 +231,21 @@ const fmt = (v) => v === null || v === undefined ? '' :
 // when it is a {amount, currency} object), percent a %, datetime a readable
 // wall-clock. Everything else falls back to fmt.
 const fmtNum = (n) => typeof n === 'number' ? n.toLocaleString('en-US') : n;
+const chip = (x) => html`<span class="pill" style="margin:0 4px 2px 0;display:inline-block">${x}</span>`;
 const fmtVal = (field, v) => {
-  if (v === null || v === undefined || v === '') return '';
+  if (v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) return '';
   switch (field?.type) {
     case 'money': return typeof v === 'object'
       ? `${fmtNum(v.amount)} ${v.currency || ''}`.trim() : fmtNum(v);
     case 'percent': return `${v}%`;
     case 'datetime': return typeof v === 'string' ? v.slice(0, 16).replace('T', ' ') : fmt(v);
+    case 'color': return html`<span style="display:inline-flex;align-items:center;gap:6px">
+      <span style="width:13px;height:13px;border-radius:3px;border:1px solid var(--line);background:${v}"></span>${v}</span>`;
+    case 'url': return html`<a href=${v} target="_blank" rel="noreferrer noopener">${v}</a>`;
+    case 'file': return html`<span>📄 ${v?.name || 'file'}</span>`;
+    case 'array_file': return Array.isArray(v) ? v.map(f => chip(html`📄 ${f?.name || 'file'}`)) : fmt(v);
+    case 'tags': case 'multiselect': return Array.isArray(v) ? v.map(chip) : fmt(v);
+    case 'array_ref': return Array.isArray(v) ? `${v.length} linked` : fmt(v);
     default: return fmt(v);
   }
 };
@@ -287,8 +326,7 @@ function ApprovalCard({ a, meta, onDecide }) {
           <div style="white-space:pre-wrap;font-size:13px;max-height:260px;overflow:auto;background:#161b22;padding:8px;border-radius:6px">${rec.values[f.name]}</div></div>`)}
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 18px">
           ${scalarFields.map(f => html`<div style="font-size:13px;padding:2px 0">
-            <span class="muted">${flab(f)}:</span> ${
-              f.type === 'ref' ? html`<${RefValue} field=${f} value=${rec.values[f.name]} />` : fmtVal(f, rec.values[f.name])}</div>`)}
+            <span class="muted">${flab(f)}:</span> <${FieldValue} field=${f} value=${rec.values[f.name]} /></div>`)}
         </div>`}
     </div>`}
   </div>`;
@@ -527,6 +565,23 @@ function RefValue({ field, value }) {
   return html`${text || html`<span class="muted">—</span>`}`;
 }
 
+// ArrayRefValue: render many refs as labelled chips, not raw uuids.
+function ArrayRefValue({ field, value }) {
+  const list = Array.isArray(value) ? value : [];
+  if (!list.length) return html`<span class="muted">—</span>`;
+  return html`${list.map(id => html`<span class="pill" style="margin:0 4px 2px 0;display:inline-block"><${RefValue} field=${field} value=${id} /></span>`)}`;
+}
+
+// FieldValue: the read-mode display of any field — refs resolved to labels,
+// arrays as chips, the rest type-formatted. The single place the UI decides how
+// a value of a given type looks.
+function FieldValue({ field, value }) {
+  if (field.type === 'ref') return html`<${RefValue} field=${field} value=${value} />`;
+  if (field.type === 'array_ref') return html`<${ArrayRefValue} field=${field} value=${value} />`;
+  const out = fmtVal(field, value);
+  return out === '' ? html`<span class="muted">—</span>` : html`${out}`;
+}
+
 // --- audit timeline (the differentiator surfaced) -------------------------------
 
 // kindLabel: a human verb for a journal event kind.
@@ -642,9 +697,7 @@ function RecordView({ ent, id, refresh }) {
           <label>${flab(f)}${f.computed ? ' (computed)' : ''}</label>
           ${editable
             ? html`<${FieldInput} field=${f} entity=${ent.name} value=${val} onChange=${v => setEdit({ ...edit, [f.name]: v })} />`
-            : html`<div style="padding:4px 0 10px;min-height:20px">${
-                f.type === 'ref' ? html`<${RefValue} field=${f} value=${rec.values[f.name]} />`
-                  : (fmtVal(f, rec.values[f.name]) || html`<span class="muted">—</span>`)}</div>`}
+            : html`<div style="padding:4px 0 10px;min-height:20px"><${FieldValue} field=${f} value=${rec.values[f.name]} /></div>`}
         </div>`;
       })}
       </div>
