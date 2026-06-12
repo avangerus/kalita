@@ -208,6 +208,91 @@ func (e *Engine) RewindTo(ctx context.Context, actor eventstore.Actor, entity, i
 	return e.enriched(decl, actor, rec), nil
 }
 
+// FieldDiff is one field's net change between two journal points.
+type FieldDiff struct {
+	Field string `json:"field"`
+	Old   any    `json:"old"`
+	New   any    `json:"new"`
+}
+
+// RecordDiff is the net change to a record between two journal seqs: the
+// field-level deltas and, separately, any workflow state move. It is the NET
+// effect — five edits to one field that end where they began show nothing.
+type RecordDiff struct {
+	Entity    string      `json:"entity"`
+	ID        string      `json:"id"`
+	FromSeq   uint64      `json:"from_seq"`
+	ToSeq     uint64      `json:"to_seq"`
+	Fields    []FieldDiff `json:"fields"`
+	StateFrom string      `json:"state_from,omitempty"`
+	StateTo   string      `json:"state_to,omitempty"`
+}
+
+// Diff reports what changed on a record between two journal points — "everything
+// the agent touched since it took this record" is Diff(takenSeq, 0). toSeq 0
+// means now. It is a read: it honors read permissions (unreadable fields are
+// masked out of the diff) and never mutates. The companion of read_journal (the
+// event log) and rewind (the undo): see the net change before you reverse it.
+func (e *Engine) Diff(ctx context.Context, actor eventstore.Actor, entity, id string, fromSeq, toSeq uint64) (*RecordDiff, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if _, errr := e.entityOrErr(entity); errr != nil {
+		return nil, errr
+	}
+	rec, ok := e.records[entity][id]
+	if !ok {
+		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
+	}
+	if d := e.can(actor, "read", entity, "", rec.Values); !d.allowed {
+		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
+	}
+	events, err := e.store.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if toSeq == 0 {
+		toSeq, _, _ = e.store.Head(ctx)
+	}
+	oldV, _ := e.recordStateAsOf(events, entity, id, fromSeq)
+	newV, _ := e.recordStateAsOf(events, entity, id, toSeq)
+	if oldV == nil {
+		oldV = map[string]any{} // before the record existed → everything is an addition
+	}
+	if newV == nil {
+		newV = map[string]any{}
+	}
+	oldM := e.maskFields(actor, entity, oldV)
+	newM := e.maskFields(actor, entity, newV)
+
+	wfField := ""
+	if wf, ok := e.model.Workflows[entity]; ok {
+		wfField = wf.Field
+	}
+	out := &RecordDiff{Entity: entity, ID: id, FromSeq: fromSeq, ToSeq: toSeq}
+	seen := map[string]bool{}
+	for k, ov := range oldM {
+		if k == wfField {
+			continue
+		}
+		seen[k] = true
+		if nv, ok := newM[k]; !ok || !equalVals(ov, nv) {
+			out.Fields = append(out.Fields, FieldDiff{Field: k, Old: ov, New: newM[k]})
+		}
+	}
+	for k, nv := range newM {
+		if k == wfField || seen[k] {
+			continue
+		}
+		out.Fields = append(out.Fields, FieldDiff{Field: k, Old: nil, New: nv})
+	}
+	if wfField != "" && !equalVals(oldM[wfField], newM[wfField]) {
+		out.StateFrom, _ = oldM[wfField].(string)
+		out.StateTo, _ = newM[wfField].(string)
+	}
+	return out, nil
+}
+
 // recordStateAsOf reconstructs a record's stored values as of event toSeq by
 // folding only that record's create/update/action events (journal is seq-ordered).
 // existed is false if the record had no creation at or before toSeq.
