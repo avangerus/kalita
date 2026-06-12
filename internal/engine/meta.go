@@ -55,6 +55,7 @@ type MetaEntity struct {
 	WorkflowField string       `json:"workflow_field,omitempty"`
 	Actions       []MetaAction `json:"actions,omitempty"`
 	Links         []MetaLink   `json:"links,omitempty"`
+	Children      []MetaChild  `json:"children,omitempty"`
 	UI            MetaUI       `json:"ui"`
 }
 
@@ -68,6 +69,15 @@ type MetaRole struct {
 type MetaLink struct {
 	Name   string `json:"name"`
 	Target string `json:"target"`
+}
+
+// MetaChild is a master-detail relation: another entity that points at this one
+// through a ref field, so the record view can show its detail rows (order lines,
+// payments, findings…).
+type MetaChild struct {
+	Entity string `json:"entity"`
+	Field  string `json:"field"`
+	Label  string `json:"label,omitempty"`
 }
 
 type Meta struct {
@@ -181,6 +191,17 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 			}
 			if l.To == name && l.Inverse != l.Forward {
 				me.Links = append(me.Links, MetaLink{Name: l.Inverse, Target: l.From})
+			}
+		}
+		// master-detail: other entities that point at this one via a ref field —
+		// the record view shows their rows (order lines, payments, findings).
+		for _, other := range e.model.Order {
+			od := e.model.Entities[other]
+			for _, f := range od.Fields {
+				if f.Type.Kind == dsl.TyRef && f.Type.RefTarget == name &&
+					(e.can(actor, "read", other, "", nil).allowed || e.hasAnyRule(role, "read", other)) {
+					me.Children = append(me.Children, MetaChild{Entity: other, Field: f.Name, Label: od.Label})
+				}
 			}
 		}
 		m.Entities = append(m.Entities, me)

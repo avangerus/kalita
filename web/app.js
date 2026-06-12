@@ -398,7 +398,8 @@ function ApprovalCard({ a, meta, onDecide }) {
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 18px">
           ${scalarFields.map(f => html`<div style="font-size:13px;padding:2px 0">
             <span class="muted">${flab(f)}:</span> <${FieldValue} field=${f} value=${rec.values[f.name]} /></div>`)}
-        </div>`}
+        </div>
+        <${RelatedPanel} ent=${ent} id=${a.record_id} meta=${meta} readOnly=${true} />`}
     </div>`}
   </div>`;
 }
@@ -441,9 +442,9 @@ function Inbox({ meta, refresh }) {
   </div>`;
 }
 
-function CreateForm({ ent, onDone }) {
-  const [vals, setVals] = useState({}); const [err, setErr] = useState(null);
-  const writable = ent.fields.filter(f => f.writable);
+function CreateForm({ ent, onDone, initial, hide }) {
+  const [vals, setVals] = useState(initial || {}); const [err, setErr] = useState(null);
+  const writable = ent.fields.filter(f => f.writable && !(hide || []).includes(f.name));
   const submit = async () => {
     setErr(null);
     try {
@@ -571,14 +572,14 @@ function AgentsView({ meta }) {
 
 // Singletons (settings-style entities) skip the list: straight to the one
 // record, or its creation form.
-function SingletonView({ ent, refresh }) {
+function SingletonView({ ent, refresh, meta }) {
   const [rows, setRows] = useState(null);
   useEffect(() => { api(`/api/records/${ent.name}`).then(r => setRows(r.records || [])); }, [ent.name]);
   if (rows === null) return html`<div class="muted">loading…</div>`;
   if (rows.length === 0) return html`<div><h2>${ent.name}</h2>
     ${ent.can_create ? html`<${CreateForm} ent=${ent} onDone=${() => location.reload()} />`
       : html`<div class="muted">not configured yet — ask a role that can create it</div>`}</div>`;
-  return html`<${RecordView} ent=${ent} id=${rows[0].id} refresh=${refresh} />`;
+  return html`<${RecordView} ent=${ent} id=${rows[0].id} refresh=${refresh} meta=${meta} />`;
 }
 
 const PAGE = 25;
@@ -776,7 +777,55 @@ function Timeline({ ent, id, canRevert, onChanged }) {
   </div>`;
 }
 
-function RecordView({ ent, id, refresh }) {
+// RelatedPanel: master-detail — the detail rows of every entity that points at
+// this record (order lines, payments, findings). Generic; for the legal pack it
+// IS the findings risk card. readOnly drops the row actions and the add button.
+function RelatedPanel({ ent, id, meta, readOnly }) {
+  const children = ent.children || [];
+  if (!children.length) return null;
+  return html`${children.map(c => html`<${ChildTable} parent=${id} child=${c} meta=${meta} readOnly=${readOnly} />`)}`;
+}
+
+function ChildTable({ parent, child, meta, readOnly }) {
+  const cm = meta.entities.find(e => e.name === child.entity) || { fields: [], actions: [], ui: {} };
+  const [rows, setRows] = useState(null); const [adding, setAdding] = useState(false); const [err, setErr] = useState(null);
+  const load = () => api(`/api/records/${child.entity}?${child.field}=${parent}&limit=100`)
+    .then(r => setRows(r.records || [])).catch(() => setRows([]));
+  useEffect(load, [child.entity, child.field, parent]);
+  if (!rows) return null;
+  const wf = cm.workflow_field;
+  const cols = ((cm.ui && cm.ui.list_columns && cm.ui.list_columns.length)
+      ? cm.ui.list_columns : cm.fields.filter(f => f.readable && !f.computed).map(f => f.name))
+    .filter(n => n !== child.field && cm.fields.some(f => f.name === n)).slice(0, 5);
+  const act = async (rid, action) => {
+    setErr(null);
+    try { await api(`/api/records/${child.entity}/${rid}/act`, { method: 'POST', body: JSON.stringify({ action, basis: basis() }) }); load(); }
+    catch (e) { setErr(e); }
+  };
+  if (rows.length === 0 && (readOnly || !cm.can_create)) return null;
+  return html`<div class="card">
+    <h3 style="margin-top:0">${child.label || child.entity}${rows.length ? ` · ${rows.length}` : ''}</h3>
+    ${err && html`<div class="err">${err.message}</div>`}
+    ${rows.length === 0 ? html`<div class="muted">none yet</div>` : html`
+      <table><thead><tr>${cols.map(c => html`<th>${colLabel(cm, c)}</th>`)}${!readOnly ? html`<th></th>` : ''}</tr></thead>
+      <tbody>${rows.map(r => {
+        const st = wf && r.values[wf];
+        const acts = readOnly ? [] : (cm.actions || []).filter(a => a.can_act && (a.from === st || a.from === 'any'));
+        return html`<tr>
+          ${cols.map(c => html`<td style="cursor:pointer" onClick=${() => nav(`/e/${child.entity}/${r.id}`)}>
+            <${FieldValue} field=${cm.fields.find(f => f.name === c)} value=${r.values[c]} /></td>`)}
+          ${!readOnly ? html`<td>${acts.map(a => html`<button class="btn" style="padding:3px 8px;font-size:12px;margin:0 4px 0 0"
+            onClick=${() => act(r.id, a.action)}>${a.label || humanize(a.action)}${a.requires_approval ? ' ✍' : ''}</button>`)}</td>` : ''}
+        </tr>`;
+      })}</tbody></table>`}
+    ${!readOnly && cm.can_create && html`<div style="margin-top:8px">
+      ${adding ? html`<${CreateForm} ent=${cm} initial=${{ [child.field]: parent }} hide=${[child.field]} onDone=${() => { setAdding(false); load(); }} />`
+        : html`<button class="btn" onClick=${() => setAdding(true)}>+ ${child.label || child.entity}</button>`}
+    </div>`}
+  </div>`;
+}
+
+function RecordView({ ent, id, refresh, meta }) {
   const [rec, setRec] = useState(null); const [showHist, setShowHist] = useState(false);
   const [edit, setEdit] = useState({}); const [editing, setEditing] = useState(false);
   const [err, setErr] = useState(null); const [note, setNote] = useState(null);
@@ -831,6 +880,7 @@ function RecordView({ ent, id, refresh }) {
       </div>`}
     </div>
     ${showHist && html`<${Timeline} ent=${ent} id=${id} canRevert=${ent.can_revert} onChanged=${() => { load(); refresh(); }} />`}
+    ${meta && html`<${RelatedPanel} ent=${ent} id=${id} meta=${meta} />`}
     <${LinksPanel} ent=${ent} id=${id} />
     <${Thread} ent=${ent} id=${id} />
   </div>`;
@@ -972,8 +1022,8 @@ function App() {
   else if (parts[0] === 'dashboards') view = html`<${Dashboards} />`;
   else if (parts[0] === 'agent-board') view = html`<${AgentBoard} />`;
   else if (parts[0] === 'agents') view = html`<${AgentsView} meta=${meta} />`;
-  else if (parts[0] === 'e' && ent && parts[2]) view = html`<${RecordView} ent=${ent} id=${parts[2]} refresh=${refresh} />`;
-  else if (parts[0] === 'e' && ent && ent.singleton) view = html`<${SingletonView} ent=${ent} refresh=${refresh} />`;
+  else if (parts[0] === 'e' && ent && parts[2]) view = html`<${RecordView} ent=${ent} id=${parts[2]} refresh=${refresh} meta=${meta} />`;
+  else if (parts[0] === 'e' && ent && ent.singleton) view = html`<${SingletonView} ent=${ent} refresh=${refresh} meta=${meta} />`;
   else if (parts[0] === 'e' && ent) view = html`<${EntityList} ent=${ent} />`;
   else if (parts[0] === 'board' && ent) view = html`<${Board} ent=${ent} />`;
 
