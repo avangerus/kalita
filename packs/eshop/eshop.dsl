@@ -34,7 +34,8 @@ entity OrderLine "Order line":
     order:      ref[Order] on_delete=cascade label="Order"
     product:    ref[Product] on_delete=restrict label="Product"
     qty:        int default=1 label="Qty"
-    unit_price: money label="Unit price"
+    # the unit price is taken from the chosen product — the clerk never retypes it
+    unit_price: money default=product.price label="Unit price"
     line_total: money computed = unit_price * qty label="Line total"
 
 workflow Order on status:

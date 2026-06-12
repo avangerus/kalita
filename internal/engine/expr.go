@@ -120,6 +120,10 @@ func lexExpr(s string) ([]exTok, bool) {
 	return toks, true
 }
 
+func isLetterByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
 func isWordByte(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '$'
 }

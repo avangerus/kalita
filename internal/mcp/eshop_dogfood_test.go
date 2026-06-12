@@ -55,8 +55,12 @@ func TestDogfoodEshopPack(t *testing.T) {
 	cust := mk("Customer", map[string]any{"name": "Acme Inc", "email": "buy@acme.test"})
 	ord := mk("Order", map[string]any{"customer": cust["id"]})
 	ordID := ord["id"].(string)
-	mk("OrderLine", map[string]any{"order": ordID, "product": p1["id"], "qty": 2, "unit_price": 1000}) // 2000
-	mk("OrderLine", map[string]any{"order": ordID, "product": p2["id"], "qty": 1, "unit_price": 500})  // 500
+	// no unit_price passed — it derives from the chosen product (default=product.price)
+	l1 := mk("OrderLine", map[string]any{"order": ordID, "product": p1["id"], "qty": 2}) // -> 1000 * 2
+	mk("OrderLine", map[string]any{"order": ordID, "product": p2["id"], "qty": 1})       // -> 500 * 1
+	if up, _ := l1["values"].(map[string]any)["unit_price"].(float64); up != 1000 {
+		t.Errorf("unit_price = %v, want 1000 (derived from product.price, not typed)", l1["values"])
+	}
 
 	// the order total rolls up the two computed line totals: 2*1000 + 1*500 = 2500
 	got, e := call(t, srv.URL, clerk, "get_record", map[string]any{"entity": "Order", "id": ordID})

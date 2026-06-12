@@ -40,12 +40,23 @@ func (e *Engine) validateValues(decl *dsl.EntityDecl, values map[string]any, par
 	if !partial {
 		// defaults, then required
 		for _, f := range decl.Fields {
-			if _, present := values[f.Name]; !present && f.Default != "" && f.Computed == "" {
-				// the engine clock must reach $now defaults — otherwise a
-				// `default=$now` timestamp lands at the zero time and every
-				// elapsed-time computed (age, SLA) is wrong from creation.
-				values[f.Name] = evalLiteral(f.Default, evalCtx{actorID: actorID, now: e.now()})
+			if _, present := values[f.Name]; present || f.Default == "" || f.Computed != "" {
+				continue
 			}
+			// a ref-path default (e.g. `default=product.price`) derives the value
+			// from a ref the user just picked — so they never retype what the
+			// system already knows. Detected as a dotted path starting with a
+			// field name; resolved against the record being created.
+			if def := reDotSpace.ReplaceAllString(f.Default, "."); strings.Contains(def, ".") && isLetterByte(def[0]) {
+				if v, ok := e.resolvePath(def, values); ok {
+					values[f.Name] = v
+				}
+				continue
+			}
+			// the engine clock must reach $now defaults — otherwise a
+			// `default=$now` timestamp lands at the zero time and every
+			// elapsed-time computed (age, SLA) is wrong from creation.
+			values[f.Name] = evalLiteral(f.Default, evalCtx{actorID: actorID, now: e.now()})
 		}
 		for _, f := range decl.Fields {
 			if f.Required {

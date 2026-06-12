@@ -11,6 +11,7 @@ MANIFEST:    pack <name> / version <semver> / requires kalita >= 0.1 / depends c
 ENTITY:      entity Name ["Human label"]:   # or: entity Name singleton:  (at most one record)
                  field: type [required] [unique] [default=<expr>] [computed=<expr>] [on_delete=restrict|set_null|cascade] [label="Label"]
              # label= and the entity label are i18n: the UI shows them instead of the raw identifier
+             # default=<ref>.<field> derives the value from a picked ref (e.g. default=product.price) — no retyping
 TYPES:       string text int float money bool date datetime file
              email url phone duration(2d4h) percent(0-100) color(#RRGGBB) decimal json
              serial(auto document number; modifier format="INV-{year}-{seq:5}")
