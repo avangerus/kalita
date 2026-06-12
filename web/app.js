@@ -160,6 +160,12 @@ function FieldInput({ field, value, onChange }) {
   if (field.type === 'bool') return html`<select value=${String(value ?? '')} onChange=${e => onChange(e.target.value === 'true')}>
     <option value="">—</option><option value="true">true</option><option value="false">false</option></select>`;
   if (field.type === 'text') return html`<textarea rows="3" value=${value || ''} onInput=${e => onChange(e.target.value)} />`;
+  if (field.type === 'datetime') {
+    // native picker; store RFC3339 (engine format), edit the wall-clock part
+    const local = value ? String(value).slice(0, 16) : '';
+    return html`<input type="datetime-local" value=${local}
+      onInput=${e => { const v = e.target.value; onChange(v ? (v.length === 16 ? v + ':00Z' : v + 'Z') : ''); }} />`;
+  }
   const numeric = ['int', 'float', 'money'].includes(field.type);
   return html`<input type=${numeric ? 'number' : field.type === 'date' ? 'date' : 'text'}
     value=${value ?? ''} onInput=${e => onChange(numeric ? Number(e.target.value) : e.target.value)} />`;
