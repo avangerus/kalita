@@ -61,7 +61,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(scopeIDs) == 0 {
-		writeJSON(w, http.StatusOK, map[string]any{"answer": "Нет доступных рабочих областей.", "sources": []any{}})
+		writeJSON(w, http.StatusOK, map[string]any{"answer": "No accessible workspaces.", "sources": []any{}})
 		return
 	}
 

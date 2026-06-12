@@ -45,16 +45,16 @@ def answer_question(question, scope_ids):
     hits.sort(key=lambda h: -h[0])
     top = [p for _s, p in hits[:5]]
     if not top:
-        return {"answer": "В проиндексированных документах ничего не найдено.", "sources": []}
+        return {"answer": "Nothing found in indexed documents.", "sources": []}
 
     context = "\n\n---\n\n".join(f"[{p['file']}]\n{p['text']}" for p in top)
     reply = http(LM + "/v1/chat/completions", {
         "model": CHAT_MODEL,
         "messages": [
             {"role": "system", "content":
-             "Ты — поиск по документам компании. Отвечай кратко и только по приведённому контексту. "
-             "Если ответа в контексте нет — так и скажи."},
-            {"role": "user", "content": f"Контекст:\n{context}\n\nВопрос: {question}"},
+             "You are a company document search assistant. Answer briefly and only based on the provided context. "
+             "If the answer is not in the context, say so."},
+            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
         ],
         "temperature": 0.1,
     })["choices"][0]["message"]["content"]
@@ -78,7 +78,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         except Exception as e:  # noqa: BLE001 — return the error to the node
-            body = json.dumps({"answer": f"Ошибка поиска: {e}", "sources": []}).encode()
+            body = json.dumps({"answer": f"Search error: {e}", "sources": []}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

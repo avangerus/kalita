@@ -5,7 +5,7 @@ Flow: embed the question (LM Studio) -> vector search across the Qdrant
 collections of every workspace this actor may read -> answer with the chat
 model using retrieved context -> journal the query as a SearchQuery record.
 
-Usage:  py ask.py "Какая сумма в договоре с Вектором?"
+Usage:  py ask.py "What is the amount in the contract with Vector?"
 Env:    KALITA_URL, KALITA_TOKEN (role Searcher), KV_QDRANT, KV_LM, KV_CHAT_MODEL
 """
 import json
@@ -42,7 +42,7 @@ def tool(name, args=None):
 
 def main():
     if len(sys.argv) < 2:
-        sys.exit('usage: py ask.py "ваш вопрос"')
+        sys.exit('usage: py ask.py "your question"')
     question = sys.argv[1]
 
     # permission boundary: only workspaces this actor can read exist for it
@@ -72,14 +72,14 @@ def main():
         "model": CHAT_MODEL,
         "messages": [
             {"role": "system", "content":
-             "Ты — поиск по документам компании. Отвечай кратко и только по приведённому контексту. "
-             "Если ответа в контексте нет — так и скажи. В конце укажи файлы-источники."},
-            {"role": "user", "content": f"Контекст:\n{context}\n\nВопрос: {question}"},
+             "You are a company document search assistant. Answer briefly and only based on the provided context. "
+             "If the answer is not in the context, say so. At the end, list the source files."},
+            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
         ],
         "temperature": 0.1,
     })["choices"][0]["message"]["content"]
 
-    # the query is journaled — "кто что искал" is a record like any other
+    # the query is journaled — "who searched for what" is a record like any other
     tool("create_record", {"entity": "SearchQuery", "basis": {"type": "human", "id": "searcher"},
                            "values": {"workspace": top[0][1]["id"], "query": question,
                                       "actor_role": "Searcher", "results": len(top)}})
