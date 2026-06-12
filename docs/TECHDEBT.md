@@ -42,8 +42,8 @@ severity: **P0** блокирует прод · **P1** мешает заявле
 
 «Интегрируем, не строим» пока декларация — интерфейса нет.
 
-- **P1 нет connector-SDK интерфейса.** Нужны контракты `TelephonyProvider / EmailProvider / PaymentProvider / CalendarProvider` со стандартной событийной схемой (событие провайдера → запись в журнал). (2026-06-12, бенчмарк)
-- **P1 нет payment-коннектора** (Stripe/YooKassa) + webhook → инвойс в `Paid`. Агент к рельсам не прикасается — но системе нужна интеграция. (2026-06-12)
+- **P2 connector scaffold есть, обобщения нет.** `workers/connectors/inbound.py` — первый коннектор (форма→Lead) и образец паттерна (untrusted POST → whitelist-map → MCP create под least-privilege identity). Но это только inbound/create: нет upsert/update, нет дедупа, нет rate-limit, секрет один на форму. → выделить общую базу когда появится 2-й коннектор. (2026-06-12)
+- **P1 нет payment-коннектора** (Stripe/YooKassa) + webhook → инвойс в `Paid`. Агент к рельсам не прикасается — но системе нужна интеграция. Скопировать паттерн inbound.py. (2026-06-12)
 - **P2 нет email/calendar sync** (Nylas/Graph) — table stakes CRM. (2026-06-12)
 - **P2 нет Jitsi/appointment-коннектора** (комната + ссылка в кабинет). (2026-06-12)
 - **P2 нет Bitrix24 REST/webhook-коннектора** (мост к его CRM: сделки/контакты/счета). (2026-06-12)
@@ -67,3 +67,4 @@ severity: **P0** блокирует прод · **P1** мешает заявле
 - ~~Инкрементальная индексация KnowVault (skip unchanged / re-embed changed / drop deleted)~~ — закрыто `84f92ca`.
 - ~~Auto-reindex без ручного триггера~~ — закрыто `b822a03` (interval schedule + resync task).
 - ~~Born-agentic CRM (система действия)~~ — частично: SalesBot триажит новую Opportunity (квалификация + follow-up Activity + advance), HITL на close_won цел. Доказано вживую 2026-06-12.
+- ~~Inbound connector «форма→Lead» + scaffold connector-слоя~~ — `workers/connectors/inbound.py`: untrusted POST → whitelist-map → governed create под least-privilege Intake. Секрет-гейт + блок инжекта статуса доказаны вживую 2026-06-12 (`crm.dsl` роль Intake).

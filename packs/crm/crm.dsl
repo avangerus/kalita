@@ -86,6 +86,10 @@ roles:
     # qualification note, schedules the first follow-up Activity, and advances the
     # stage — but can NEVER sign a win (close_won stays a human's signature).
     SalesBot agent
+    # an inbound connector identity (a website form, a webhook): least privilege —
+    # it can ONLY file a new Lead. Untrusted external input enters through a role
+    # that can do nothing else, and every intake is journaled to this identity.
+    Intake agent
 
 permissions:
     # a rep manages their own pipeline; sees the shared account/contact book
@@ -113,6 +117,11 @@ permissions:
         update [Opportunity, Activity]
         act    [qualify_opp, send_proposal, negotiate]
         deny   [delete *, approve close_won, update Opportunity.amount, update Opportunity.discount]
+    # the inbound connector: files leads from external sources, nothing more
+    Intake:
+        create [Lead]
+        read   [Lead]
+        deny   [delete *, update *, read Account, read Contact, read Opportunity, read Activity]
 
 # --- automation: follow-ups and stale-deal nudges ----------------------------
 
