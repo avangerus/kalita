@@ -31,7 +31,22 @@ TOKEN = get_token()
 QDRANT = os.environ.get("KV_QDRANT", "http://192.168.1.4:6333")
 LM = os.environ.get("KV_LM", "http://localhost:1234")
 
-TEXT_EXT = {".txt", ".md", ".rst", ".csv", ".log"}
+# What counts as indexable text — prose, plus source code and config so a whole
+# repository can be crawled and questioned. PDFs/Office docs need an extractor
+# (a separate step; this worker stays stdlib-only).
+TEXT_EXT = {
+    ".txt", ".md", ".rst", ".csv", ".log", ".adoc", ".org", ".tex",
+    ".py", ".go", ".js", ".ts", ".jsx", ".tsx", ".java", ".kt", ".scala",
+    ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".rb", ".php", ".rs", ".swift",
+    ".sh", ".bash", ".ps1", ".sql", ".r", ".lua", ".dart", ".ex", ".exs",
+    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".env",
+    ".xml", ".html", ".htm", ".css", ".scss", ".proto", ".gradle", ".dsl",
+}
+# Directories never worth crawling — VCS, dependencies, build output, caches.
+SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build",
+             "out", "target", "__pycache__", ".venv", "venv", ".idea", ".vscode",
+             ".next", ".cache", "coverage", "bin", "obj"}
+MAX_FILE_BYTES = 1_000_000  # skip anything bigger — generated, minified, or binary
 
 
 class ToolError(Exception):
@@ -133,13 +148,19 @@ def index_source(task):
             raw = http_bytes(f"{NODE}/api/files/{doc['hash']}")
             yield doc.get("name", "document"), raw.decode("utf-8", "ignore")
             return
-        for root, _dirs, files in os.walk(src["values"].get("path", "")):
+        base = src["values"].get("path", "")
+        for root, dirs, files in os.walk(base):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]  # prune noise in place
             for name in files:
                 if os.path.splitext(name)[1].lower() not in TEXT_EXT:
                     continue
+                full = os.path.join(root, name)
                 try:
-                    with open(os.path.join(root, name), encoding="utf-8", errors="ignore") as f:
-                        yield name, f.read()
+                    if os.path.getsize(full) > MAX_FILE_BYTES:
+                        continue
+                    with open(full, encoding="utf-8", errors="ignore") as f:
+                        # the relative path is the answer to "where is it?"
+                        yield os.path.relpath(full, base).replace("\\", "/"), f.read()
                 except OSError:
                     continue
 
@@ -149,17 +170,26 @@ def index_source(task):
             pieces = chunk(text, chunk_size)
             if not pieces:
                 continue
-            vectors = embed(model, pieces)
-            ensure_collection(collection, len(vectors[0]))
-            points = [{
-                "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}|{fname}|{i}")),
-                "vector": vec,
-                "payload": {"source": sid, "file": fname, "text": piece},
-            } for i, (piece, vec) in enumerate(zip(pieces, vectors))]
-            http(f"{QDRANT}/collections/{collection}/points?wait=true", method="PUT",
-                 body={"points": points})
+            print(f"  {fname}: {len(pieces)} chunks — embedding…", flush=True)
+            # embed in batches so a big file makes steady progress and one slow
+            # request can't stall the whole source
+            ensure_collection_done = False
+            for off in range(0, len(pieces), 32):
+                batch = pieces[off:off + 32]
+                vectors = embed(model, batch)
+                if not ensure_collection_done:
+                    ensure_collection(collection, len(vectors[0]))
+                    ensure_collection_done = True
+                points = [{
+                    "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}|{fname}|{off + i}")),
+                    "vector": vec,
+                    "payload": {"source": sid, "file": fname, "text": piece},
+                } for i, (piece, vec) in enumerate(zip(batch, vectors))]
+                http(f"{QDRANT}/collections/{collection}/points?wait=true", method="PUT",
+                     body={"points": points})
+                chunks_total += len(points)
             docs += 1
-            chunks_total += len(points)
+            print(f"  {fname}: done ({chunks_total} total)", flush=True)
 
         tool("report_progress", {"task_id": tid,
              "note": f"{docs} docs -> {chunks_total} chunks -> {collection} (model {model})"})
