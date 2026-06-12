@@ -268,10 +268,20 @@ func (e *Engine) evalSince(path string, values map[string]any, unit time.Duratio
 // applies. unit is "day", "hour" or "min".
 func (e *Engine) evalBusinessSince(path string, values map[string]any, unit string) (any, bool) {
 	cal := e.cal
-	if datePath, code, ok := strings.Cut(path, ","); ok {
+	if datePath, arg, ok := strings.Cut(path, ","); ok {
 		path = strings.TrimSpace(datePath)
-		code = strings.Trim(strings.TrimSpace(code), `"`)
-		if c, found := e.calendarByCode(code); found {
+		arg = strings.Trim(strings.TrimSpace(arg), `"`)
+		// the selector may be a literal code, or a ref-path (e.g. sla_policy.calendar)
+		// resolving to a calendar code or a core.Calendar id — so each contract/SLA
+		// picks its own calendar.
+		if v, ok := e.resolvePath(arg, values); ok {
+			if s, _ := v.(string); s != "" {
+				arg = s
+			}
+		}
+		if c, found := e.calendarByCode(arg); found {
+			cal = c
+		} else if c, found := e.calendarByID(arg); found {
 			cal = c
 		}
 	}

@@ -66,10 +66,12 @@ EXPR:        full boolean language for where/guards/filters:
              ABAC example: read Issue where (reporter = $me or project.owner = $me) and status != Closed
 COMPUTED:    computed = <arithmetic of fields: + - * / and ( ), e.g. amount - amount * discount / 100>
              | <path> | days_since(path) | hours_since(path) | minutes_since(path)
-             | business_days_since(path[, calendar_code]) | business_hours_since(...) | business_minutes_since(...)
+             | business_days_since(path[, calendar]) | business_hours_since(...) | business_minutes_since(...)
              #   business_*_since count WORKING time only (skip weekends/holidays/off-hours).
-             #   The optional calendar_code selects a Calendar entity record (production_ru, production_us…);
-             #   a Calendar has: code, workdays array[enum[Mon..Sun]], work_start/work_end int(min), holidays array[string].
+             #   The 2nd arg picks a calendar: a literal code, or a ref-path (e.g. sla_policy.calendar)
+             #   so each contract/SLA has its own. A core.Calendar has: code, name, workdays
+             #   array[enum[Mon..Sun]], work_start/work_end int(min), holidays + extra_workdays array[string]
+             #   (extra_workdays = transferred working Saturdays; regional calendars differ).
              | count(Entity where reffield = $self)
              | sum|avg|min|max(Entity.field where reffield = $self)   # roll-up over related records
 RULES:       agent role without deny does not compile; workflow state field cannot be written directly; mutations require basis; only additive migrations.`

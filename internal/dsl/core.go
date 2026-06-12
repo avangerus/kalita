@@ -23,6 +23,7 @@ func coreModelEntities() []*EntityDecl {
 				{Name: "work_start", Type: intt, Default: "540", Label: "Work start (min from midnight)"},
 				{Name: "work_end", Type: intt, Default: "1080", Label: "Work end (min from midnight)"},
 				{Name: "holidays", Type: TypeRef{Kind: TyTags}, Label: "Holidays (YYYY-MM-DD)"},
+				{Name: "extra_workdays", Type: TypeRef{Kind: TyTags}, Label: "Transferred working days (YYYY-MM-DD)"},
 			},
 		},
 	}

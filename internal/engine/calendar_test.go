@@ -46,6 +46,25 @@ func TestBusinessCalendarMath(t *testing.T) {
 	}
 }
 
+// A transferred working Saturday (Russia's production-calendar quirk) counts as
+// a working day — extra_workdays adds time the weekend mask would have skipped.
+func TestBusinessCalendarTransferredWorkday(t *testing.T) {
+	mon := anchorMonday()
+	fri16 := mon.AddDate(0, 0, 4).Add(16 * time.Hour)
+	sat := mon.AddDate(0, 0, 5).Format("2006-01-02")
+	nextMon11 := mon.AddDate(0, 0, 7).Add(11 * time.Hour)
+	cal := newBusinessCalendar(
+		[]time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday}, 9*60, 18*60, nil)
+	// without the transfer: Fri 2h + Mon 2h = 240
+	if got := cal.businessMinutesBetween(fri16, nextMon11); got != 240 {
+		t.Fatalf("baseline = %d, want 240", got)
+	}
+	cal.extra[sat] = true // that Saturday is a transferred working day (9h)
+	if got := cal.businessMinutesBetween(fri16, nextMon11); got != 240+540 {
+		t.Errorf("with a working Saturday = %d, want 780 (Fri 2h + Sat 9h + Mon 2h)", got)
+	}
+}
+
 // business_minutes_since flows through a computed field with the engine clock.
 func TestBusinessMinutesSinceComputed(t *testing.T) {
 	src := `pack t

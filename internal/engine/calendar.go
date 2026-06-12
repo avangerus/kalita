@@ -11,12 +11,14 @@ type businessCalendar struct {
 	workday  [7]bool         // indexed by time.Weekday (Sunday = 0)
 	startMin int             // working day start, minutes from midnight
 	endMin   int             // working day end, minutes from midnight
-	holidays map[string]bool // "YYYY-MM-DD" → non-working
+	holidays map[string]bool // "YYYY-MM-DD" → non-working (overrides workday)
+	extra    map[string]bool // "YYYY-MM-DD" → working despite being a weekend
+	//                          (Russia's transferred "working Saturdays")
 }
 
 // defaultCalendar: Monday–Friday, 09:00–18:00, no holidays.
 func defaultCalendar() businessCalendar {
-	c := businessCalendar{startMin: 9 * 60, endMin: 18 * 60, holidays: map[string]bool{}}
+	c := businessCalendar{startMin: 9 * 60, endMin: 18 * 60, holidays: map[string]bool{}, extra: map[string]bool{}}
 	for _, d := range []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday} {
 		c.workday[d] = true
 	}
@@ -26,7 +28,7 @@ func defaultCalendar() businessCalendar {
 // newBusinessCalendar builds a calendar from working weekdays, an HH:MM window
 // (start/end minutes from midnight) and a set of holiday dates ("YYYY-MM-DD").
 func newBusinessCalendar(workdays []time.Weekday, startMin, endMin int, holidays []string) businessCalendar {
-	c := businessCalendar{startMin: startMin, endMin: endMin, holidays: map[string]bool{}}
+	c := businessCalendar{startMin: startMin, endMin: endMin, holidays: map[string]bool{}, extra: map[string]bool{}}
 	for _, d := range workdays {
 		c.workday[d] = true
 	}
@@ -48,7 +50,7 @@ var weekdayByName = map[string]time.Weekday{
 // Calendars are data — a node can hold several (production_ru, production_us…)
 // and a computed picks one by code. Unspecified fields fall back to Mon-Fri 9-18.
 func calendarFromRecord(values map[string]any) businessCalendar {
-	c := businessCalendar{startMin: 9 * 60, endMin: 18 * 60, holidays: map[string]bool{}}
+	c := businessCalendar{startMin: 9 * 60, endMin: 18 * 60, holidays: map[string]bool{}, extra: map[string]bool{}}
 	if v, ok := numberScalar(values["work_start"]); ok {
 		c.startMin = int(v)
 	}
@@ -68,14 +70,20 @@ func calendarFromRecord(values map[string]any) businessCalendar {
 			c.workday[w] = true
 		}
 	}
-	if hs, ok := values["holidays"].([]any); ok {
-		for _, h := range hs {
-			if s, _ := h.(string); s != "" {
-				c.holidays[s] = true
+	dateSet(values["holidays"], c.holidays)
+	dateSet(values["extra_workdays"], c.extra)
+	return c
+}
+
+// dateSet copies a []any of "YYYY-MM-DD" strings into a set.
+func dateSet(v any, into map[string]bool) {
+	if xs, ok := v.([]any); ok {
+		for _, x := range xs {
+			if s, _ := x.(string); s != "" {
+				into[s] = true
 			}
 		}
 	}
-	return c
 }
 
 // calendarByCode looks up a Calendar entity record by its code and builds a
@@ -89,8 +97,23 @@ func (e *Engine) calendarByCode(code string) (businessCalendar, bool) {
 	return businessCalendar{}, false
 }
 
+// calendarByID looks up a core.Calendar record by its id (for a ref[core.Calendar]
+// selected per contract/SLA).
+func (e *Engine) calendarByID(id string) (businessCalendar, bool) {
+	if rec, ok := e.records["core.Calendar"][id]; ok {
+		return calendarFromRecord(rec.Values), true
+	}
+	return businessCalendar{}, false
+}
+
+// isWorkday: a holiday is always off; otherwise a normal weekday — or a date
+// explicitly transferred to working (a "working Saturday") — is on.
 func (c businessCalendar) isWorkday(t time.Time) bool {
-	return c.workday[t.Weekday()] && !c.holidays[t.Format("2006-01-02")]
+	date := t.Format("2006-01-02")
+	if c.holidays[date] {
+		return false
+	}
+	return c.workday[t.Weekday()] || c.extra[date]
 }
 
 // businessMinutesBetween counts working minutes in (from, to], clamped to the

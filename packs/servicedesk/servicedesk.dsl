@@ -33,7 +33,8 @@ entity SLAPolicy "SLA Policy":
     priority: enum[P1, P2, P3, P4] default=P3
     response_minutes: int
     resolution_minutes: int
-    business_calendar: string default="24x7"
+    # each policy picks its working calendar (regional production calendars differ)
+    calendar: ref[core.Calendar] label="Calendar"
 
 # --- problems and known errors -----------------------------------------------
 
@@ -103,8 +104,8 @@ entity Incident "Incident":
     # sla_left = SLA breached.
     # SLA counts WORKING minutes (8x5 via the node's business calendar), not wall
     # clock — a ticket opened Friday evening is not "breached" by Monday morning
-    minutes_open: int computed = business_minutes_since(opened) label="In progress, min"
-    sla_left:     int computed = sla_policy.resolution_minutes - business_minutes_since(opened) label="Time to SLA, min"
+    minutes_open: int computed = business_minutes_since(opened, sla_policy.calendar) label="In progress, min"
+    sla_left:     int computed = sla_policy.resolution_minutes - business_minutes_since(opened, sla_policy.calendar) label="Time to SLA, min"
     status: enum[New, Investigating, Identified, Resolved, Closed] default=New label="Status"
 
 workflow Incident on status:
