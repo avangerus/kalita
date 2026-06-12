@@ -239,6 +239,10 @@ func (s *Server) queryV2(w http.ResponseWriter, r *http.Request) {
 			"message": "bad json", "fix_hint": `{"where": "...", "sort": ["-created_at"], "search": "...", "limit": 25}`})
 		return
 	}
+	if r.PathValue("entity") == coreUserEntity {
+		s.serveCoreUserList(w, r, req.Search, req.Limit)
+		return
+	}
 	rows, err := s.eng.Query(r.Context(), actor, r.PathValue("entity"), engine.QueryOpts{
 		Where: req.Where, Filter: req.Filter, Sort: req.Sort, Search: req.Search,
 		Limit: req.Limit, Offset: req.Offset,

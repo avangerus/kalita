@@ -70,25 +70,23 @@ function fieldSpan(f) {
 // rows (users, config items). core.* targets fall back to a raw id input until
 // the core pack exists.
 function RefInput({ field, value, onChange }) {
-  const isCore = field.ref.startsWith('core.');
   const [term, setTerm] = useState('');
   const [opts, setOpts] = useState(null);
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState(null);
   useEffect(() => {
-    if (!value || isCore) { setCurrent(null); return; }
+    if (!value) { setCurrent(null); return; }
     api(`/api/records/${field.ref}/${value}`).then(r => setCurrent(reclabel(r.values)))
       .catch(() => setCurrent(String(value).slice(0, 8)));
   }, [value, field.ref]);
   useEffect(() => {
-    if (!open || isCore) return;
+    if (!open) return;
     const t = setTimeout(() => {
       api(`/api/query/${field.ref}`, { method: 'POST', body: JSON.stringify({ search: term, limit: 20 }) })
         .then(r => setOpts(r.records || [])).catch(() => setOpts([]));
     }, 200);
     return () => clearTimeout(t);
   }, [term, open, field.ref]);
-  if (isCore) return html`<input value=${value ?? ''} onInput=${e => onChange(e.target.value)} placeholder=${field.ref + ' (id)'} />`;
   const pick = (id) => { onChange(id); setOpen(false); };
   return html`<div style="position:relative">
     <input placeholder=${current ? '' : 'поиск…'} value=${open ? term : (current || '')}
@@ -381,7 +379,7 @@ function Board({ ent }) {
 function RefValue({ field, value }) {
   const [text, setText] = useState(null);
   useEffect(() => {
-    if (!value || field.ref.startsWith('core.')) { setText(value || null); return; }
+    if (!value) { setText(null); return; }
     api(`/api/records/${field.ref}/${value}`).then(r => setText(reclabel(r.values)))
       .catch(() => setText(String(value).slice(0, 8)));
   }, [value, field.ref]);

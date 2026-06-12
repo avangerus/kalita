@@ -185,6 +185,10 @@ func (s *Server) query(w http.ResponseWriter, r *http.Request) {
 		writeAuthRequired(w)
 		return
 	}
+	if r.PathValue("entity") == coreUserEntity {
+		s.serveCoreUserList(w, r, r.URL.Query().Get("search"), atoiOr(r.URL.Query().Get("limit"), 0))
+		return
+	}
 	opts := engine.QueryOpts{Filter: map[string]any{}}
 	for k, vs := range r.URL.Query() {
 		switch k {
@@ -230,6 +234,10 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
+		return
+	}
+	if r.PathValue("entity") == coreUserEntity {
+		s.serveCoreUserGet(w, r, r.PathValue("id"))
 		return
 	}
 	rec, err := s.eng.Get(r.Context(), actor, r.PathValue("entity"), r.PathValue("id"))

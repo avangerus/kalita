@@ -1,17 +1,17 @@
-Web UI: scalable ref picker, read-first records, 3-column forms
+core.User: the built-in people directory (real, queryable)
 
-Reworked the generic UI from live-demo feedback:
+ref[core.User] was a stub — the picker fell back to a raw id input. core.User
+is now a real, read-only entity projected from the identity registry: the
+record endpoints serve it from the actor directory instead of the engine.
 
-- Ref fields are now an async search picker (queries the target entity by typed
-  term, limit 20) instead of a combobox that loaded the whole table — it scales
-  to 150k users / 1M config items. In read mode a ref shows the target's label,
-  not its uuid.
-- Records open in READ mode; editing is opt-in via a button, with Save/Cancel,
-  and workflow actions are hidden while editing. No more falling straight into a
-  form on click.
-- Forms are a 3-column grid; each control spans 1/2/3 columns by type (long
-  text/json/attachments full width, pickers half, short scalars a third).
-- Workflow action buttons are humanized (close_incident → "Close incident")
-  and primary-styled.
+- GET /api/records/core.User and POST /api/query/core.User return the actors
+  (id/name/role/type), filtered by a case-insensitive search over id and role,
+  capped by limit.
+- GET /api/records/core.User/{id} resolves one actor for label display.
+- The web ref picker and the read-mode ref label now treat core.User like any
+  entity, so assignee/reporter fields are a search-as-you-type people picker
+  that scales to 150k users instead of a load-everything combobox.
 
-Pack: Supervisor can read SLAPolicy (so the SLA picker/label resolves).
+Read-only by design: users are created through register/invite, not the record
+API. Verified by a directory test (list, search by id, search by role, get one)
+and live in the browser (typing in the assignee field lists the directory).
