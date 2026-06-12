@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/eventstore"
 )
 
@@ -23,13 +24,30 @@ type entityIndex struct {
 	count   int                                        // record count at build, a staleness backstop
 }
 
-// reScopeTerm extracts `field = $me` / `field = $me.<attr>` from a where-clause,
-// capturing the (un-dotted) field on the left — exactly the predicates we can
-// resolve from the actor and serve from an index.
+// reScopeTerm extracts a DIRECT `field = $me` / `field = $me.<attr>` term,
+// capturing the (un-dotted) field on the left — a predicate resolvable from the
+// actor and servable from an index on `entity` itself.
 var reScopeTerm = regexp.MustCompile(`(?:^|[\s(])(\w+)\s*=\s*\$me(\.\w+)?(?:[\s)]|$)`)
 
-// indexedScopeFields returns the fields of an entity that any role's read/full
-// allow rule scopes by `= $me[.attr]` — the dimensions worth indexing.
+// reRefScopeTerm extracts a REF-PATH `ref.tfield = $me[.attr]` term — indirect
+// ownership ("tasks in projects I own"), the most common scope the direct index
+// misses. m[1]=local ref field, m[2]=target field, m[3]=optional actor attr.
+var reRefScopeTerm = regexp.MustCompile(`(?:^|[\s(])(\w+)\.(\w+)\s*=\s*\$me(\.\w+)?(?:[\s)]|$)`)
+
+// refTarget returns the entity a ref field points at, or "" if it is not a ref.
+func (e *Engine) refTarget(entity, field string) string {
+	if fd := fieldDecl(e.model.Entities[entity], field); fd != nil && fd.Type.Kind == dsl.TyRef {
+		return fd.Type.RefTarget
+	}
+	return ""
+}
+
+// indexedScopeFields returns the fields of `entity` worth indexing for the
+// permitted-set query. Three sources, all derived from `= $me[.attr]` scopes in
+// any role's read/full rule: a DIRECT scope on entity (`owner`), the LOCAL ref of
+// a ref-path scope on entity (`project` in `project.owner = $me`), and the TARGET
+// field of a ref-path scope that points AT entity (`owner`, because some other
+// entity scopes by `<ref→entity>.owner = $me`).
 func (e *Engine) indexedScopeFields(entity string) map[string]bool {
 	out := map[string]bool{}
 	for _, pb := range e.model.Perms {
@@ -38,11 +56,27 @@ func (e *Engine) indexedScopeFields(entity string) map[string]bool {
 				continue
 			}
 			for _, item := range rule.Items {
-				if item.Entity != entity || item.Where == "" {
+				if item.Where == "" {
 					continue
 				}
-				for _, m := range reScopeTerm.FindAllStringSubmatch(reDotSpace.ReplaceAllString(item.Where, "."), -1) {
-					out[m[1]] = true
+				where := reDotSpace.ReplaceAllString(item.Where, ".")
+				if item.Entity == entity {
+					for _, m := range reScopeTerm.FindAllStringSubmatch(where, -1) {
+						out[m[1]] = true
+					}
+				}
+				for _, m := range reRefScopeTerm.FindAllStringSubmatch(where, -1) {
+					ref, tfield := m[1], m[2]
+					target := e.refTarget(item.Entity, ref)
+					if target == "" || strings.HasPrefix(target, "core.") {
+						continue // a complete index is required (see candidateIDs); core.* isn't in records
+					}
+					if item.Entity == entity {
+						out[ref] = true // index the local ref so we can map target-id → local rows
+					}
+					if target == entity {
+						out[tfield] = true // index the target field so we can find target-ids by = $me
+					}
 				}
 			}
 		}
@@ -119,11 +153,11 @@ func (e *Engine) candidateIDs(entity string, actor eventstore.Actor) ([]string, 
 			if strings.Contains(where, " or ") {
 				return nil, false // disjunction → conservative: scan
 			}
-			f, val, ok := e.scopeValue(where, idx, actor)
+			ids, ok := e.ruleCandidates(entity, idx, where, actor)
 			if !ok {
-				return nil, false // scope field not indexed → scan
+				return nil, false // scope not index-backed → scan
 			}
-			for id := range idx.byField[f][val] {
+			for id := range ids {
 				cand[id] = struct{}{}
 			}
 		}
@@ -138,22 +172,63 @@ func (e *Engine) candidateIDs(entity string, actor eventstore.Actor) ([]string, 
 	return out, true
 }
 
-// scopeValue finds an indexed `field = $me[.attr]` term and resolves its value
-// from the actor (id for $me, attribute for $me.attr).
+// ruleCandidates returns the record-id set one (non-or) allow rule's where
+// permits, served from indexes — or ok=false if it cannot be narrowed (the
+// caller then scans the whole entity). It tries a DIRECT scope first, then a
+// REF-PATH scope. Each returned set is a SUPERSET of (in fact, exactly) that
+// term's satisfying rows; can() remains the final authority.
+func (e *Engine) ruleCandidates(entity string, idx *entityIndex, where string, actor eventstore.Actor) (map[string]struct{}, bool) {
+	// direct: field = $me[.attr]  → that field's bucket on `entity`
+	if f, val, ok := e.scopeValue(where, idx, actor); ok {
+		return idx.byField[f][val], true
+	}
+	// ref-path: ref.tfield = $me[.attr]  → union the local-ref buckets of every
+	// target record the actor owns. Both indexes must be present and COMPLETE
+	// (target is a normal in-records entity, guaranteed by indexedScopeFields
+	// skipping core.*), else the union could omit permitted rows.
+	for _, m := range reRefScopeTerm.FindAllStringSubmatch(where, -1) {
+		ref, tfield := m[1], m[2]
+		target := e.refTarget(entity, ref)
+		if target == "" || strings.HasPrefix(target, "core.") || idx.byField[ref] == nil {
+			continue
+		}
+		tIdx := e.getIndex(target)
+		if tIdx.byField[tfield] == nil {
+			continue
+		}
+		av := actorScopeVal(actor, m[3])
+		cand := map[string]struct{}{}
+		for p := range tIdx.byField[tfield][av] {
+			for id := range idx.byField[ref][p] {
+				cand[id] = struct{}{}
+			}
+		}
+		return cand, true
+	}
+	return nil, false
+}
+
+// scopeValue finds an indexed DIRECT `field = $me[.attr]` term and resolves its
+// value from the actor (id for $me, attribute for $me.attr).
 func (e *Engine) scopeValue(where string, idx *entityIndex, actor eventstore.Actor) (string, string, bool) {
 	for _, m := range reScopeTerm.FindAllStringSubmatch(where, -1) {
 		f := m[1]
 		if idx.byField[f] == nil {
 			continue // field not indexed
 		}
-		if m[2] == "" {
-			return f, idxKey(actor.ID), true // $me
-		}
-		attr := strings.TrimPrefix(m[2], ".")
-		if actor.Attrs == nil {
-			return f, idxKey(nil), true // no attrs → empty bucket → nothing (fail-closed)
-		}
-		return f, idxKey(actor.Attrs[attr]), true
+		return f, actorScopeVal(actor, m[2]), true
 	}
 	return "", "", false
+}
+
+// actorScopeVal is the index key a `$me` / `$me.<attr>` term resolves to: the
+// actor id, or the named attribute (nil → empty bucket, i.e. fail-closed).
+func actorScopeVal(actor eventstore.Actor, attrGroup string) string {
+	if attrGroup == "" {
+		return idxKey(actor.ID)
+	}
+	if actor.Attrs == nil {
+		return idxKey(nil)
+	}
+	return idxKey(actor.Attrs[strings.TrimPrefix(attrGroup, ".")])
 }

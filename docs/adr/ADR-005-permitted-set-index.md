@@ -44,18 +44,27 @@ table size. Measured (`BenchmarkPermittedSet`, `internal/engine/scale_test.go`),
 
 | query | per op | memory |
 |-------|--------|--------|
-| scoped `where owner = $me` (index) | **~0.21 ms** | 210 KB |
-| naive full scan (the O(n) it replaces) | ~69 ms | 78 MB |
+| direct `where owner = $me` (index) | **~0.21 ms** | 210 KB |
+| ref-path `where project.owner = $me` (index) | **~0.34 ms** | 239 KB |
+| naive full scan (the O(n) it replaces) | ~70 ms | 78 MB |
 
-~330× faster, ~370× less memory, and the scoped cost tracks the owner's share,
-not the table. `TestPermittedSetNarrowsAtScale` asserts the deterministic
-guarantee — the candidate set is exactly the owner's bucket, leaks nothing, and
-an unscoped role still falls back to a scan. If a real pack's scope shape escapes
-the index (multi-term `and`, cross-entity), this ADR is extended, not discarded:
-the fallback scan keeps it correct meanwhile.
+~200–330× faster, ~330× less memory, and the scoped cost tracks the owner's
+share, not the table. Both the direct scope and the harder **indirect-ownership**
+scope ("tasks in projects I own") are served: the ref-path index resolves the
+target ids the actor owns (`Project where owner = $me`) from the target's index,
+then unions the local ref buckets (`Task.project`) — a two-level join that stays
+O(owned). `TestPermittedSetNarrowsAtScale` and `TestRefPathPermittedSetNarrows`
+assert the deterministic guarantee: the candidate set is exactly the owner's
+(in)direct rows, leaks nothing, and an unscoped role still falls back to a scan.
 
-**Consequences:** ABAC scopes of the form `field = $me[.attr]` are scale-safe in
-v0 without a database. Scopes that are not index-backed remain correct but O(n) —
-a known edge to widen (indexed `and`-terms, ref-path scopes) as packs demand.
+The ref-path index requires the TARGET index to be complete, so `core.*` targets
+(projected from the identity registry, not in `records`) deliberately fall back
+to a scan rather than risk omitting a permitted row.
+
+**Consequences:** ABAC scopes of the form `field = $me[.attr]` and
+`ref.field = $me[.attr]` are scale-safe in v0 without a database. Remaining
+edges, correct but not yet maximally narrowed: multi-term `and` (uses the first
+indexed term's bucket — already a valid superset, just not the intersection),
+`or` disjunctions, and `core.*`-targeted ref-paths (all fall back to a scan).
 Horizontal sharding (one client = one node, ADR-001) keeps per-node tables within
 the RAM envelope this index assumes.

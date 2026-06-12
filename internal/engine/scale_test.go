@@ -105,6 +105,89 @@ func TestPermittedSetNarrowsAtScale(t *testing.T) {
 	}
 }
 
+// The harder, more common scope: INDIRECT ownership. "I see tasks in projects I
+// own" — read Task where project.owner = $me — is a two-level join the direct
+// index misses, so it used to scan every task. The ref-path index now serves it
+// from the union of the owner's project buckets: still O(owned), not O(table).
+func TestRefPathPermittedSetNarrows(t *testing.T) {
+	if testing.Short() {
+		t.Skip("scale seed is heavy; run without -short")
+	}
+	ctx := context.Background()
+	src := `pack t
+version 0.1.0
+requires kalita >= 0.1
+depends core >= 0.1
+entity Project:
+    owner: string
+entity Task:
+    project: ref[Project]
+    title:   string
+roles:
+    Member
+    Admin
+permissions:
+    Member:
+        read Task where project.owner = $me
+        read Project where owner = $me
+    Admin:
+        full [Project, Task]
+`
+	model, errs := dsl.Compile(map[string]string{"t.dsl": src})
+	if len(errs) > 0 {
+		t.Fatal(errs[0])
+	}
+	eng, err := New(ctx, model, eventstore.NewMemStore(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := eventstore.Actor{Type: eventstore.ActorHuman, ID: "root", Role: "Admin"}
+	basis := &eventstore.Basis{Type: "human", ID: "root"}
+
+	const owners, projPer, taskPer = 200, 5, 20 // 200 owners × 5 projects × 20 tasks = 20000 tasks
+	mineProjects := map[string]bool{}           // u7's project ids — for the no-leak check
+	for o := 0; o < owners; o++ {
+		owner := fmt.Sprintf("u%d", o)
+		for p := 0; p < projPer; p++ {
+			proj, err := eng.Create(ctx, admin, "Project", map[string]any{"owner": owner}, basis, "")
+			if err != nil {
+				t.Fatalf("seed project: %v", err)
+			}
+			if owner == "u7" {
+				mineProjects[proj.ID] = true
+			}
+			for t2 := 0; t2 < taskPer; t2++ {
+				if _, err := eng.Create(ctx, admin, "Task", map[string]any{
+					"project": proj.ID, "title": "t"}, basis, ""); err != nil {
+					t.Fatalf("seed task: %v", err)
+				}
+			}
+		}
+	}
+	me := eventstore.Actor{Type: eventstore.ActorHuman, ID: "u7", Role: "Member"}
+	want := projPer * taskPer // 100 tasks across this owner's projects
+
+	ids, narrowed := eng.candidateIDs("Task", me)
+	if !narrowed {
+		t.Fatal("a ref-path `where project.owner = $me` read scope MUST be index-backed, got a full scan")
+	}
+	if len(ids) != want {
+		t.Fatalf("ref-path candidate set = %d, want %d (must union only the owner's project buckets, not scan 20000)", len(ids), want)
+	}
+	got, err := eng.Query(ctx, me, "Task", QueryOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != want {
+		t.Fatalf("ref-path query returned %d rows, want %d", len(got), want)
+	}
+	for _, r := range got { // no leak: every task hangs off a project this actor owns
+		if !mineProjects[fmt.Sprint(r.Values["project"])] {
+			t.Fatalf("ref-path query leaked a task in project %v, not owned by u7", r.Values["project"])
+		}
+	}
+}
+
 // BenchmarkPermittedSet contrasts the two costs over the SAME 100k-row table:
 // answering one actor's index-backed `where owner = $me` query, versus the
 // full-table scan an unscoped reader pays. The ratio is the headline — the
@@ -129,4 +212,56 @@ func BenchmarkPermittedSet(b *testing.B) {
 			}
 		}
 	})
+}
+
+// BenchmarkRefPathPermittedSet times the indirect-ownership query (tasks in the
+// projects I own) over 100k tasks — the two-level join that used to scan.
+func BenchmarkRefPathPermittedSet(b *testing.B) {
+	ctx := context.Background()
+	src := `pack t
+version 0.1.0
+requires kalita >= 0.1
+depends core >= 0.1
+entity Project:
+    owner: string
+entity Task:
+    project: ref[Project]
+    title:   string
+roles:
+    Member
+    Admin
+permissions:
+    Member:
+        read Task where project.owner = $me
+        read Project where owner = $me
+    Admin:
+        full [Project, Task]
+`
+	model, errs := dsl.Compile(map[string]string{"t.dsl": src})
+	if len(errs) > 0 {
+		b.Fatal(errs[0])
+	}
+	eng, err := New(ctx, model, eventstore.NewMemStore(nil))
+	if err != nil {
+		b.Fatal(err)
+	}
+	admin := eventstore.Actor{Type: eventstore.ActorHuman, ID: "root", Role: "Admin"}
+	basis := &eventstore.Basis{Type: "human", ID: "root"}
+	const owners, projPer, taskPer = 1000, 5, 20 // 1000×5×20 = 100k tasks, 100 per owner
+	for o := 0; o < owners; o++ {
+		owner := fmt.Sprintf("u%d", o)
+		for p := 0; p < projPer; p++ {
+			proj, _ := eng.Create(ctx, admin, "Project", map[string]any{"owner": owner}, basis, "")
+			for t := 0; t < taskPer; t++ {
+				eng.Create(ctx, admin, "Task", map[string]any{"project": proj.ID, "title": "t"}, basis, "")
+			}
+		}
+	}
+	me := eventstore.Actor{Type: eventstore.ActorHuman, ID: "u500", Role: "Member"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := eng.Query(ctx, me, "Task", QueryOpts{}); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
