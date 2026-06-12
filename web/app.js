@@ -65,11 +65,64 @@ function fieldSpan(f) {
 
 // --- field rendering -------------------------------------------------------------
 
+// LookupModal: the "grown-up" reference picker — a modal lookup (ServiceNow's
+// reference lookup, Salesforce's lookup dialog) for when the inline dropdown
+// isn't enough: search + a multi-column results table for context + pagination,
+// single-pick or multi-pick. Columns are inferred from the result rows.
+const LK_PAGE = 12;
+function LookupModal({ entity, multi, value, onPick, onClose }) {
+  const [term, setTerm] = useState('');
+  const [rows, setRows] = useState(null);
+  const [page, setPage] = useState(0);
+  const [sel, setSel] = useState(() => multi ? (Array.isArray(value) ? [...value] : []) : null);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      api(`/api/query/${entity}`, { method: 'POST', body: JSON.stringify({ search: term, limit: LK_PAGE + 1, offset: page * LK_PAGE }) })
+        .then(r => setRows(r.records || [])).catch(() => setRows([]));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [term, page, entity]);
+  const visible = (rows || []).slice(0, LK_PAGE);
+  const hasNext = rows && rows.length > LK_PAGE;
+  // columns: the first few primitive (non-uuid) value fields seen across results
+  const cols = [];
+  for (const r of visible) for (const k in r.values) {
+    const v = r.values[k];
+    if (cols.length < 4 && !cols.includes(k) && (typeof v === 'number' ||
+        (typeof v === 'string' && v && !v.match(/^[0-9a-f-]{36}$/) && v.length < 60))) cols.push(k);
+  }
+  const toggle = (id) => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  return html`<div class="modal-bg" onMouseDown=${onClose} onKeyDown=${e => e.key === 'Escape' && onClose()}>
+    <div class="modal" onMouseDown=${e => e.stopPropagation()}>
+      <div class="modal-head">
+        <b>Select ${entity}</b>
+        <input autofocus placeholder="search…" value=${term} onInput=${e => { setTerm(e.target.value); setPage(0); }} style="margin:8px 0 0" />
+      </div>
+      <div class="modal-body">
+        ${rows === null ? html`<div class="muted" style="padding:14px">loading…</div>`
+          : visible.length === 0 ? html`<div class="muted" style="padding:14px">nothing found</div>`
+          : html`<table><thead><tr>${multi ? html`<th style="width:28px"></th>` : ''}${cols.map(c => html`<th>${c}</th>`)}</tr></thead>
+            <tbody>${visible.map(r => html`<tr onClick=${() => multi ? toggle(r.id) : (onPick(r.id), onClose())}>
+              ${multi ? html`<td><input type="checkbox" style="width:auto;margin:0" checked=${sel.includes(r.id)}
+                  onClick=${e => e.stopPropagation()} onChange=${() => toggle(r.id)} /></td>` : ''}
+              ${cols.map(c => html`<td>${fmt(r.values[c])}</td>`)}</tr>`)}</tbody></table>`}
+      </div>
+      <div class="modal-foot">
+        ${page > 0 ? html`<button class="btn" onClick=${() => setPage(page - 1)}>← prev</button>` : ''}
+        ${hasNext ? html`<button class="btn" onClick=${() => setPage(page + 1)}>next →</button>` : ''}
+        <span style="flex:1"></span>
+        ${multi ? html`<button class="btn green" onClick=${() => { onPick(sel); onClose(); }}>Add ${sel.length} selected</button>` : ''}
+        <button class="btn" onClick=${onClose}>Cancel</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 // RefInput: an async search picker for the target entity. It NEVER loads the
 // whole table — it queries by typed term (limit 20), so it scales to millions of
-// rows (users, config items). core.* targets fall back to a raw id input until
-// the core pack exists.
-function RefInput({ field, value, onChange }) {
+// rows (users, config items). The 🔍 button opens the full LookupModal when you
+// need to see context before choosing. core.* targets resolve by id.
+function RefInput({ field, value, onChange, noBrowse }) {
   const [term, setTerm] = useState('');
   const [opts, setOpts] = useState(null);
   const [open, setOpen] = useState(false);
@@ -88,6 +141,7 @@ function RefInput({ field, value, onChange }) {
     }, 200);
     return () => clearTimeout(t);
   }, [term, open, field.ref]);
+  const [lk, setLk] = useState(false); // the full lookup modal
   const pick = (id) => { onChange(id); setOpen(false); };
   // keyboard: ↓/↑ move, Enter selects, Esc closes — a picker you never touch the mouse for
   const onKey = (e) => {
@@ -99,18 +153,24 @@ function RefInput({ field, value, onChange }) {
     else if (e.key === 'Escape') { setOpen(false); }
   };
   return html`<div style="position:relative">
-    <input placeholder=${current ? '' : 'search…'} value=${open ? term : (current || '')}
-      onFocus=${() => { setOpen(true); setTerm(''); setOpts(null); }}
-      onBlur=${() => setTimeout(() => setOpen(false), 160)}
-      onKeyDown=${onKey}
-      onInput=${e => setTerm(e.target.value)} />
-    ${open && html`<div style="position:absolute;z-index:9;left:0;right:0;top:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;max-height:240px;overflow:auto;box-shadow:0 6px 20px #0008">
-      ${value && html`<div style="padding:7px 10px;cursor:pointer;color:var(--dim)" onMouseDown=${() => pick('')}>— clear —</div>`}
-      ${opts === null ? html`<div style="padding:7px 10px" class="muted">start typing…</div>`
-        : opts.length === 0 ? html`<div style="padding:7px 10px" class="muted">nothing found</div>`
-        : opts.map((r, i) => html`<div style=${'padding:7px 10px;cursor:pointer;border-top:1px solid var(--line)' + (i === hi ? ';background:#1c232c' : '')}
-            onMouseDown=${() => pick(r.id)} onMouseEnter=${() => setHi(i)}>${reclabel(r.values)}</div>`)}
-    </div>`}
+    <div style="display:flex;gap:6px;align-items:flex-start">
+      <div style="flex:1;position:relative">
+        <input placeholder=${current ? '' : 'search…'} value=${open ? term : (current || '')}
+          onFocus=${() => { setOpen(true); setTerm(''); setOpts(null); }}
+          onBlur=${() => setTimeout(() => setOpen(false), 160)}
+          onKeyDown=${onKey}
+          onInput=${e => setTerm(e.target.value)} />
+        ${open && html`<div style="position:absolute;z-index:9;left:0;right:0;top:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;max-height:240px;overflow:auto;box-shadow:0 6px 20px #0008">
+          ${value && html`<div style="padding:7px 10px;cursor:pointer;color:var(--dim)" onMouseDown=${() => pick('')}>— clear —</div>`}
+          ${opts === null ? html`<div style="padding:7px 10px" class="muted">start typing…</div>`
+            : opts.length === 0 ? html`<div style="padding:7px 10px" class="muted">nothing found</div>`
+            : opts.map((r, i) => html`<div style=${'padding:7px 10px;cursor:pointer;border-top:1px solid var(--line)' + (i === hi ? ';background:#1c232c' : '')}
+                onMouseDown=${() => pick(r.id)} onMouseEnter=${() => setHi(i)}>${reclabel(r.values)}</div>`)}
+        </div>`}
+      </div>
+      ${!noBrowse && html`<button type="button" class="btn" style="margin:3px 0 10px;padding:7px 10px" title="browse with search…" onClick=${() => setLk(true)}>🔍</button>`}
+    </div>
+    ${lk && html`<${LookupModal} entity=${field.ref} onPick=${id => pick(id)} onClose=${() => setLk(false)} />`}
   </div>`;
 }
 
@@ -175,12 +235,18 @@ function TagsInput({ value, onChange, options, entity, fieldName }) {
 // ArrayRefInput: many refs — pick with the same async picker, remove as chips.
 function ArrayRefInput({ field, value, onChange }) {
   const list = Array.isArray(value) ? value : [];
+  const [lk, setLk] = useState(false);
   const add = (id) => { if (id && !list.includes(id)) onChange([...list, id]); };
   return html`<div style="margin:3px 0 10px">
     <div>${list.map(id => html`<span class="pill" style="margin:0 6px 4px 0;display:inline-block">
       <${RefValue} field=${field} value=${id} />
       <span style="cursor:pointer;color:var(--dim)" onClick=${() => onChange(list.filter(x => x !== id))}> ✕</span></span>`)}</div>
-    <${RefInput} field=${field} value="" onChange=${add} />
+    <div style="display:flex;gap:6px;align-items:flex-start">
+      <div style="flex:1"><${RefInput} field=${field} value="" onChange=${add} noBrowse=${true} /></div>
+      <button type="button" class="btn" style="margin:3px 0 10px;padding:7px 10px" title="browse and pick several…" onClick=${() => setLk(true)}>🔍</button>
+    </div>
+    ${lk && html`<${LookupModal} entity=${field.ref} multi value=${list}
+      onPick=${ids => onChange([...new Set([...list, ...ids])])} onClose=${() => setLk(false)} />`}
   </div>`;
 }
 
