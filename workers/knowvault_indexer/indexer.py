@@ -23,25 +23,19 @@ import urllib.error
 import uuid
 from datetime import datetime, timezone
 
+sys.path.insert(0, os.path.dirname(__file__))            # local extract module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from bootstrap import get_token  # noqa: E402
+import extract  # noqa: E402  (text extraction for the document zoo)
 
 NODE = os.environ.get("KALITA_URL", "http://127.0.0.1:8095")
 TOKEN = get_token()
 QDRANT = os.environ.get("KV_QDRANT", "http://192.168.1.4:6333")
 LM = os.environ.get("KV_LM", "http://localhost:1234")
 
-# What counts as indexable text — prose, plus source code and config so a whole
-# repository can be crawled and questioned. PDFs/Office docs need an extractor
-# (a separate step; this worker stays stdlib-only).
-TEXT_EXT = {
-    ".txt", ".md", ".rst", ".csv", ".log", ".adoc", ".org", ".tex",
-    ".py", ".go", ".js", ".ts", ".jsx", ".tsx", ".java", ".kt", ".scala",
-    ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".rb", ".php", ".rs", ".swift",
-    ".sh", ".bash", ".ps1", ".sql", ".r", ".lua", ".dart", ".ex", ".exs",
-    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".env",
-    ".xml", ".html", ".htm", ".css", ".scss", ".proto", ".gradle", ".dsl",
-}
+# Anything extract.py can turn into text: prose, source code, config, AND
+# docx/xlsx/pptx/rtf/pdf — so a folder of real documents indexes, not just .txt.
+TEXT_EXT = extract.SUPPORTED_EXT
 # Directories never worth crawling — VCS, dependencies, build output, caches.
 SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build",
              "out", "target", "__pycache__", ".venv", "venv", ".idea", ".vscode",
