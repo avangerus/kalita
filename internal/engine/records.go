@@ -95,6 +95,7 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 		e.records[entity] = map[string]*Record{}
 	}
 	e.records[entity][rec.ID] = rec
+	e.dropIndex(entity)
 	e.setStateSince(entity, rec.ID, ev.TS)
 	e.runAutoTransitions(ctx, entity, rec.ID)
 	e.runEventTriggers(ctx, "create", entity, rec.ID)
@@ -186,6 +187,7 @@ func (e *Engine) Update(ctx context.Context, actor eventstore.Actor, entity, id 
 	for _, ch := range changes {
 		rec.Values[ch.Field] = ch.New
 	}
+	e.dropIndex(entity)
 	e.runAutoTransitions(ctx, entity, id)
 	e.runEventTriggers(ctx, "update", entity, id)
 	return rec, nil
@@ -238,9 +240,22 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 	}
 	search := strings.ToLower(strings.TrimSpace(opts.Search))
 
+	// permitted-set fast path: if the actor's read scope is index-backed, iterate
+	// only the candidate rows instead of every row. can() below stays the final
+	// authority, so this only narrows the scan — it can never widen access.
+	ids, narrowed := e.candidateIDs(entity, actor)
+	if narrowed {
+		sort.Strings(ids)
+	} else {
+		ids = sortedIDs(e.records[entity])
+	}
+
 	var out []*Record
-	for _, id := range sortedIDs(e.records[entity]) {
+	for _, id := range ids {
 		rec := e.records[entity][id]
+		if rec == nil {
+			continue
+		}
 		if d := e.can(actor, "read", entity, "", rec.Values); !d.allowed {
 			continue
 		}

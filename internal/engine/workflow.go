@@ -260,6 +260,7 @@ func (e *Engine) applyTransition(ctx context.Context, actor eventstore.Actor, en
 		return err
 	}
 	e.records[entity][id].Values[e.model.Workflows[entity].Field] = tr.To
+	e.dropIndex(entity)
 	e.setStateSince(entity, id, ev.TS)
 	return nil
 }

@@ -33,6 +33,8 @@ type Engine struct {
 	blobs      BlobStore
 	now        func() time.Time
 	cal        businessCalendar // working-time calendar for business_*_since
+	idxMu      sync.Mutex                // guards idxCache (built lazily under e.mu read side)
+	idxCache   map[string]*entityIndex   // entity → secondary index for permitted-set queries
 	// verify checks an actor's signature (wired to identity.Registry by the
 	// node). When set, approval decisions REQUIRE a valid signature.
 	verify func(ctx context.Context, actorID string, msg, sig []byte) error
@@ -332,6 +334,7 @@ func (e *Engine) ImportRecord(ctx context.Context, actor eventstore.Actor, entit
 		e.records[entity] = map[string]*Record{}
 	}
 	e.records[entity][id] = &Record{ID: id, Entity: entity, Values: values}
+	e.dropIndex(entity)
 	e.setStateSince(entity, id, ev.TS)
 	return nil
 }
