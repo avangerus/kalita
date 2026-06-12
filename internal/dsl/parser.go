@@ -114,7 +114,7 @@ func (p *parser) manifestLine(ln *Line) {
 func (p *parser) entity(ln *Line) {
 	p.pos++
 	t := ln.Toks
-	// entity Name ["Метка"] [singleton]:
+	// entity Name ["Label"] [singleton]:
 	e := &EntityDecl{File: ln.File, Line: ln.Num}
 	ok := len(t) >= 3 && t[1].Kind == TIdent
 	if ok {
@@ -132,7 +132,7 @@ func (p *parser) entity(ln *Line) {
 	}
 	if !ok {
 		p.errs.add(EExpectedColon, ln.File, ln.Num,
-			`entity declaration must be `+"`entity Name:`"+`, `+"`entity Name \"Метка\":`"+` or `+"`entity Name singleton:`",
+			`entity declaration must be `+"`entity Name:`"+`, `+"`entity Name \"Label\":`"+` or `+"`entity Name singleton:`",
 			"write `entity Debtor:` with a PascalCase name and a trailing colon")
 		p.skipChildren(ln.Indent)
 		return

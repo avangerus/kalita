@@ -88,7 +88,7 @@ func (p *parser) transition(ln *Line) *TransitionDecl {
 			i += 1 + n
 		case "label":
 			if i+2 >= len(rest) || rest[i+1].Text != "=" || rest[i+2].Kind != TStr {
-				p.errs.add(EBadTransition, ln.File, ln.Num, `label must be label="Текст кнопки"`, `write e.g. label="Взять в работу"`)
+				p.errs.add(EBadTransition, ln.File, ln.Num, `label must be label="Button text"`, `write e.g. label="Take in progress"`)
 				return tr
 			}
 			tr.Label = rest[i+2].Text
