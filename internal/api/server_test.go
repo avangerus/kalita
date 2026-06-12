@@ -237,6 +237,31 @@ func TestRevertRewindDiffREST(t *testing.T) {
 	}
 }
 
+// The agent board lists tasks on agent roles for a human operator. In
+// collections, an overdue debtor queues a send_claim task for the Collector
+// (an agent role) — it must appear on the board.
+func TestAgentBoardREST(t *testing.T) {
+	srv := newTestServer(t)
+	anna := &apiClient{t, srv.URL, "anna", "Accountant"}
+
+	_, c := anna.do("POST", "/api/records/Contract", mutate(map[string]any{"company": "Acme", "due_date": "2026-05-01"}))
+	anna.do("POST", "/api/records/Debtor", mutate(map[string]any{"company": "Acme", "contract": mustCreated(t, c), "debt": 100000}))
+
+	resp, board := anna.do("GET", "/api/agent-board", nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("agent board: %d", resp.StatusCode)
+	}
+	found := false
+	for _, tk := range board["tasks"].([]any) {
+		if m := tk.(map[string]any); m["role"] == "Collector" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the overdue debtor must queue a Collector (agent) task on the board, got %v", board["tasks"])
+	}
+}
+
 func mustCreated(t *testing.T, rec map[string]any) string {
 	t.Helper()
 	id, ok := rec["id"].(string)

@@ -75,8 +75,13 @@ A pack-agnostic, notation-driven client so L2 packs render for free. Build the
     per-event "rewind here" for supervisors (gated on `full`). Verified live over
     REST; api regression test added. (Visual pass pending — browser backend was
     down in-session.)
-  - still to surface: the **HITL approval inbox** polish (exists as Inbox), the
-    **agent work board**, richer journal/diff views.
+  - **agent work board** — **DONE**: `GET /api/agent-board` (humans only) returns
+    every task on an agent role; the UI groups them waiting → working → done (with
+    a failed lane), a card opens the record the agent is on, auto-refreshing.
+    Verified live on devtrack (a queued pick_up shows as waiting, then taken_by the
+    agent once taken); api regression test added.
+  - still to surface: **HITL approval inbox** polish (exists as Inbox), richer
+    diff views, white-label/portal.
 - **White-label / branding.** Per-client theming for the studio's multi-tenant
   on-prem model (one client = one node).
 - **Customer portal.** Invite-based, row-level visibility (already specced).

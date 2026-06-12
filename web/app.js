@@ -640,6 +640,37 @@ function Dashboards() {
   </div>`;
 }
 
+// AgentBoard: the agent workforce, visible to the operator — every task on an
+// agent role flowing waiting → working → done. The differentiator no ERP shows:
+// agents as audited employees you can watch. Auto-refreshes; a card opens the
+// record the agent is working on.
+function AgentBoard() {
+  const [tasks, setTasks] = useState(null); const [err, setErr] = useState(null);
+  const load = () => api('/api/agent-board').then(r => setTasks(r.tasks || [])).catch(setErr);
+  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
+  if (err) return html`<div class="err">${err.message || 'humans only'}</div>`;
+  if (!tasks) return html`<div class="muted">loading…</div>`;
+  const cols = [
+    { title: 'Waiting for an agent', f: t => t.status === 'open' },
+    { title: 'Agent working', f: t => t.status === 'taken' },
+    { title: 'Done', f: t => t.status === 'completed' },
+  ];
+  const failed = tasks.filter(t => t.status === 'failed');
+  const card = (t) => html`<div class="kcard" style=${t.entity ? 'cursor:pointer' : 'cursor:default'}
+      onClick=${() => t.entity && t.record_id && nav(`/e/${t.entity}/${t.record_id}`)}>
+    <div><b>${humanize(t.action || t.kind)}</b>${t.entity ? html` <span class="muted">· ${t.entity}</span>` : ''}</div>
+    <div class="muted" style="font-size:12px">role ${t.role}${t.taken_by ? html` · taken by ${t.taken_by}` : ''}</div>
+  </div>`;
+  return html`<div>
+    <h2>Agent board <span class="muted" style="font-size:13px">live · ${tasks.length} tasks</span></h2>
+    ${tasks.length === 0 && html`<div class="muted">no agent tasks yet — a transition with <code>assignee=agent(Role)</code> queues work here for that agent role.</div>`}
+    <div class="cols">${cols.map(c => html`<div class="col"><h4>${c.title} · ${tasks.filter(c.f).length}</h4>
+      ${tasks.filter(c.f).map(card)}</div>`)}</div>
+    ${failed.length > 0 && html`<div style="margin-top:14px"><h4 style="color:var(--red,#e06)">Failed · ${failed.length}</h4>
+      <div class="cols"><div class="col">${failed.map(card)}</div></div></div>`}
+  </div>`;
+}
+
 // --- shell ----------------------------------------------------------------------
 
 function App() {
@@ -663,6 +694,7 @@ function App() {
   let view = html`<${Inbox} meta=${meta} refresh=${refresh} />`;
   if (parts[0] === 'search') view = html`<${SearchView} />`;
   else if (parts[0] === 'dashboards') view = html`<${Dashboards} />`;
+  else if (parts[0] === 'agent-board') view = html`<${AgentBoard} />`;
   else if (parts[0] === 'agents') view = html`<${AgentsView} />`;
   else if (parts[0] === 'e' && ent && parts[2]) view = html`<${RecordView} ent=${ent} id=${parts[2]} refresh=${refresh} />`;
   else if (parts[0] === 'e' && ent && ent.singleton) view = html`<${SingletonView} ent=${ent} refresh=${refresh} />`;
@@ -678,6 +710,7 @@ function App() {
         ${meta.search && html`<a class=${route === '/search' ? 'on' : ''} onClick=${() => nav('/search')}>🔍 Search</a>`}
         <a class=${route === '/inbox' ? 'on' : ''} onClick=${() => nav('/inbox')}>Inbox ${inboxCount > 0 && html`<span class="badge">${inboxCount}</span>`}</a>
         <a class=${route === '/dashboards' ? 'on' : ''} onClick=${() => nav('/dashboards')}>📊 Dashboards</a>
+        <a class=${route === '/agent-board' ? 'on' : ''} onClick=${() => nav('/agent-board')}>🤖 Agent board</a>
         ${meta.entities.map(e => html`<a class=${parts[1] === e.name ? 'on' : ''} onClick=${() => nav(`/e/${e.name}`)}>${elab(e)}</a>`)}
         <a class=${route === '/agents' ? 'on' : ''} onClick=${() => nav('/agents')} style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">Agents</a>
       </div>

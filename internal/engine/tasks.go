@@ -148,6 +148,22 @@ func (e *Engine) Tasks(role string, status TaskStatus) []*Task {
 	return out
 }
 
+// AgentTasks returns every task on an agent role, any status — the data behind
+// the operator's agent board: the workforce pipeline (waiting → working → done),
+// not scoped to one role the way the per-role pool is.
+func (e *Engine) AgentTasks() []*Task {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	var out []*Task
+	for _, t := range e.tasks {
+		if r := e.model.Roles[t.Role]; r != nil && r.IsAgent {
+			out = append(out, t)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
 // TakeTask grants an exclusive lease to the actor.
 func (e *Engine) TakeTask(ctx context.Context, actor eventstore.Actor, taskID string) (*Task, error) {
 	e.mu.Lock()

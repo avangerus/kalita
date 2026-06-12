@@ -187,6 +187,18 @@ func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// agentBoard: the agent workforce pipeline for a human operator — every task on
+// an agent role, to be grouped client-side into waiting / working / done. Humans
+// only; agents do not watch each other.
+func (s *Server) agentBoard(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.actor(r)
+	if !ok || actor.Type != eventstore.ActorHuman {
+		writeAuthRequired(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": s.eng.AgentTasks()})
+}
+
 // actors: the directory behind the Agents screen. Humans only — agents do
 // not enumerate or manage each other.
 func (s *Server) actors(w http.ResponseWriter, r *http.Request) {
