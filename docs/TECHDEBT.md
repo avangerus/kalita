@@ -30,7 +30,7 @@ severity: **P0** блокирует прод · **P1** мешает заявле
 
 ## Content / CMS пак + рендерер
 
-- **P1 нет deploy-обвязки рендерера.** `workers/site_renderer/render.py` закоммичен и работает, но запускается вручную (KALITA_TOKEN/KSITE_OUT); нет штатного запуска как воркера пака и доставки вывода. (2026-06-12)
+- **P2 deploy рендерера — только `dir:`/`git:`.** Доставка вывода есть (`KSITE_DEPLOY=dir:<вебрут>` mirror+prune, `git:<repo>` commit/push — Pages/Netlify). Нет SFTP/rsync-remote/S3, нет атомарного swap (mirror правит вебрут на месте), запуск воркера всё ещё ручной (токен/env). (2026-06-12)
 - **P1 нет deploy-шага.** Рендерер пишет статику локально; доставки на хостинг (rsync/SFTP/S3/git-push) нет — петля «правка → live на хостинге» не замкнута. (2026-06-12)
 - **P2 страницы статей не рендерятся.** `articles_section` даёт ссылки `blog/<slug>`, но сами страницы статей не генерируются → битые ссылки. (2026-06-12)
 - **P2 рендерер регенит вслепую.** regen каждые 2м даже без изменений; нет change-detection на контент (в отличие от индексатора KnowVault с fingerprint). (2026-06-12)
@@ -68,3 +68,4 @@ severity: **P0** блокирует прод · **P1** мешает заявле
 - ~~Auto-reindex без ручного триггера~~ — закрыто `b822a03` (interval schedule + resync task).
 - ~~Born-agentic CRM (система действия)~~ — частично: SalesBot триажит новую Opportunity (квалификация + follow-up Activity + advance), HITL на close_won цел. Доказано вживую 2026-06-12.
 - ~~Inbound connector «форма→Lead» + scaffold connector-слоя~~ — `workers/connectors/inbound.py`: untrusted POST → whitelist-map → governed create под least-privilege Intake. Секрет-гейт + блок инжекта статуса доказаны вживую 2026-06-12 (`crm.dsl` роль Intake).
+- ~~Outbound deploy рендерера (петля «правка→live»)~~ — `KSITE_DEPLOY=dir:`(mirror+prune)/`git:`(commit/push). Доказано вживую: публикация→вебрут, снятие страницы→исчезает из вебрута, git-commit. 2026-06-12. Симметрия connector-слоя (in+out) замкнута.

@@ -9,10 +9,19 @@ pack fires a regen task; this worker also renders once at startup. Output is a
 plain folder of static files — serve it with any web server, fully decoupled
 from the node so the public site stays fast and needs no auth.
 
+After rendering, an optional deploy step PUBLISHES the staging output to where
+the site is actually served — closing "edit content -> live on hosting" without
+the node ever facing the internet. Two targets cover the dominant cheap-hosting
+patterns, both kept deliberately dumb (the renderer owns no credentials beyond
+what the environment hands it):
+  KSITE_DEPLOY=dir:/var/www/site   mirror into a web root  (the rsync/SFTP shape)
+  KSITE_DEPLOY=git:/path/to/repo   commit + push a repo    (Netlify/Pages shape)
+
 Env:
   KALITA_URL   (default http://127.0.0.1:8095)
   KALITA_TOKEN (or bootstrap: KALITA_BOOTSTRAP_SECRET + KALITA_WORKER_ID + KALITA_WORKER_ROLE=SiteBot)
-  KSITE_OUT    output dir (default ./site)
+  KSITE_OUT    staging output dir (default ./site)
+  KSITE_DEPLOY optional publish target (dir:<path> | git:<path>); empty = stage only
 
 Zero dependencies: stdlib only.
 """
@@ -20,6 +29,8 @@ import html
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import urllib.request
@@ -31,6 +42,7 @@ from bootstrap import get_token  # noqa: E402
 NODE = os.environ.get("KALITA_URL", "http://127.0.0.1:8095")
 TOKEN = get_token()
 OUT = os.environ.get("KSITE_OUT", os.path.join(os.getcwd(), "site"))
+DEPLOY = os.environ.get("KSITE_DEPLOY", "")
 
 
 class ToolError(Exception):
@@ -184,6 +196,9 @@ def regen():
     cfg = settings()
     pages = published("Page", sort=["menu_order"])
     nav = [p for p in pages if (p.get("menu_order") or 0) > 0]
+    # rebuild staging from scratch so a page that was unpublished simply isn't
+    # there this run — the deploy mirror then removes it from the live site too
+    shutil.rmtree(OUT, ignore_errors=True)
     os.makedirs(OUT, exist_ok=True)
 
     home = next((p for p in pages if p["slug"] in ("/", "home", "index")), pages[0] if pages else None)
@@ -209,8 +224,61 @@ def regen():
         written = 1
 
     note = f"{written} pages -> {OUT}"
+    dep = deploy(OUT)
+    if dep:
+        note += f", published {dep}"
     print(f"[render] {note}", flush=True)
     return note
+
+
+def _mirror(src, dst):
+    """Make dst match src exactly: copy every file, then delete what's no longer
+    in src (so an unpublished page disappears from the live site). A .git tree in
+    dst is left untouched — it's the deploy mechanism, not site content."""
+    os.makedirs(dst, exist_ok=True)
+    keep = set()
+    for root, _, files in os.walk(src):
+        rel = os.path.relpath(root, src)
+        outdir = dst if rel == "." else os.path.join(dst, rel)
+        os.makedirs(outdir, exist_ok=True)
+        for f in files:
+            d = os.path.join(outdir, f)
+            shutil.copy2(os.path.join(root, f), d)
+            keep.add(os.path.normpath(d))
+    for root, dirs, files in os.walk(dst):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for f in files:
+            p = os.path.normpath(os.path.join(root, f))
+            if p not in keep:
+                os.remove(p)
+
+
+def _git(repo, *args, check=True, capture=False):
+    return subprocess.run(["git", "-C", repo, *args], check=check,
+                          capture_output=capture, text=True)
+
+
+def deploy(src):
+    """Publish staged output to where the site is served. Returns a short label
+    or None. dir: mirrors into a web root; git: commits and (if a remote exists)
+    pushes — the Pages/Netlify pattern."""
+    if not DEPLOY:
+        return None
+    kind, _, path = DEPLOY.partition(":")
+    if kind == "dir":
+        _mirror(src, path)
+        return f"dir:{path}"
+    if kind == "git":
+        _mirror(src, path)
+        _git(path, "add", "-A")
+        if _git(path, "diff", "--cached", "--quiet", check=False).returncode != 0:
+            _git(path, "commit", "-m", "site: publish")
+            if _git(path, "remote", capture=True).stdout.strip():
+                _git(path, "push")
+            return f"git:{path} (committed)"
+        return f"git:{path} (no change)"
+    print(f"[warn] unknown KSITE_DEPLOY target {DEPLOY!r}; staged only", flush=True)
+    return None
 
 
 def main():
