@@ -209,6 +209,7 @@ packs/crm/           Sales CRM — accounts, leads, pipeline, weighted forecast
 packs/eshop/         Online store — catalog, master-detail orders, fulfilment
 packs/devtrack/      Tracker where AGENTS do the tasks — assign → agent works → human accepts
 packs/finance/       Invoices, payments & receivables — a collections agent chases overdue debt
+packs/contracts/     Contract management — a legal agent reviews, two humans sign in sequence
 packs/hr/            leave & balances        packs/tracker/   Jira-like issues
 packs/knowvault/     RAG knowledge base      packs/boards/    simple boards
 examples/collections, examples/dev_department, examples/pangram (every construct)

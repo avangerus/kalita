@@ -208,6 +208,12 @@ func (p *arith) parseAtom() (float64, bool) {
 			v, ok = p.e.evalSince(strings.TrimSpace(body), p.values, time.Hour)
 		case name == "minutes_since":
 			v, ok = p.e.evalSince(strings.TrimSpace(body), p.values, time.Minute)
+		case name == "days_until":
+			v, ok = p.e.evalUntil(strings.TrimSpace(body), p.values, 24*time.Hour)
+		case name == "hours_until":
+			v, ok = p.e.evalUntil(strings.TrimSpace(body), p.values, time.Hour)
+		case name == "minutes_until":
+			v, ok = p.e.evalUntil(strings.TrimSpace(body), p.values, time.Minute)
 		case name == "business_days_since":
 			v, ok = p.e.evalBusinessSince(strings.TrimSpace(body), p.values, "day")
 		case name == "business_hours_since":
@@ -260,6 +266,24 @@ func (e *Engine) evalSince(path string, values map[string]any, unit time.Duratio
 		}
 	}
 	return float64(int(e.now().UTC().Sub(t) / unit)), true
+}
+
+// evalUntil is the forward-looking mirror of evalSince: whole units from now
+// until a date/datetime field (negative once it is in the past). It makes
+// "days_left = days_until(end_date)" read the way a contract or SLA is spoken.
+func (e *Engine) evalUntil(path string, values map[string]any, unit time.Duration) (any, bool) {
+	raw, ok := e.resolvePath(path, values)
+	if !ok {
+		return nil, false
+	}
+	s, _ := raw.(string)
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		if t, err = time.Parse(time.RFC3339, s); err != nil {
+			return nil, false
+		}
+	}
+	return float64(int(t.Sub(e.now().UTC()) / unit)), true
 }
 
 // evalBusinessSince counts elapsed WORKING time from a date/datetime field to

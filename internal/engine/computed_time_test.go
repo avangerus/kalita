@@ -65,3 +65,58 @@ permissions:
 		}
 	}
 }
+
+// days_until / hours_until / minutes_until are the forward mirror of *_since:
+// positive while the target is in the future, negative once it has passed — so
+// "days_left = days_until(end_date)" reads the way a contract or SLA is spoken.
+func TestTimeUntil(t *testing.T) {
+	src := `pack t
+version 0.1.0
+requires kalita >= 0.1
+depends core >= 0.1
+entity Sub:
+    ends: datetime
+    d: int computed = days_until(ends)
+    h: int computed = hours_until(ends)
+    m: int computed = minutes_until(ends)
+roles:
+    Op
+permissions:
+    Op:
+        full [Sub]
+`
+	model, errs := dsl.Compile(map[string]string{"t.dsl": src})
+	if len(errs) > 0 {
+		t.Fatal(errs[0])
+	}
+	ctx := context.Background()
+	at := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
+	eng, err := New(ctx, model, eventstore.NewMemStore(nil), WithClock(func() time.Time { return at }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := eventstore.Actor{Type: eventstore.ActorHuman, ID: "op", Role: "Op"}
+	basis := &eventstore.Basis{Type: "human", ID: "op"}
+
+	// 90 minutes in the FUTURE -> positive
+	future := at.Add(90 * time.Minute).Format(time.RFC3339)
+	rec, err := eng.Create(ctx, op, "Sub", map[string]any{"ends": future}, basis, "")
+	if err != nil {
+		t.Fatalf("create future: %v", err)
+	}
+	for k, exp := range map[string]float64{"d": 0, "h": 1, "m": 90} {
+		if f, _ := toFloat(rec.Values[k]); f != exp {
+			t.Errorf("%s_until 90min ahead = %v, want %v", k, rec.Values[k], exp)
+		}
+	}
+
+	// a date in the PAST -> negative (an expired subscription / overdue contract)
+	past := at.Add(-48 * time.Hour).Format(time.RFC3339)
+	rec2, err := eng.Create(ctx, op, "Sub", map[string]any{"ends": past}, basis, "")
+	if err != nil {
+		t.Fatalf("create past: %v", err)
+	}
+	if f, _ := toFloat(rec2.Values["d"]); f != -2 {
+		t.Errorf("days_until 2 days ago = %v, want -2", rec2.Values["d"])
+	}
+}

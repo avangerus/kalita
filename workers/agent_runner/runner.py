@@ -106,7 +106,8 @@ def resolve_context(token, desc, values):
 
 # Free-text fields an agent writes its work product into, in preference order —
 # the deliverable for a tracker issue (result) vs. the input it reads (description).
-_RESULT_KEYS = ("result", "output", "solution", "answer", "draft", "work", "summary")
+_RESULT_KEYS = ("result", "output", "solution", "answer", "draft", "work",
+                "summary", "assessment", "review", "analysis", "report", "notes")
 
 
 def _output_field(desc):

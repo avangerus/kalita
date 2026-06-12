@@ -70,6 +70,8 @@ EXPR:        full boolean language for where/guards/filters:
              ABAC example: read Issue where (reporter = $me or project.owner = $me) and status != Closed
 COMPUTED:    computed = <arithmetic of fields: + - * / and ( ), e.g. amount - amount * discount / 100>
              | <path> | days_since(path) | hours_since(path) | minutes_since(path)
+             | days_until(path) | hours_until(path) | minutes_until(path)
+             #   *_until is the forward mirror of *_since: time left until a date, negative once past.
              | business_days_since(path[, calendar]) | business_hours_since(...) | business_minutes_since(...)
              #   business_*_since count WORKING time only (skip weekends/holidays/off-hours).
              #   The 2nd arg picks a calendar: a literal code, or a ref-path (e.g. sla_policy.calendar)
