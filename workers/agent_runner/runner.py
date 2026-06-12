@@ -68,26 +68,69 @@ def mcp(token, name, arguments):
     return payload, bool(res.get("isError"))
 
 
+_LABEL_KEYS = ("name", "title", "subject", "full_name", "label", "number")
+
+
+def _label(values):
+    """A short human label for a record: a name-like field, else the first
+    non-uuid string value (so a client ref reads 'Vector LLC', not its email)."""
+    for k in _LABEL_KEYS:
+        v = values.get(k)
+        if isinstance(v, str) and v and not _is_uuid(v):
+            return v
+    for v in values.values():
+        if isinstance(v, str) and v and not _is_uuid(v):
+            return v
+    return ""
+
+
+def _is_uuid(s):
+    return len(s) == 36 and s.count("-") == 4
+
+
+def resolve_context(token, entity, values):
+    """Replace ref ids with the referenced record's name, so the model writes
+    real names ('Vector LLC') instead of placeholders ('[Client Name]')."""
+    desc, _ = mcp(token, "describe_entity", {"entity": entity})
+    fields = {f["name"]: f for f in desc.get("fields", [])}
+    ctx = {}
+    for k, v in values.items():
+        f = fields.get(k, {})
+        if f.get("type") == "ref" and isinstance(v, str) and v and f.get("ref"):
+            rec, err = mcp(token, "get_record", {"entity": f["ref"], "id": v})
+            if not err:
+                ctx[k] = _label(rec.get("values", {})) or v
+                continue
+        ctx[k] = v
+    return ctx
+
+
 def handle(token, task):
     """Do the work for one task. Returns (ok, message).
 
-    With a model configured, the agent reads the record, produces the work
-    product (a client message, a status note, a summary), posts it, then drives
-    the transition. Without a model it just performs the workflow action.
+    With a model configured, the agent reads the record (refs resolved to names),
+    produces the work product (a client message, a status note, a summary), posts
+    it, then drives the transition. Without a model it just performs the action.
     """
     entity, rid, action = task.get("entity"), task.get("record_id"), task.get("action")
     if not (entity and rid and action):
         return True, "nothing to do"
     if LLM_URL:
         rec, _ = mcp(token, "get_record", {"entity": entity, "id": rid})
+        ctx = resolve_context(token, entity, rec.get("values", {}))
+        me = os.environ.get("KALITA_WORKER_ID", "agent")
+        role = task.get("role", os.environ.get("KALITA_WORKER_ROLE", "agent"))
         note = llm([
             {"role": "system", "content":
-                "You are a diligent business-process agent on the kalita platform. You handle one "
-                "work item and produce a short, professional work product — a message to a client, a "
-                "status note, or a summary. Be concise, no preamble, no markdown headers."},
+                "You are %s, the %s on the Kalita business platform. You handle one work item and "
+                "produce a complete, ready-to-send work product — a message to a client, a status "
+                "note, or a summary. Be concise and professional. Use ONLY the real values given; "
+                "never write placeholders like [Name] or [date], and never invent units or currency "
+                "symbols that are not in the data. Sign as the %s. No markdown headers."
+                % (me, role, role)},
             {"role": "user", "content":
-                "%s record:\n%s\n\nYour assigned step is '%s'. Write the work product for it."
-                % (entity, json.dumps(rec.get("values", {}), ensure_ascii=False, indent=2), action)},
+                "%s record:\n%s\n\nYour assigned step is '%s'. Write the work product."
+                % (entity, json.dumps(ctx, ensure_ascii=False, indent=2), action)},
         ])
         mcp(token, "comment", {"entity": entity, "id": rid, "body": note,
                                "basis": {"type": "task", "id": task["id"]}})

@@ -12,3 +12,7 @@ dist/
 internal/webui/embedded/
 /internal/webui/embedded/
 /kalita-files/
+
+# Python
+__pycache__/
+*.pyc
