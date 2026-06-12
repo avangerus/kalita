@@ -37,10 +37,10 @@ LLM_KEY = os.environ.get("KALITA_LLM_KEY", "lm-studio")
 _id = 0
 
 
-def llm(messages):
+def llm(messages, max_tokens=400):
     """One chat completion against the local OpenAI-compatible endpoint."""
     body = json.dumps({"model": LLM_MODEL, "messages": messages,
-                       "temperature": 0.3, "max_tokens": 400}).encode()
+                       "temperature": 0.3, "max_tokens": max_tokens}).encode()
     req = urllib.request.Request(LLM_URL.rstrip("/") + "/chat/completions", data=body, headers={
         "Content-Type": "application/json", "Authorization": "Bearer " + LLM_KEY})
     with urllib.request.urlopen(req, timeout=180) as resp:
@@ -193,6 +193,102 @@ def handle(token, task):
     return True, last or "nothing to do"
 
 
+_RISK = {"Low": 1, "Medium": 2, "High": 3}
+
+
+def _extract_json(text):
+    """Pull a JSON array out of a model's reply — tolerant of markdown fences and
+    stray prose. Returns a list (the findings) or [] if nothing parseable."""
+    t = text.strip()
+    if "```" in t:  # ```json ... ``` fences
+        for part in t.split("```"):
+            p = part.strip()
+            if p[:4].lower() == "json":
+                p = p[4:].strip()
+            if p.startswith("[") or p.startswith("{"):
+                t = p
+                break
+    i, j = t.find("["), t.rfind("]")
+    if i >= 0 and j > i:
+        try:
+            v = json.loads(t[i:j + 1])
+            return v if isinstance(v, list) else []
+        except ValueError:
+            pass
+    try:  # maybe an object {"findings": [...]}
+        o = json.loads(t)
+        return o.get("findings", []) if isinstance(o, dict) else []
+    except ValueError:
+        return []
+
+
+def handle_legal(token, task):
+    """The legal reviewer: read the contract and the firm's playbook, raise
+    structured clause-level Finding records against it, set the overall risk and a
+    short narrative, then submit. The lawyer triages the findings and signs."""
+    entity, rid, action = task.get("entity"), task.get("record_id"), task.get("action")
+    if not (entity and rid and action):
+        return True, "nothing to do"
+    basis = {"type": "task", "id": task["id"]}
+    if not LLM_URL:
+        res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis})
+        return (not err), ("submitted (no model)" if not err else json.dumps(res))
+
+    desc, _ = mcp(token, "describe_entity", {"entity": entity})
+    rec, _ = mcp(token, "get_record", {"entity": entity, "id": rid})
+    ctx = resolve_context(token, desc, rec.get("values", {}))
+    pb, _ = mcp(token, "query", {"entity": "Playbook"})
+    rules = [r for r in pb.get("records", []) if r.get("values", {}).get("active", True)]
+    rules_text = "\n".join(
+        "- %s: %s [severity %s]" % (r["values"].get("topic"), r["values"].get("our_position"),
+                                    r["values"].get("severity")) for r in rules) or "(no playbook rules)"
+    rule_id = {str(r["values"].get("topic", "")).lower(): r["id"] for r in rules}
+
+    out = llm([
+        {"role": "system", "content":
+            "You are a contract lawyer reviewing a contract AGAINST the firm's playbook. "
+            "Return ONLY a JSON array; each element is "
+            '{"clause": str, "risk": "Low"|"Medium"|"High", "issue": str, "redline": str, "rule_topic": str|null}. '
+            "rule_topic must equal a playbook topic exactly, or be null. Raise a finding for every real "
+            "deviation or risk. No prose, no markdown — only the JSON array."},
+        {"role": "user", "content":
+            "PLAYBOOK:\n%s\n\nCONTRACT:\n%s\n\nReturn the findings as a JSON array."
+            % (rules_text, json.dumps(ctx, ensure_ascii=False, indent=2))},
+    ], max_tokens=1500)
+    findings = _extract_json(out)
+
+    worst, made = 0, 0
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        risk = f.get("risk") if f.get("risk") in _RISK else "Medium"
+        worst = max(worst, _RISK[risk])
+        vals = {"contract": rid, "clause": (f.get("clause") or "Clause")[:200], "risk": risk,
+                "issue": f.get("issue") or "", "redline": f.get("redline") or ""}
+        rid_rule = rule_id.get(str(f.get("rule_topic") or "").lower())
+        if rid_rule:
+            vals["rule"] = rid_rule
+        _, err = mcp(token, "create_record", {"entity": "Finding", "values": vals, "basis": basis})
+        if not err:
+            made += 1
+    overall = {0: "Low", 1: "Low", 2: "Medium", 3: "High"}[worst]
+    mcp(token, "update_record", {"entity": entity, "id": rid, "basis": basis, "values": {
+        "risk": overall,
+        "assessment": "Reviewed against the playbook: %d finding(s) raised, overall risk %s." % (made, overall)}})
+
+    res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis})
+    if err:
+        return False, json.dumps(res)
+    return True, "raised %d finding(s), overall risk %s, submitted for the lawyer" % (made, overall)
+
+
+# KALITA_HANDLER=legal switches the work function to the structured contract reviewer.
+def _work(token, task):
+    if os.environ.get("KALITA_HANDLER") == "legal":
+        return handle_legal(token, task)
+    return handle(token, task)
+
+
 def run_once(token):
     tasks, _ = mcp(token, "wait_for_task", {"timeout_sec": 25})
     for t in tasks.get("tasks", []):
@@ -200,7 +296,7 @@ def run_once(token):
         if err:
             continue  # lost the lease to another worker — fine, skip it
         try:
-            ok, msg = handle(token, t)
+            ok, msg = _work(token, t)
         except Exception as ex:  # never silently hang on the lease
             ok, msg = False, "handler crashed: " + str(ex)
         if ok:
