@@ -225,12 +225,35 @@ async function loadBrand() {
 // --- views ----------------------------------------------------------------------
 
 function Login() {
+  const [mode, setMode] = useState('token'); // 'token' | 'invite'
   const [token, setToken] = useState('');
+  const [invite, setInvite] = useState(''); const [id, setId] = useState('');
+  const [err, setErr] = useState(null);
+  const signInToken = () => { if (token.trim()) { session.set({ token: token.trim() }); location.reload(); } };
+  const redeem = async () => {
+    setErr(null);
+    try {
+      const r = await api('/api/register', { method: 'POST', body: JSON.stringify({ invite: invite.trim(), id: id.trim() }) });
+      if (r.token) { session.set({ token: r.token }); location.reload(); }
+    } catch (e) { setErr(e); }
+  };
   return html`<div class="login card">
     <h2>${BRAND.name}</h2>
-    <div class="muted" style="margin-bottom:10px">${BRAND.tagline || html`Enter your access token.`}</div>
-    <label>Access token</label><input type="password" value=${token} onInput=${e => setToken(e.target.value)} />
-    <button class="btn green" onClick=${() => { if (token.trim()) { session.set({ token: token.trim() }); location.reload(); } }}>Sign in</button>
+    <div class="muted" style="margin-bottom:10px">${BRAND.tagline || ''}</div>
+    <div class="tabs" style="margin-bottom:12px">
+      <a class=${mode === 'token' ? 'on' : ''} onClick=${() => setMode('token')}>Access token</a>
+      <a class=${mode === 'invite' ? 'on' : ''} onClick=${() => setMode('invite')}>I have an invite</a>
+    </div>
+    ${err && html`<div class="err">${err.message || 'invalid invite'}</div>`}
+    ${mode === 'token' ? html`
+      <label>Access token</label>
+      <input type="password" value=${token} onInput=${e => setToken(e.target.value)} onKeyDown=${e => e.key === 'Enter' && signInToken()} />
+      <button class="btn green" onClick=${signInToken}>Sign in</button>`
+    : html`
+      <div class="muted" style="margin-bottom:8px">Redeem the one-time code your provider sent you.</div>
+      <label>Invite code</label><input value=${invite} onInput=${e => setInvite(e.target.value)} />
+      <label>Your email</label><input value=${id} onInput=${e => setId(e.target.value)} onKeyDown=${e => e.key === 'Enter' && redeem()} />
+      <button class="btn green" onClick=${redeem}>Enter</button>`}
   </div>`;
 }
 
@@ -363,9 +386,52 @@ function SearchView() {
   </div>`;
 }
 
+// InviteForm: issue a one-time code for a new user. Optionally bind it to a
+// record (entity + record + the field that holds the actor id) so the new user
+// sees only that row — the customer portal: same UI, scoped actor, no separate
+// app. Everything is a select, nothing is typed (a record is a ref picker).
+function InviteForm({ meta }) {
+  const [role, setRole] = useState('');
+  const [entity, setEntity] = useState(''); const [recordId, setRecordId] = useState(''); const [bindField, setBindField] = useState('');
+  const [code, setCode] = useState(null); const [err, setErr] = useState(null);
+  const humanRoles = (meta.roles || []).filter(r => !r.is_agent);
+  const ent = meta.entities.find(e => e.name === entity);
+  const bindFields = (ent?.fields || []).filter(f => f.type === 'ref' || f.type === 'string');
+  const create = async () => {
+    setErr(null); setCode(null);
+    try {
+      const body = { role };
+      if (entity && recordId && bindField) Object.assign(body, { entity, record_id: recordId, bind_field: bindField });
+      const r = await api('/api/invites', { method: 'POST', body: JSON.stringify(body) });
+      setCode(r.invite_code);
+    } catch (e) { setErr(e); }
+  };
+  return html`<div class="card">
+    <h3 style="margin-top:0">Invite a user</h3>
+    <div class="muted" style="margin-bottom:8px">A one-time code. Bind it to a record and the new user sees only that row — a customer portal on the same UI.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 18px">
+      <div><label>Role</label>
+        <select value=${role} onChange=${e => setRole(e.target.value)}>
+          <option value="">— choose role —</option>${humanRoles.map(r => html`<option value=${r.name}>${r.name}</option>`)}</select></div>
+      <div><label>Bind to (optional)</label>
+        <select value=${entity} onChange=${e => { setEntity(e.target.value); setRecordId(''); setBindField(''); }}>
+          <option value="">— no binding —</option>${meta.entities.map(e => html`<option value=${e.name}>${elab(e)}</option>`)}</select></div>
+      ${entity && html`<div><label>Record</label><${RefInput} field=${{ ref: entity }} value=${recordId} onChange=${setRecordId} /></div>`}
+      ${entity && html`<div><label>Field that binds the user</label>
+        <select value=${bindField} onChange=${e => setBindField(e.target.value)}>
+          <option value="">—</option>${bindFields.map(f => html`<option value=${f.name}>${flab(f)}</option>`)}</select></div>`}
+    </div>
+    ${err && html`<div class="err">${err.message} ${err.fix_hint || ''}</div>`}
+    <button class="btn green" style="margin-top:8px" onClick=${create} disabled=${!role}>Create invite</button>
+    ${code && html`<div style="margin-top:10px;padding:10px;background:#161b22;border-radius:6px">
+      <div class="muted" style="font-size:12px">Share this one-time code (the user redeems it at the login screen):</div>
+      <code style="font-size:15px;user-select:all">${code}</code></div>`}
+  </div>`;
+}
+
 // Agents screen: the actor directory — who acts on this node, which model
 // stands behind each agent, and the revoke switch. Humans only (server-side).
-function AgentsView() {
+function AgentsView({ meta }) {
   const [actors, setActors] = useState(null); const [err, setErr] = useState(null);
   const load = () => api('/api/actors').then(r => setActors(r.actors || [])).catch(setErr);
   useEffect(load, []);
@@ -378,7 +444,8 @@ function AgentsView() {
   if (!actors) return html`<div class="muted">loading…</div>`;
   return html`<div>
     <h2>Agents & users</h2>
-    <div class="muted" style="margin-bottom:10px">Registered actors of this node. Revoking kills the token and signatures immediately.</div>
+    ${meta && html`<${InviteForm} meta=${meta} />`}
+    <div class="muted" style="margin:14px 0 10px">Registered actors of this node. Revoking kills the token and signatures immediately.</div>
     <table><thead><tr><th>id</th><th>type</th><th>role</th><th>model</th><th>owner</th><th>status</th><th></th></tr></thead>
     <tbody>${actors.map(a => html`<tr style="cursor:default">
       <td><b>${a.id}</b></td>
@@ -726,7 +793,7 @@ function App() {
   if (parts[0] === 'search') view = html`<${SearchView} />`;
   else if (parts[0] === 'dashboards') view = html`<${Dashboards} />`;
   else if (parts[0] === 'agent-board') view = html`<${AgentBoard} />`;
-  else if (parts[0] === 'agents') view = html`<${AgentsView} />`;
+  else if (parts[0] === 'agents') view = html`<${AgentsView} meta=${meta} />`;
   else if (parts[0] === 'e' && ent && parts[2]) view = html`<${RecordView} ent=${ent} id=${parts[2]} refresh=${refresh} />`;
   else if (parts[0] === 'e' && ent && ent.singleton) view = html`<${SingletonView} ent=${ent} refresh=${refresh} />`;
   else if (parts[0] === 'e' && ent) view = html`<${EntityList} ent=${ent} />`;

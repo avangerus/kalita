@@ -85,7 +85,18 @@ A pack-agnostic, notation-driven client so L2 packs render for free. Build the
     in full) plus a compact field summary of the record, so a human signs informed,
     not blind. Verified live (a legal agent's assessment surfaces in the Lawyer's
     approval card before clear_legal is signed).
-  - still to surface: white-label/portal polish, richer side-by-side diff views.
+  - **customer portal** — **DONE**: the backend (invite → public register →
+    record binding for row-level `where field = $me`) gains its UI — a login
+    "I have an invite" redemption flow and a staff invite form (role + optional
+    record binding, all selects). The portal is the same notation-driven UI under
+    a scoped actor — no separate app. Verified live on servicedesk: a customer
+    redeems an invite bound to their request and sees only that one row.
+
+**L1 exit criteria met:** any compiled pack is fully operable by a human in the
+browser — lists, forms, boards, dashboards, approvals (with agent-work preview),
+the audit timeline with undo/rewind, the agent board, and an invite-based
+customer portal — with zero pack-specific UI code, served from disk (not embedded
+in the binary). Remaining L1 is polish (white-label depth, side-by-side diffs).
 - **White-label / branding.** Per-client theming for the studio's multi-tenant
   on-prem model (one client = one node).
 - **Customer portal.** Invite-based, row-level visibility (already specced).

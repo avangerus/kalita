@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"sort"
+
 	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/eventstore"
 )
@@ -55,12 +57,18 @@ type MetaEntity struct {
 	UI            MetaUI       `json:"ui"`
 }
 
+type MetaRole struct {
+	Name    string `json:"name"`
+	IsAgent bool   `json:"is_agent"`
+}
+
 type Meta struct {
 	Pack       string       `json:"pack"`
 	DefVersion uint64       `json:"def_version"`
 	ActorID    string       `json:"actor_id"`
 	Role       string       `json:"role"`
 	Entities   []MetaEntity `json:"entities"`
+	Roles      []MetaRole   `json:"roles"` // for inviting a user into a role (select, don't type)
 }
 
 // MetaFor builds the per-actor system description.
@@ -159,7 +167,19 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 		}
 		m.Entities = append(m.Entities, me)
 	}
+	for _, name := range sortedRoleNames(e.model.Roles) {
+		m.Roles = append(m.Roles, MetaRole{Name: name, IsAgent: e.model.Roles[name].IsAgent})
+	}
 	return m
+}
+
+func sortedRoleNames(roles map[string]*dsl.RoleDecl) []string {
+	out := make([]string, 0, len(roles))
+	for n := range roles {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // hasAnyRule reports whether the role has any allow rule for verb on entity

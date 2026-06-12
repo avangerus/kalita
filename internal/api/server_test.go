@@ -185,6 +185,10 @@ func TestRevertRewindDiffREST(t *testing.T) {
 	if !debtorCanRevert {
 		t.Fatal("Accountant has full[Debtor] → Debtor.can_revert must be true")
 	}
+	// meta lists roles so the invite form can select one (select, don't type)
+	if roles, _ := meta["roles"].([]any); len(roles) == 0 {
+		t.Fatal("meta must expose the pack's roles for the invite form")
+	}
 
 	_, c := anna.do("POST", "/api/records/Contract", mutate(map[string]any{"company": "Acme", "due_date": "2026-05-01"}))
 	cid := mustCreated(t, c)
