@@ -41,7 +41,7 @@ func (e *Engine) Link(ctx context.Context, actor eventstore.Actor, entity, id, n
 			FixHint: "declare `link ... as " + name + " / ...` or use an existing link name"}
 	}
 	// permission: the actor must be able to update the side they act on
-	if d := e.can(actor.Role, "update", entity, "", nil, actor.ID); !d.allowed {
+	if d := e.can(actor, "update", entity, "", nil); !d.allowed {
 		return denied(actor.Role, "update", entity, d.rule)
 	}
 	// canonical orientation: from = decl.From record, to = decl.To record
@@ -82,7 +82,7 @@ func (e *Engine) Unlink(ctx context.Context, actor eventstore.Actor, entity, id,
 	if !ok {
 		return &Err{Code: CodeValidation, Message: fmt.Sprintf("%s has no link named %s", entity, name)}
 	}
-	if d := e.can(actor.Role, "update", entity, "", nil, actor.ID); !d.allowed {
+	if d := e.can(actor, "update", entity, "", nil); !d.allowed {
 		return denied(actor.Role, "update", entity, d.rule)
 	}
 	fromID, toID := id, otherID
@@ -146,5 +146,5 @@ func (e *Engine) canReadRecord(actor eventstore.Actor, entity, id string) bool {
 	if rec == nil {
 		return false
 	}
-	return e.can(actor.Role, "read", entity, "", rec.Values, actor.ID).allowed
+	return e.can(actor, "read", entity, "", rec.Values).allowed
 }

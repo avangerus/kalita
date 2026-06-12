@@ -12,7 +12,7 @@ func (e *Engine) Journal(ctx context.Context, actor eventstore.Actor, entity, id
 	e.mu.RLock()
 	rec, ok := e.records[entity][id]
 	if ok {
-		if d := e.can(actor.Role, "read", entity, "", rec.Values, actor.ID); !d.allowed {
+		if d := e.can(actor, "read", entity, "", rec.Values); !d.allowed {
 			ok = false
 		}
 	}

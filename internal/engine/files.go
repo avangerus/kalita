@@ -81,7 +81,7 @@ func (e *Engine) ActorCanReadFile(ctx context.Context, actor eventstore.Actor, h
 		}
 		for _, rec := range rows {
 			if recordReferencesFile(rec.Values, hash) &&
-				e.can(actor.Role, "read", entity, "", rec.Values, actor.ID).allowed {
+				e.can(actor, "read", entity, "", rec.Values).allowed {
 				return true
 			}
 		}

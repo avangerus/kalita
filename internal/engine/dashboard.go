@@ -98,11 +98,11 @@ func (e *Engine) computeTile(tile dsl.DashboardTile, actor eventstore.Actor) Til
 	for _, id := range sortedIDs(e.records[tile.Entity]) {
 		rec := e.records[tile.Entity][id]
 		// row-level ABAC: count only rows this actor may read
-		if d := e.can(actor.Role, "read", tile.Entity, "", rec.Values, actor.ID); !d.allowed {
+		if d := e.can(actor, "read", tile.Entity, "", rec.Values); !d.allowed {
 			continue
 		}
 		full := e.withComputed(decl, rec.ID, rec.Values)
-		if tile.Where != "" && !evalWhere(tile.Where, e.ctxFor(rec.ID, actor.ID, full)) {
+		if tile.Where != "" && !evalWhere(tile.Where, e.ctxFor(rec.ID, actor, full)) {
 			continue
 		}
 		key := ""

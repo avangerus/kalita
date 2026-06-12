@@ -43,6 +43,9 @@ type ActorMeta struct {
 	Endpoint    string `json:"endpoint,omitempty"`
 	Owner       string `json:"owner,omitempty"`
 	Description string `json:"description,omitempty"`
+	// Attrs are ABAC attributes (region, department, clearance…) carried on the
+	// actor and exposed to permissions as $me.<attr>.
+	Attrs map[string]any `json:"attrs,omitempty"`
 }
 
 // actorPayload is the payload of actor.registered / actor.key_rotated events.

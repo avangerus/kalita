@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/avangerus/kalita/internal/dsl"
+	"github.com/avangerus/kalita/internal/eventstore"
 )
 
 // Computed field evaluation. Closed list of forms (DSL-SPEC §7):
@@ -423,11 +424,12 @@ func (e *Engine) lookupAny(id string) map[string]any {
 }
 
 // ctxFor builds an evaluation context with ref-path resolution and the clock.
-func (e *Engine) ctxFor(selfID, actorID string, values map[string]any) evalCtx {
+func (e *Engine) ctxFor(selfID string, actor eventstore.Actor, values map[string]any) evalCtx {
 	return evalCtx{
 		values:  values,
-		actorID: actorID,
+		actorID: actor.ID,
 		selfID:  selfID,
+		attrs:   actor.Attrs,
 		now:     e.now(),
 		resolve: func(path string) (any, bool) { return e.resolvePath(path, values) },
 	}

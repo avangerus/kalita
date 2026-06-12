@@ -116,7 +116,11 @@ func (s *Server) actor(r *http.Request) (eventstore.Actor, bool) {
 		if err != nil {
 			return eventstore.Actor{}, false
 		}
-		return eventstore.Actor{Type: info.Type, ID: info.ID, Role: info.Role}, true
+		a := eventstore.Actor{Type: info.Type, ID: info.ID, Role: info.Role}
+		if info.Meta != nil {
+			a.Attrs = info.Meta.Attrs
+		}
+		return a, true
 	}
 	if s.devAuth {
 		a := eventstore.Actor{

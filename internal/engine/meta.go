@@ -2,6 +2,7 @@ package engine
 
 import (
 	"github.com/avangerus/kalita/internal/dsl"
+	"github.com/avangerus/kalita/internal/eventstore"
 )
 
 // Meta describes the system AS SEEN BY one actor: which entities and fields
@@ -67,6 +68,9 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 	defer e.mu.RUnlock()
 
 	m := &Meta{DefVersion: e.defVersion, ActorID: actorID, Role: role}
+	// meta checks are schema-level (record == nil), so row-level where-clauses do
+	// not evaluate; an actor without attrs is fine here.
+	actor := eventstore.Actor{ID: actorID, Role: role}
 	if e.model.Manifest != nil {
 		m.Pack = e.model.Manifest.Name
 	}
@@ -82,9 +86,9 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 			Name:      name,
 			Label:     decl.Label,
 			Singleton: decl.Singleton,
-			CanCreate: e.can(role, "create", name, "", nil, actorID).allowed,
-			CanRead:   e.can(role, "read", name, "", nil, actorID).allowed,
-			CanUpdate: e.can(role, "update", name, "", nil, actorID).allowed,
+			CanCreate: e.can(actor, "create", name, "", nil).allowed,
+			CanRead:   e.can(actor, "read", name, "", nil).allowed,
+			CanUpdate: e.can(actor, "update", name, "", nil).allowed,
 		}
 		// an entity readable only row-level (where) still must appear: probe
 		// with a permissive check — if any read rule exists at all
@@ -97,10 +101,10 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 		for _, f := range decl.Fields {
 			mf := MetaField{
 				Name: f.Name, Label: f.Label, Required: f.Required, Computed: f.Computed != "",
-				Readable: e.can(role, "read", name, f.Name, nil, actorID).allowed ||
+				Readable: e.can(actor, "read", name, f.Name, nil).allowed ||
 					e.hasAnyRule(role, "read", name),
 				Writable: f.Computed == "" && f.Type.Scalar != "serial" &&
-					e.can(role, "update", name, f.Name, nil, actorID).allowed,
+					e.can(actor, "update", name, f.Name, nil).allowed,
 			}
 			switch f.Type.Kind {
 			case dsl.TyScalar:

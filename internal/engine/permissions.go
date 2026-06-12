@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/avangerus/kalita/internal/dsl"
+	"github.com/avangerus/kalita/internal/eventstore"
 )
 
 // Permission engine. Semantics (DSL-SPEC-v0 §5):
@@ -27,7 +28,8 @@ type decision struct {
 // schema-level checks): row-level conditions on a nil record are treated as
 // matching for deny (fail closed) and as satisfied for allow only when the
 // allow has no condition.
-func (e *Engine) can(role, verb, entity, field string, record map[string]any, actorID string) decision {
+func (e *Engine) can(actor eventstore.Actor, verb, entity, field string, record map[string]any) decision {
+	role := actor.Role
 	// built-in core reference data (core.Calendar…): every authenticated actor
 	// reads it; only the node's definition approver writes it. Packs do not
 	// grant permissions on core.* entities — the kernel owns the policy.
@@ -52,7 +54,7 @@ func (e *Engine) can(role, verb, entity, field string, record map[string]any, ac
 			continue
 		}
 		for _, item := range rule.Items {
-			if itemMatches(item, verb, entity, field) && e.whereMatchesForDeny(item, record, actorID) {
+			if itemMatches(item, verb, entity, field) && e.whereMatchesForDeny(item, record, actor) {
 				return decision{false, denyRuleText(item)}
 			}
 		}
@@ -77,7 +79,7 @@ func (e *Engine) can(role, verb, entity, field string, record map[string]any, ac
 				if item.Where == "" {
 					return decision{true, ""}
 				}
-				if record != nil && evalWhere(item.Where, e.ctxFor("", actorID, record)) {
+				if record != nil && evalWhere(item.Where, e.ctxFor("", actor, record)) {
 					return decision{true, ""}
 				}
 			}
@@ -116,14 +118,14 @@ func isCrud(v string) bool {
 // whereMatchesForDeny: a conditional deny without a record fails closed only
 // for reads of concrete records; for record==nil (create/schema checks) a
 // conditional deny cannot be evaluated and does not match.
-func (e *Engine) whereMatchesForDeny(item dsl.PermItem, record map[string]any, actorID string) bool {
+func (e *Engine) whereMatchesForDeny(item dsl.PermItem, record map[string]any, actor eventstore.Actor) bool {
 	if item.Where == "" {
 		return true
 	}
 	if record == nil {
 		return false
 	}
-	return evalWhere(item.Where, e.ctxFor("", actorID, record))
+	return evalWhere(item.Where, e.ctxFor("", actor, record))
 }
 
 func denyRuleText(item dsl.PermItem) string {
@@ -142,24 +144,24 @@ func denyRuleText(item dsl.PermItem) string {
 	return t
 }
 
-// maskFields strips fields the role may not read from a record copy.
-func (e *Engine) maskFields(role, entity string, values map[string]any, actorID string) map[string]any {
+// maskFields strips fields the actor may not read from a record copy.
+func (e *Engine) maskFields(actor eventstore.Actor, entity string, values map[string]any) map[string]any {
 	out := make(map[string]any, len(values))
 	for k, v := range values {
-		if d := e.can(role, "read", entity, k, values, actorID); d.allowed {
+		if d := e.can(actor, "read", entity, k, values); d.allowed {
 			out[k] = v
 		}
 	}
 	return out
 }
 
-// checkFieldWrites verifies every written field is allowed for the role.
-func (e *Engine) checkFieldWrites(role, verb, entity string, fields map[string]any, record map[string]any, actorID string) *Err {
+// checkFieldWrites verifies every written field is allowed for the actor.
+func (e *Engine) checkFieldWrites(actor eventstore.Actor, verb, entity string, fields map[string]any, record map[string]any) *Err {
 	for f := range fields {
-		if d := e.can(role, verb, entity, f, record, actorID); !d.allowed {
+		if d := e.can(actor, verb, entity, f, record); !d.allowed {
 			return &Err{
 				Code:    CodePermissionDenied,
-				Message: fmt.Sprintf("role %s may not %s field %s.%s", role, verb, entity, f),
+				Message: fmt.Sprintf("role %s may not %s field %s.%s", actor.Role, verb, entity, f),
 				Rule:    d.rule,
 			}
 		}

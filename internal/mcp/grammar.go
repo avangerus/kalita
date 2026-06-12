@@ -61,7 +61,9 @@ DASHBOARD:   dashboard Name "Title":
              # WHOLE table (not $self roll-up). Totals respect each reader's row permissions.
 EXPR:        full boolean language for where/guards/filters:
              and / or / not / ( ) ; cmp: = != > < >= <= ; field in [a, b]
-             operands: field | ref.path (project.owner) | 42 | "str" | bareword(enum) | $me | $self | $now | true | false | null
+             operands: field | ref.path (project.owner) | 42 | "str" | bareword(enum) | $me | $me.<attr> | $self | $now | true | false | null
+             #   $me = actor id; $me.region/$me.department = actor ATTRIBUTES (ABAC subject) —
+             #   e.g. read Counterparty where region = $me.region (one viewer sees only their region)
              null is presence: field = null (empty) / field != null (filled)
              ABAC example: read Issue where (reporter = $me or project.owner = $me) and status != Closed
 COMPUTED:    computed = <arithmetic of fields: + - * / and ( ), e.g. amount - amount * discount / 100>

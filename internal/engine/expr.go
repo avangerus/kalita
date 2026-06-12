@@ -31,6 +31,7 @@ type evalCtx struct {
 	values  map[string]any
 	actorID string
 	selfID  string
+	attrs   map[string]any // actor attributes, exposed as $me.<attr>
 	now     time.Time
 	// resolve follows a dotted path (ref hops) from the current record;
 	// wired by the engine. nil falls back to flat field lookup.
@@ -420,6 +421,13 @@ func litValue(lit string, c evalCtx) any {
 	case "false":
 		return false
 	case "null":
+		return nil
+	}
+	// $me.<attr> — an actor attribute (region, department…), the ABAC subject side
+	if attr, ok := strings.CutPrefix(lit, "$me."); ok {
+		if c.attrs != nil {
+			return c.attrs[attr]
+		}
 		return nil
 	}
 	if n, err := strconv.ParseFloat(lit, 64); err == nil {

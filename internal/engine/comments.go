@@ -55,7 +55,7 @@ func (e *Engine) Comment(ctx context.Context, actor eventstore.Actor, entity, id
 	if !ok {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
-	if d := e.can(actor.Role, "read", entity, "", rec.Values, actor.ID); !d.allowed {
+	if d := e.can(actor, "read", entity, "", rec.Values); !d.allowed {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"} // invisible host
 	}
 	if internal && !e.canWriteHost(actor, entity, rec.Values) {
@@ -96,7 +96,7 @@ func (e *Engine) CommentsOf(actor eventstore.Actor, entity, id string) ([]*Comme
 	if !ok {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
-	if d := e.can(actor.Role, "read", entity, "", rec.Values, actor.ID); !d.allowed {
+	if d := e.can(actor, "read", entity, "", rec.Values); !d.allowed {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
 	staff := e.canWriteHost(actor, entity, rec.Values)
@@ -114,7 +114,7 @@ func (e *Engine) CommentsOf(actor eventstore.Actor, entity, id string) ([]*Comme
 // canWriteHost reports whether the actor can update the host record — the test
 // that separates staff from an external customer for internal-comment access.
 func (e *Engine) canWriteHost(actor eventstore.Actor, entity string, values map[string]any) bool {
-	return e.can(actor.Role, "update", entity, "", values, actor.ID).allowed
+	return e.can(actor, "update", entity, "", values).allowed
 }
 
 // applyCommentEvent folds a comment into the projection on replay.

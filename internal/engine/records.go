@@ -40,7 +40,7 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 	if errr != nil {
 		return nil, errr
 	}
-	if d := e.can(actor.Role, "create", entity, "", nil, actor.ID); !d.allowed {
+	if d := e.can(actor, "create", entity, "", nil); !d.allowed {
 		return nil, denied(actor.Role, "create", entity, d.rule)
 	}
 	if decl.Singleton && len(e.records[entity]) > 0 {
@@ -59,7 +59,7 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 	if err := e.validateValues(decl, vals, false, actor.ID); err != nil {
 		return nil, err
 	}
-	if err := e.checkFieldWrites(actor.Role, "create", entity, vals, nil, actor.ID); err != nil {
+	if err := e.checkFieldWrites(actor, "create", entity, vals, nil); err != nil {
 		return nil, err
 	}
 	if err := e.checkRefsExist(decl, vals); err != nil {
@@ -102,7 +102,7 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 	// unreadable fields masked — so a caller sees its serial number and any
 	// computed values immediately, not a bare echo of what it sent.
 	full := e.withComputed(decl, rec.ID, rec.Values)
-	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, full, actor.ID)}, nil
+	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full)}, nil
 }
 
 // checkWorkflowField rejects direct writes to a workflow-governed field:
@@ -139,10 +139,10 @@ func (e *Engine) Update(ctx context.Context, actor eventstore.Actor, entity, id 
 	if err := e.checkWorkflowField(entity, values); err != nil {
 		return nil, err
 	}
-	if d := e.can(actor.Role, "update", entity, "", rec.Values, actor.ID); !d.allowed {
+	if d := e.can(actor, "update", entity, "", rec.Values); !d.allowed {
 		return nil, denied(actor.Role, "update", entity, d.rule)
 	}
-	if err := e.checkFieldWrites(actor.Role, "update", entity, values, rec.Values, actor.ID); err != nil {
+	if err := e.checkFieldWrites(actor, "update", entity, values, rec.Values); err != nil {
 		return nil, err
 	}
 	if err := e.validateValues(decl, values, true, actor.ID); err != nil {
@@ -206,11 +206,11 @@ func (e *Engine) Get(ctx context.Context, actor eventstore.Actor, entity, id str
 	if !ok {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
-	if d := e.can(actor.Role, "read", entity, "", rec.Values, actor.ID); !d.allowed {
+	if d := e.can(actor, "read", entity, "", rec.Values); !d.allowed {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
 	full := e.withComputed(decl, rec.ID, rec.Values)
-	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, full, actor.ID)}, nil
+	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full)}, nil
 }
 
 // QueryOpts are query parameters. Filter (equality map) is the simple form;
@@ -241,7 +241,7 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 	var out []*Record
 	for _, id := range sortedIDs(e.records[entity]) {
 		rec := e.records[entity][id]
-		if d := e.can(actor.Role, "read", entity, "", rec.Values, actor.ID); !d.allowed {
+		if d := e.can(actor, "read", entity, "", rec.Values); !d.allowed {
 			continue
 		}
 		full := e.withComputed(decl, rec.ID, rec.Values)
@@ -249,13 +249,13 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 		if !matchesFilter(full, opts.Filter) {
 			continue
 		}
-		if opts.Where != "" && !evalWhere(opts.Where, e.ctxFor(rec.ID, actor.ID, full)) {
+		if opts.Where != "" && !evalWhere(opts.Where, e.ctxFor(rec.ID, actor, full)) {
 			continue
 		}
 		if search != "" && !matchesSearch(decl, full, search) {
 			continue
 		}
-		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor.Role, entity, full, actor.ID)})
+		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full)})
 	}
 
 	sortRecords(out, opts.Sort)

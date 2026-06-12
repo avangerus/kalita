@@ -22,6 +22,10 @@ type Actor struct {
 	Type ActorType `json:"type"`
 	ID   string    `json:"id"`
 	Role string    `json:"role,omitempty"`
+	// Attrs are the actor's attributes (region, department, clearance…), the "A"
+	// in ABAC. They let permissions scope by who the actor IS, not just what they
+	// own: `read Counterparty where region = $me.region`.
+	Attrs map[string]any `json:"attrs,omitempty"`
 }
 
 // Kind is the closed taxonomy of event kinds (EVENT-STORE-v0 §2).
