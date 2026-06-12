@@ -88,10 +88,9 @@ def _is_uuid(s):
     return len(s) == 36 and s.count("-") == 4
 
 
-def resolve_context(token, entity, values):
+def resolve_context(token, desc, values):
     """Replace ref ids with the referenced record's name, so the model writes
     real names ('Vector LLC') instead of placeholders ('[Client Name]')."""
-    desc, _ = mcp(token, "describe_entity", {"entity": entity})
     fields = {f["name"]: f for f in desc.get("fields", [])}
     ctx = {}
     for k, v in values.items():
@@ -105,43 +104,92 @@ def resolve_context(token, entity, values):
     return ctx
 
 
+# Free-text fields an agent writes its work product into, in preference order —
+# the deliverable for a tracker issue (result) vs. the input it reads (description).
+_RESULT_KEYS = ("result", "output", "solution", "answer", "draft", "work", "summary")
+
+
+def _output_field(desc):
+    """The text field the agent should write its work product into, or None
+    (then the product goes in a comment, as for an invoice with no such field)."""
+    by_name = {f["name"]: f for f in desc.get("fields", [])}
+    for k in _RESULT_KEYS:
+        f = by_name.get(k)
+        if f and f.get("type") == "text" and not f.get("computed"):
+            return k
+    return None
+
+
+def _solo_step(desc, state):
+    """The action if EXACTLY ONE manual, non-approval transition leaves `state`
+    — the unambiguous 'submit' an agent should take to finish and reach the human
+    gate. 0 or >1 means the agent must not guess (permissions backstop anyway)."""
+    wf = desc.get("workflow") or {}
+    nxt = [t for t in wf.get("transitions", [])
+           if t.get("from") == state and not t.get("auto") and not t.get("requires_approval")]
+    return (wf.get("field"), nxt[0]["action"]) if len(nxt) == 1 else (wf.get("field"), None)
+
+
 def handle(token, task):
     """Do the work for one task. Returns (ok, message).
 
     With a model configured, the agent reads the record (refs resolved to names),
-    produces the work product (a client message, a status note, a summary), posts
-    it, then drives the transition. Without a model it just performs the action.
+    produces the work product (a client message, code, a summary), writes it to
+    the record's result field or a comment, performs the assigned action, and then
+    advances along any unambiguous non-approval transitions — stopping the moment
+    the next step needs a human signature. Without a model it just acts.
     """
     entity, rid, action = task.get("entity"), task.get("record_id"), task.get("action")
     if not (entity and rid and action):
         return True, "nothing to do"
+    basis = {"type": "task", "id": task["id"]}
     if LLM_URL:
+        desc, _ = mcp(token, "describe_entity", {"entity": entity})
         rec, _ = mcp(token, "get_record", {"entity": entity, "id": rid})
-        ctx = resolve_context(token, entity, rec.get("values", {}))
+        ctx = resolve_context(token, desc, rec.get("values", {}))
         me = os.environ.get("KALITA_WORKER_ID", "agent")
         role = task.get("role", os.environ.get("KALITA_WORKER_ROLE", "agent"))
         note = llm([
             {"role": "system", "content":
                 "You are %s, the %s on the Kalita business platform. You handle one work item and "
-                "produce a complete, ready-to-send work product — a message to a client, a status "
-                "note, or a summary. Be concise and professional. Use ONLY the real values given; "
+                "produce a complete, ready-to-deliver work product — a message to a client, a piece "
+                "of work, or a summary. Be concise and professional. Use ONLY the real values given; "
                 "never write placeholders like [Name] or [date], and never invent units or currency "
                 "symbols that are not in the data. Sign as the %s. No markdown headers."
                 % (me, role, role)},
             {"role": "user", "content":
-                "%s record:\n%s\n\nYour assigned step is '%s'. Write the work product."
+                "%s record:\n%s\n\nYour assigned step is '%s'. Produce the work product."
                 % (entity, json.dumps(ctx, ensure_ascii=False, indent=2), action)},
         ])
-        mcp(token, "comment", {"entity": entity, "id": rid, "body": note,
-                               "basis": {"type": "task", "id": task["id"]}})
-    res, err = mcp(token, "act", {
-        "entity": entity, "id": rid, "action": action,
-        "basis": {"type": "task", "id": task["id"]}})
-    if err:
-        return False, json.dumps(res)
-    if res.get("status") == "pending_approval":
-        return True, "work done, submitted for human approval"
-    return True, ("worked + " if LLM_URL else "performed ") + action
+        out = _output_field(desc)
+        if out:  # the deliverable goes in the record's result field, journaled
+            mcp(token, "update_record", {"entity": entity, "id": rid, "basis": basis,
+                                         "values": {out: note}})
+            mcp(token, "comment", {"entity": entity, "id": rid, "basis": basis,
+                                   "body": "Work product written to '%s'; submitting for review." % out})
+        else:  # no result field — the message itself is the deliverable
+            mcp(token, "comment", {"entity": entity, "id": rid, "body": note, "basis": basis})
+
+    field = (desc.get("workflow") or {}).get("field", "status") if LLM_URL else "status"
+    last, seen = None, set()
+    next_act = action
+    for _ in range(5):  # the assigned action, then any forced non-HITL follow-ups
+        res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": next_act, "basis": basis})
+        if err:
+            return (last is not None), (last or json.dumps(res))
+        if res.get("status") == "pending_approval":
+            return True, "work done, submitted for human approval"
+        last = ("worked + " if LLM_URL else "performed ") + next_act
+        if not LLM_URL:
+            break
+        state = ((res.get("record") or {}).get("values", {})).get(field)
+        if state in seen:  # never re-enter a state — no oscillation
+            break
+        seen.add(state)
+        _, next_act = _solo_step(desc, state)  # the one forced step, or None
+        if not next_act:
+            break  # ambiguous or human-gated from here — stop for the human
+    return True, last or "nothing to do"
 
 
 def run_once(token):
