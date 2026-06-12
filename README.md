@@ -13,7 +13,26 @@ is free-form (code, documents). Kalita replaces *welding* with *bricks*: a
 grammar where drift does not compile, critical transitions require a human
 signature, and nothing happens silently.
 
-## How it fits together
+## The big picture
+
+One person, amplified by an LLM over MCP, operates kalita — and through it every
+business system the company runs. Those systems serve the company's clients and
+staff.
+
+```mermaid
+flowchart LR
+    P(["One person"]) --> L["LLM + MCP"]
+    L --> K["kalita<br/>executable runtime"]
+    K --> ERP["ERP"] & CRM["CRM"] & SITE["Web site +<br/>customer portal"] & LEG["Legacy system"] & KV["KnowVault"] & GIT["Git"] & MAIL["Mailbox"] & SHOP["E-shop"]
+    ERP & CRM & SITE & LEG & KV & GIT & MAIL & SHOP --> AUD(["Clients & staff"])
+```
+
+Some of those systems are **built on kalita** as packs (ERP, CRM, customer
+portal, KnowVault); others are **integrated** through agent connectors (legacy
+systems, Git, mailbox, e-shop). Either way, one operator drives them all from a
+single seat.
+
+## Inside one node
 
 ```mermaid
 flowchart TD
