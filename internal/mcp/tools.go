@@ -43,6 +43,7 @@ var toolDefs = []map[string]any{
 	{"name": "update_record", "description": "Partially update a record. Requires basis. The workflow state field cannot be written — use act.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "values": obj, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "values", "basis")},
 	{"name": "act", "description": "Execute a workflow transition by action name. May return pending_approval — then a human decides, you cannot rush it.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "action": str, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "action", "basis")},
 	{"name": "revert_record", "description": "Undo a record's most recent change — a field edit or a workflow transition — by appending a compensating event (history is never erased). Can move the state backward across a one-way transition; needs `full` on the entity, so it is a human supervisory action. Revert again to redo.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "basis": basisSchema}, "entity", "id", "basis")},
+	{"name": "rewind_record", "description": "Restore a record to its state as of journal event to_seq — multi-step undo across any number of edits and transitions (e.g. 'rewind to before the agent touched it'). Reconstructs the past state from history and appends compensating events; nothing is erased. Needs `full` on the entity. Use read_journal to find the target seq.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "to_seq": map[string]any{"type": "integer"}, "basis": basisSchema}, "entity", "id", "to_seq", "basis")},
 	{"name": "list_my_tasks", "description": "Tasks assigned to your role (open by default).", "inputSchema": schema(map[string]any{"status": str})},
 	{"name": "wait_for_task", "description": "Long-poll: blocks until an open task exists for your role or timeout_sec (default 25, max 55) passes. Use this instead of polling list_my_tasks in a loop.", "inputSchema": schema(map[string]any{"timeout_sec": num})},
 	{"name": "take_task", "description": "Take an open task: an exclusive lease with TTL. Losing the lease loses the task.", "inputSchema": schema(map[string]any{"task_id": str}, "task_id")},
@@ -168,6 +169,17 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		}
 		_ = json.Unmarshal(args, &a)
 		rec, err := s.eng.Revert(ctx, actor, a.Entity, a.ID, a.Basis)
+		return rec, toolErr(err)
+
+	case "rewind_record":
+		var a struct {
+			Entity string            `json:"entity"`
+			ID     string            `json:"id"`
+			ToSeq  uint64            `json:"to_seq"`
+			Basis  *eventstore.Basis `json:"basis"`
+		}
+		_ = json.Unmarshal(args, &a)
+		rec, err := s.eng.RewindTo(ctx, actor, a.Entity, a.ID, a.ToSeq, a.Basis)
 		return rec, toolErr(err)
 
 	case "wait_for_task":
