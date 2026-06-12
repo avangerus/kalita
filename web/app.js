@@ -601,7 +601,8 @@ function EntityList({ ent }) {
     ${creating && html`<${CreateForm} ent=${ent} onDone=${() => { setCreating(false); load(); }} />`}
     <table style="margin-top:10px"><thead><tr>${cols.map(c => html`<th>${colLabel(ent, c)}</th>`)}</tr></thead>
     <tbody>${visible.map(r => html`<tr onClick=${() => nav(`/e/${ent.name}/${r.id}`)}>
-      ${cols.map(c => html`<td>${fmtVal(ent.fields.find(f => f.name === c), r.values[c])}</td>`)}</tr>`)}</tbody></table>
+      ${cols.map(c => { const f = ent.fields.find(x => x.name === c);
+        return html`<td>${f ? html`<${FieldValue} field=${f} value=${r.values[c]} />` : fmt(r.values[c])}</td>`; })}</tr>`)}</tbody></table>
     ${visible.length === 0 && html`<div class="muted" style="margin-top:8px">no records visible to your role</div>`}
     <div style="margin-top:10px">
       ${page > 0 && html`<button class="btn" onClick=${() => setPage(page - 1)}>← prev</button>`}
@@ -626,14 +627,25 @@ function Board({ ent }) {
 }
 
 // RefValue: render a ref field in READ mode as the target's label, not its uuid.
-function RefValue({ field, value }) {
-  const [text, setText] = useState(null);
+// useRefLabel: resolve a ref id to its record label, through a shared cache so
+// the same id is fetched once even across a whole table column of repeats.
+const _refCache = new Map(); // "entity/id" -> label
+function useRefLabel(entity, id) {
+  const key = entity + '/' + id;
+  const [text, setText] = useState(() => id ? (_refCache.get(key) ?? null) : null);
   useEffect(() => {
-    if (!value) { setText(null); return; }
-    api(`/api/records/${field.ref}/${value}`).then(r => setText(reclabel(r.values)))
-      .catch(() => setText(String(value).slice(0, 8)));
-  }, [value, field.ref]);
-  return html`${text || html`<span class="muted">—</span>`}`;
+    if (!id) { setText(null); return; }
+    if (_refCache.has(key)) { setText(_refCache.get(key)); return; }
+    api(`/api/records/${entity}/${id}`).then(r => { const l = reclabel(r.values); _refCache.set(key, l); setText(l); })
+      .catch(() => { const l = String(id).slice(0, 8); _refCache.set(key, l); setText(l); });
+  }, [entity, id]);
+  return text;
+}
+
+function RefValue({ field, value }) {
+  const text = useRefLabel(field.ref, value);
+  if (!value) return html`<span class="muted">—</span>`;
+  return html`${text || html`<span class="muted">…</span>`}`;
 }
 
 // ArrayRefValue: render many refs as labelled chips, not raw uuids.
