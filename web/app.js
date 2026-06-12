@@ -74,6 +74,7 @@ function RefInput({ field, value, onChange }) {
   const [opts, setOpts] = useState(null);
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState(null);
+  const [hi, setHi] = useState(0); // keyboard-highlighted row
   useEffect(() => {
     if (!value) { setCurrent(null); return; }
     api(`/api/records/${field.ref}/${value}`).then(r => setCurrent(reclabel(r.values)))
@@ -83,22 +84,32 @@ function RefInput({ field, value, onChange }) {
     if (!open) return;
     const t = setTimeout(() => {
       api(`/api/query/${field.ref}`, { method: 'POST', body: JSON.stringify({ search: term, limit: 20 }) })
-        .then(r => setOpts(r.records || [])).catch(() => setOpts([]));
+        .then(r => { setOpts(r.records || []); setHi(0); }).catch(() => setOpts([]));
     }, 200);
     return () => clearTimeout(t);
   }, [term, open, field.ref]);
   const pick = (id) => { onChange(id); setOpen(false); };
+  // keyboard: ↓/↑ move, Enter selects, Esc closes — a picker you never touch the mouse for
+  const onKey = (e) => {
+    if (!open) { if (e.key === 'ArrowDown') { setOpen(true); setTerm(''); } return; }
+    const n = opts ? opts.length : 0;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(h + 1, n - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(h - 1, 0)); }
+    else if (e.key === 'Enter') { if (n && opts[hi]) { e.preventDefault(); pick(opts[hi].id); } }
+    else if (e.key === 'Escape') { setOpen(false); }
+  };
   return html`<div style="position:relative">
     <input placeholder=${current ? '' : 'search…'} value=${open ? term : (current || '')}
       onFocus=${() => { setOpen(true); setTerm(''); setOpts(null); }}
       onBlur=${() => setTimeout(() => setOpen(false), 160)}
+      onKeyDown=${onKey}
       onInput=${e => setTerm(e.target.value)} />
     ${open && html`<div style="position:absolute;z-index:9;left:0;right:0;top:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;max-height:240px;overflow:auto;box-shadow:0 6px 20px #0008">
       ${value && html`<div style="padding:7px 10px;cursor:pointer;color:var(--dim)" onMouseDown=${() => pick('')}>— clear —</div>`}
       ${opts === null ? html`<div style="padding:7px 10px" class="muted">start typing…</div>`
         : opts.length === 0 ? html`<div style="padding:7px 10px" class="muted">nothing found</div>`
-        : opts.map(r => html`<div style="padding:7px 10px;cursor:pointer;border-top:1px solid var(--line)"
-            onMouseDown=${() => pick(r.id)} onMouseEnter=${e => e.target.style.background='#1c232c'} onMouseLeave=${e => e.target.style.background=''}>${reclabel(r.values)}</div>`)}
+        : opts.map((r, i) => html`<div style=${'padding:7px 10px;cursor:pointer;border-top:1px solid var(--line)' + (i === hi ? ';background:#1c232c' : '')}
+            onMouseDown=${() => pick(r.id)} onMouseEnter=${() => setHi(i)}>${reclabel(r.values)}</div>`)}
     </div>`}
   </div>`;
 }
@@ -173,6 +184,21 @@ function FieldInput({ field, value, onChange }) {
 
 const fmt = (v) => v === null || v === undefined ? '' :
   typeof v === 'object' ? JSON.stringify(v) : String(v);
+
+// fmtVal: type-aware display. Money gets thousands separators (and a currency
+// when it is a {amount, currency} object), percent a %, datetime a readable
+// wall-clock. Everything else falls back to fmt.
+const fmtNum = (n) => typeof n === 'number' ? n.toLocaleString('en-US') : n;
+const fmtVal = (field, v) => {
+  if (v === null || v === undefined || v === '') return '';
+  switch (field?.type) {
+    case 'money': return typeof v === 'object'
+      ? `${fmtNum(v.amount)} ${v.currency || ''}`.trim() : fmtNum(v);
+    case 'percent': return `${v}%`;
+    case 'datetime': return typeof v === 'string' ? v.slice(0, 16).replace('T', ' ') : fmt(v);
+    default: return fmt(v);
+  }
+};
 
 // --- branding (white-label; fetched before auth) --------------------------------
 const BRAND = { name: 'Kalita', accent: '', tagline: '' };
@@ -357,7 +383,7 @@ function EntityList({ ent }) {
     ${creating && html`<${CreateForm} ent=${ent} onDone=${() => { setCreating(false); load(); }} />`}
     <table style="margin-top:10px"><thead><tr>${cols.map(c => html`<th>${colLabel(ent, c)}</th>`)}</tr></thead>
     <tbody>${visible.map(r => html`<tr onClick=${() => nav(`/e/${ent.name}/${r.id}`)}>
-      ${cols.map(c => html`<td>${fmt(r.values[c])}</td>`)}</tr>`)}</tbody></table>
+      ${cols.map(c => html`<td>${fmtVal(ent.fields.find(f => f.name === c), r.values[c])}</td>`)}</tr>`)}</tbody></table>
     ${visible.length === 0 && html`<div class="muted" style="margin-top:8px">no records visible to your role</div>`}
     <div style="margin-top:10px">
       ${page > 0 && html`<button class="btn" onClick=${() => setPage(page - 1)}>← prev</button>`}
@@ -446,7 +472,7 @@ function RecordView({ ent, id, refresh }) {
             ? html`<${FieldInput} field=${f} value=${val} onChange=${v => setEdit({ ...edit, [f.name]: v })} />`
             : html`<div style="padding:4px 0 10px;min-height:20px">${
                 f.type === 'ref' ? html`<${RefValue} field=${f} value=${rec.values[f.name]} />`
-                  : (fmt(rec.values[f.name]) || html`<span class="muted">—</span>`)}</div>`}
+                  : (fmtVal(f, rec.values[f.name]) || html`<span class="muted">—</span>`)}</div>`}
         </div>`;
       })}
       </div>
