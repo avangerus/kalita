@@ -145,26 +145,37 @@ function FileInput({ value, onChange }) {
   </div>`;
 }
 
-// TagsInput: free labels (array[string]) as add/remove chips.
-function TagsInput({ value, onChange, options }) {
+// TagsInput: add/remove chips. multiselect picks from declared enum options;
+// free tags (array[string]) suggest values already used on other records — so
+// you select an existing label and only type a genuinely new one.
+function TagsInput({ value, onChange, options, entity, fieldName }) {
   const list = Array.isArray(value) ? value : [];
   const [draft, setDraft] = useState('');
-  const add = (t) => { t = t.trim(); if (t && !list.includes(t)) onChange([...list, t]); setDraft(''); };
+  const [existing, setExisting] = useState(null);
+  useEffect(() => {
+    if (options || !entity || !fieldName) return;
+    api(`/api/query/${entity}`, { method: 'POST', body: JSON.stringify({ limit: 100 }) })
+      .then(r => { const set = new Set(); (r.records || []).forEach(rec => (rec.values[fieldName] || []).forEach(t => set.add(t))); setExisting([...set]); })
+      .catch(() => setExisting([]));
+  }, [entity, fieldName, options]);
+  const add = (t) => { t = (t || '').trim(); if (t && !list.includes(t)) onChange([...list, t]); setDraft(''); };
+  const opts = (options || existing || []).filter(o => !list.includes(o));
   return html`<div style="margin:3px 0 10px">
     <div>${list.map(t => html`<span class="pill" style="margin:0 6px 4px 0;display:inline-block">${t}
       <span style="cursor:pointer;color:var(--dim)" onClick=${() => onChange(list.filter(x => x !== t))}> ✕</span></span>`)}</div>
-    ${options
-      ? html`<select value="" onChange=${e => e.target.value && add(e.target.value)}>
-          <option value="">+ add…</option>${options.filter(o => !list.includes(o)).map(o => html`<option value=${o}>${o}</option>`)}</select>`
-      : html`<input style="margin:0" placeholder="add a tag, Enter" value=${draft}
-          onInput=${e => setDraft(e.target.value)} onKeyDown=${e => e.key === 'Enter' && (e.preventDefault(), add(draft))} />`}
+    <div style="display:flex;gap:8px">
+      ${opts.length > 0 && html`<select style="margin:0;max-width:220px" value="" onChange=${e => e.target.value && add(e.target.value)}>
+        <option value="">choose existing…</option>${opts.map(o => html`<option value=${o}>${o}</option>`)}</select>`}
+      ${!options && html`<input style="margin:0" placeholder="or add new, Enter" value=${draft}
+        onInput=${e => setDraft(e.target.value)} onKeyDown=${e => e.key === 'Enter' && (e.preventDefault(), add(draft))} />`}
+    </div>
   </div>`;
 }
 
-function FieldInput({ field, value, onChange }) {
+function FieldInput({ field, value, onChange, entity }) {
   if (field.type === 'file') return html`<${FileInput} value=${value} onChange=${onChange} />`;
   if (field.type === 'ref') return html`<${RefInput} field=${field} value=${value} onChange=${onChange} />`;
-  if (field.type === 'tags') return html`<${TagsInput} value=${value} onChange=${onChange} />`;
+  if (field.type === 'tags') return html`<${TagsInput} value=${value} onChange=${onChange} entity=${entity} fieldName=${field.name} />`;
   if (field.type === 'multiselect') return html`<${TagsInput} value=${value} onChange=${onChange} options=${field.values} />`;
   if (field.type === 'enum') return html`<select value=${value || ''} onChange=${e => onChange(e.target.value)}>
     <option value="">—</option>${field.values.map(v => html`<option value=${v}>${v}</option>`)}</select>`;
@@ -282,7 +293,7 @@ function CreateForm({ ent, onDone }) {
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 18px">
       ${writable.map(f => html`<div style=${'grid-column:span ' + fieldSpan(f)}>
         <label>${flab(f)}${f.required ? ' *' : ''}</label>
-        <${FieldInput} field=${f} value=${vals[f.name]} onChange=${v => setVals({ ...vals, [f.name]: v })} />
+        <${FieldInput} field=${f} entity=${ent.name} value=${vals[f.name]} onChange=${v => setVals({ ...vals, [f.name]: v })} />
       </div>`)}
     </div>
     ${err && html`<div class="err">${err.message} ${err.fix_hint ? `— ${err.fix_hint}` : ''}</div>`}
@@ -469,7 +480,7 @@ function RecordView({ ent, id, refresh }) {
         return html`<div style=${'grid-column:span ' + fieldSpan(f)}>
           <label>${flab(f)}${f.computed ? ' (computed)' : ''}</label>
           ${editable
-            ? html`<${FieldInput} field=${f} value=${val} onChange=${v => setEdit({ ...edit, [f.name]: v })} />`
+            ? html`<${FieldInput} field=${f} entity=${ent.name} value=${val} onChange=${v => setEdit({ ...edit, [f.name]: v })} />`
             : html`<div style="padding:4px 0 10px;min-height:20px">${
                 f.type === 'ref' ? html`<${RefValue} field=${f} value=${rec.values[f.name]} />`
                   : (fmtVal(f, rec.values[f.name]) || html`<span class="muted">—</span>`)}</div>`}
