@@ -38,7 +38,8 @@ func (s *Server) enableRAG(cfg ragConfig) {
 }
 
 type searchRequest struct {
-	Question string `json:"question"`
+	Question  string `json:"question"`
+	Workspace string `json:"workspace,omitempty"` // optional: scope to one project
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +60,17 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	// search one project if asked — but only if it is among the visible scope,
+	// so a narrowed search can never reach beyond the actor's permissions
+	if req.Workspace != "" {
+		narrowed := scopeIDs[:0]
+		for _, id := range scopeIDs {
+			if id == req.Workspace {
+				narrowed = append(narrowed, id)
+			}
+		}
+		scopeIDs = narrowed
 	}
 	if len(scopeIDs) == 0 {
 		writeJSON(w, http.StatusOK, map[string]any{"answer": "No accessible workspaces.", "sources": []any{}})

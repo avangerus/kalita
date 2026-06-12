@@ -471,16 +471,24 @@ function CreateForm({ ent, onDone, initial, hide }) {
 function SearchView() {
   const [q, setQ] = useState(''); const [busy, setBusy] = useState(false);
   const [res, setRes] = useState(null); const [err, setErr] = useState(null);
+  const [projects, setProjects] = useState([]); const [project, setProject] = useState('');
+  // the projects (Workspaces) to scope a search to one of
+  useEffect(() => { api('/api/records/Workspace?limit=200').then(r => setProjects(r.records || [])).catch(() => {}); }, []);
   const ask = async () => {
     if (!q.trim()) return;
     setBusy(true); setErr(null); setRes(null);
-    try { setRes(await api('/api/search', { method: 'POST', body: JSON.stringify({ question: q }) })); }
-    catch (e) { setErr(e); }
+    try {
+      const body = { question: q };
+      if (project) body.workspace = project;
+      setRes(await api('/api/search', { method: 'POST', body: JSON.stringify(body) }));
+    } catch (e) { setErr(e); }
     setBusy(false);
   };
   return html`<div>
     <h2>Search documents</h2>
     <div style="display:flex;gap:8px;align-items:flex-start;max-width:720px">
+      ${projects.length > 0 && html`<select style="margin:0;max-width:200px" value=${project} onChange=${e => setProject(e.target.value)}>
+        <option value="">All projects</option>${projects.map(p => html`<option value=${p.id}>${p.values.name || p.id.slice(0, 8)}</option>`)}</select>`}
       <input style="margin:0" placeholder="Ask anything about your documents…"
         value=${q} onInput=${e => setQ(e.target.value)}
         onKeyDown=${e => e.key === 'Enter' && ask()} />
