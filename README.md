@@ -15,22 +15,43 @@ signature, and nothing happens silently.
 
 ## The big picture
 
-One person, amplified by an LLM over MCP, operates kalita — and through it every
-business system the company runs. Those systems serve the company's clients and
-staff.
+One person, amplified by an LLM over MCP, drives kalita from a single seat —
+**replacing** the systems built on it and **orchestrating** the ones around it.
+Both serve the company's clients and staff.
 
 ```mermaid
 flowchart LR
-    P(["One person"]) --> L["LLM + MCP"]
-    L --> K["kalita<br/>executable runtime"]
-    K --> ERP["ERP"] & CRM["CRM"] & SITE["Web site +<br/>customer portal"] & LEG["Legacy system"] & KV["KnowVault"] & GIT["Git"] & MAIL["Mailbox"] & SHOP["E-shop"]
-    ERP & CRM & SITE & LEG & KV & GIT & MAIL & SHOP --> AUD(["Clients & staff"])
+    P(["👤 one person"]) -->|"natural language"| L["LLM + MCP"]
+    L --> K(["⬢ kalita"])
+
+    K ==>|"runs"| COV
+    K -. "agent connectors" .-> EXT
+
+    subgraph COV["✅ inside kalita — built as packs"]
+        direction TB
+        ERP["ERP"]
+        CRM["CRM"]
+        PORTAL["Web site +<br/>customer portal"]
+        KV["KnowVault"]
+    end
+
+    subgraph EXT["↔ outside kalita — integrated"]
+        direction TB
+        LEG["Legacy system"]
+        GIT["Git"]
+        MAIL["Mailbox"]
+        SHOP["E-shop"]
+    end
+
+    COV --> AUD(["clients & staff"])
+    EXT --> AUD
 ```
 
-Some of those systems are **built on kalita** as packs (ERP, CRM, customer
-portal, KnowVault); others are **integrated** through agent connectors (legacy
-systems, Git, mailbox, e-shop). Either way, one operator drives them all from a
-single seat.
+The boundary is the point. **Inside** kalita (the thick `runs` arrow): systems
+you *build as packs* — ERP, CRM, the customer portal, KnowVault — where kalita
+**is** the application. **Outside** (the dashed `connectors`): systems kalita
+doesn't replace but reaches through agents — a legacy database, Git, a mailbox,
+an e-shop. One operator covers the whole map.
 
 ## Inside one node
 

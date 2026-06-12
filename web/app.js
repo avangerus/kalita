@@ -89,14 +89,14 @@ function RefInput({ field, value, onChange }) {
   }, [term, open, field.ref]);
   const pick = (id) => { onChange(id); setOpen(false); };
   return html`<div style="position:relative">
-    <input placeholder=${current ? '' : 'поиск…'} value=${open ? term : (current || '')}
+    <input placeholder=${current ? '' : 'search…'} value=${open ? term : (current || '')}
       onFocus=${() => { setOpen(true); setTerm(''); setOpts(null); }}
       onBlur=${() => setTimeout(() => setOpen(false), 160)}
       onInput=${e => setTerm(e.target.value)} />
     ${open && html`<div style="position:absolute;z-index:9;left:0;right:0;top:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;max-height:240px;overflow:auto;box-shadow:0 6px 20px #0008">
-      ${value && html`<div style="padding:7px 10px;cursor:pointer;color:var(--dim)" onMouseDown=${() => pick('')}>— очистить —</div>`}
-      ${opts === null ? html`<div style="padding:7px 10px" class="muted">начните вводить…</div>`
-        : opts.length === 0 ? html`<div style="padding:7px 10px" class="muted">ничего не найдено</div>`
+      ${value && html`<div style="padding:7px 10px;cursor:pointer;color:var(--dim)" onMouseDown=${() => pick('')}>— clear —</div>`}
+      ${opts === null ? html`<div style="padding:7px 10px" class="muted">start typing…</div>`
+        : opts.length === 0 ? html`<div style="padding:7px 10px" class="muted">nothing found</div>`
         : opts.map(r => html`<div style="padding:7px 10px;cursor:pointer;border-top:1px solid var(--line)"
             onMouseDown=${() => pick(r.id)} onMouseEnter=${e => e.target.style.background='#1c232c'} onMouseLeave=${e => e.target.style.background=''}>${reclabel(r.values)}</div>`)}
     </div>`}
@@ -126,9 +126,9 @@ function FileInput({ value, onChange }) {
       onDrop=${e => { e.preventDefault(); upload(e.dataTransfer.files[0]); }}
       onClick=${() => document.getElementById(inputId)?.click()}
       style="border:1px dashed var(--line);border-radius:6px;padding:12px;text-align:center;margin:3px 0 10px;cursor:pointer">
-    ${busy ? html`<span class="muted">загрузка…</span>`
-      : value?.name ? html`<span>📄 ${value.name} <span class="muted">(${Math.round((value.size || 0) / 1024)} КБ)</span></span>`
-      : html`<span class="muted">перетащите файл сюда или нажмите, чтобы выбрать</span>`}
+    ${busy ? html`<span class="muted">loading…</span>`
+      : value?.name ? html`<span>📄 ${value.name} <span class="muted">(${Math.round((value.size || 0) / 1024)} KB)</span></span>`
+      : html`<span class="muted">drop a file here or click to choose</span>`}
     <input id=${inputId} type="file" style="display:none" onChange=${e => upload(e.target.files[0])} />
     ${err && html`<div class="err">${err}</div>`}
   </div>`;
@@ -144,8 +144,8 @@ function TagsInput({ value, onChange, options }) {
       <span style="cursor:pointer;color:var(--dim)" onClick=${() => onChange(list.filter(x => x !== t))}> ✕</span></span>`)}</div>
     ${options
       ? html`<select value="" onChange=${e => e.target.value && add(e.target.value)}>
-          <option value="">+ добавить…</option>${options.filter(o => !list.includes(o)).map(o => html`<option value=${o}>${o}</option>`)}</select>`
-      : html`<input style="margin:0" placeholder="добавить метку, Enter" value=${draft}
+          <option value="">+ add…</option>${options.filter(o => !list.includes(o)).map(o => html`<option value=${o}>${o}</option>`)}</select>`
+      : html`<input style="margin:0" placeholder="add a tag, Enter" value=${draft}
           onInput=${e => setDraft(e.target.value)} onKeyDown=${e => e.key === 'Enter' && (e.preventDefault(), add(draft))} />`}
   </div>`;
 }
@@ -185,9 +185,9 @@ function Login() {
   const [token, setToken] = useState('');
   return html`<div class="login card">
     <h2>${BRAND.name}</h2>
-    <div class="muted" style="margin-bottom:10px">${BRAND.tagline || html`Введите свой токен доступа.`}</div>
-    <label>Токен доступа</label><input type="password" value=${token} onInput=${e => setToken(e.target.value)} />
-    <button class="btn green" onClick=${() => { if (token.trim()) { session.set({ token: token.trim() }); location.reload(); } }}>Войти</button>
+    <div class="muted" style="margin-bottom:10px">${BRAND.tagline || html`Enter your access token.`}</div>
+    <label>Access token</label><input type="password" value=${token} onInput=${e => setToken(e.target.value)} />
+    <button class="btn green" onClick=${() => { if (token.trim()) { session.set({ token: token.trim() }); location.reload(); } }}>Sign in</button>
   </div>`;
 }
 
@@ -246,7 +246,7 @@ function CreateForm({ ent, onDone }) {
     } catch (e) { setErr(e); }
   };
   return html`<div class="card">
-    <h3>Новый · ${elab(ent)}</h3>
+    <h3>New · ${elab(ent)}</h3>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 18px">
       ${writable.map(f => html`<div style=${'grid-column:span ' + fieldSpan(f)}>
         <label>${flab(f)}${f.required ? ' *' : ''}</label>
@@ -254,7 +254,7 @@ function CreateForm({ ent, onDone }) {
       </div>`)}
     </div>
     ${err && html`<div class="err">${err.message} ${err.fix_hint ? `— ${err.fix_hint}` : ''}</div>`}
-    <button class="btn green" onClick=${submit}>Создать</button>
+    <button class="btn green" onClick=${submit}>Create</button>
   </div>`;
 }
 
@@ -272,20 +272,20 @@ function SearchView() {
     setBusy(false);
   };
   return html`<div>
-    <h2>Поиск по документам</h2>
+    <h2>Search documents</h2>
     <div style="display:flex;gap:8px;align-items:flex-start;max-width:720px">
-      <input style="margin:0" placeholder="Спросите что-нибудь о ваших документах…"
+      <input style="margin:0" placeholder="Ask anything about your documents…"
         value=${q} onInput=${e => setQ(e.target.value)}
         onKeyDown=${e => e.key === 'Enter' && ask()} />
-      <button class="btn green" onClick=${ask} disabled=${busy}>${busy ? '…' : 'Спросить'}</button>
+      <button class="btn green" onClick=${ask} disabled=${busy}>${busy ? '…' : 'Ask'}</button>
     </div>
     ${err && html`<div class="err">${err.message || JSON.stringify(err)}</div>`}
     ${res && html`<div class="card" style="max-width:720px;margin-top:14px">
       <div style="white-space:pre-wrap;line-height:1.55">${res.answer}</div>
       ${res.sources?.length > 0 && html`<div class="muted" style="margin-top:12px">
-        Источники: ${res.sources.map(s => html`<span class="pill" style="margin-right:6px">${s}</span>`)}</div>`}
+        Sources: ${res.sources.map(s => html`<span class="pill" style="margin-right:6px">${s}</span>`)}</div>`}
     </div>`}
-    ${busy && html`<div class="muted" style="margin-top:12px">ищу по документам и формулирую ответ…</div>`}
+    ${busy && html`<div class="muted" style="margin-top:12px">searching documents and composing an answer…</div>`}
   </div>`;
 }
 
@@ -343,10 +343,10 @@ function EntityList({ ent }) {
   const visible = rows.slice(0, PAGE).filter(r => !q ||
     cols.some(c => String(r.values[c] ?? '').toLowerCase().includes(q.toLowerCase())));
   return html`<div>
-    <h2>${elab(ent)} ${ent.ui.board_by && html`<a class="muted" style="font-size:13px" onClick=${() => nav(`/board/${ent.name}`)}>доска</a>`}</h2>
+    <h2>${elab(ent)} ${ent.ui.board_by && html`<a class="muted" style="font-size:13px" onClick=${() => nav(`/board/${ent.name}`)}>board</a>`}</h2>
     <div style="display:flex;gap:8px;align-items:flex-start">
-      ${ent.can_create && html`<button class="btn" onClick=${() => setCreating(!creating)}>${creating ? 'Отмена' : `+ ${elab(ent)}`}</button>`}
-      <input style="max-width:240px;margin:0" placeholder="фильтр по странице…" value=${q} onInput=${e => setQ(e.target.value)} />
+      ${ent.can_create && html`<button class="btn" onClick=${() => setCreating(!creating)}>${creating ? 'Cancel' : `+ ${elab(ent)}`}</button>`}
+      <input style="max-width:240px;margin:0" placeholder="filter this page…" value=${q} onInput=${e => setQ(e.target.value)} />
     </div>
     ${creating && html`<${CreateForm} ent=${ent} onDone=${() => { setCreating(false); load(); }} />`}
     <table style="margin-top:10px"><thead><tr>${cols.map(c => html`<th>${colLabel(ent, c)}</th>`)}</tr></thead>
@@ -367,7 +367,7 @@ function Board({ ent }) {
   const field = ent.fields.find(f => f.name === ent.ui.board_by);
   const title = ent.ui.list_columns?.[0] || ent.fields[0]?.name;
   return html`<div>
-    <h2>${elab(ent)} <a class="muted" style="font-size:13px" onClick=${() => nav(`/e/${ent.name}`)}>список</a></h2>
+    <h2>${elab(ent)} <a class="muted" style="font-size:13px" onClick=${() => nav(`/e/${ent.name}`)}>list</a></h2>
     <div class="cols">${(field?.values || []).map(v => html`<div class="col"><h4>${v} · ${rows.filter(r => r.values[ent.ui.board_by] === v).length}</h4>
       ${rows.filter(r => r.values[ent.ui.board_by] === v).map(r => html`
         <div class="kcard" onClick=${() => nav(`/e/${ent.name}/${r.id}`)}>${fmt(r.values[title])}</div>`)}
@@ -394,7 +394,7 @@ function RecordView({ ent, id, refresh }) {
   useEffect(() => { load(); setJournal(null); setEdit({}); setEditing(false); }, [ent.name, id]);
 
   if (err && !rec) return html`<div class="err">${err.message}</div>`;
-  if (!rec) return html`<div class="muted">загрузка…</div>`;
+  if (!rec) return html`<div class="muted">loading…</div>`;
   const state = rec.values[ent.workflow_field];
   const actions = (ent.actions || []).filter(a => a.can_act && (a.from === state || a.from === 'any'));
 
@@ -402,7 +402,7 @@ function RecordView({ ent, id, refresh }) {
     setErr(null); setNote(null);
     try {
       const res = await api(`/api/records/${ent.name}/${id}/act`, { method: 'POST', body: JSON.stringify({ action, basis: basis() }) });
-      if (res.status === 'pending_approval') setNote('Действие отправлено на подпись — см. инбокс согласующего.');
+      if (res.status === 'pending_approval') setNote('Action sent for signature — see the approvals inbox.');
       load(); refresh();
     } catch (e) { setErr(e); }
   };
@@ -418,8 +418,8 @@ function RecordView({ ent, id, refresh }) {
     <h2>${elab(ent)} <span class="muted">${reclabel(rec.values)}</span> ${state && html`<span class="pill">${state}</span>`}</h2>
     <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
       ${!editing && actions.map(a => html`<button class="btn ${a.requires_approval ? '' : 'green'}" onClick=${() => act(a.action)}>${a.label || humanize(a.action)}${a.requires_approval ? ' ✍' : ''}</button>`)}
-      ${!editing && ent.can_update && html`<button class="btn" onClick=${() => setEditing(true)}>✎ Редактировать</button>`}
-      <button class="btn" onClick=${journal ? () => setJournal(null) : showJournal}>${journal ? 'скрыть журнал' : 'журнал'}</button>
+      ${!editing && ent.can_update && html`<button class="btn" onClick=${() => setEditing(true)}>✎ Edit</button>`}
+      <button class="btn" onClick=${journal ? () => setJournal(null) : showJournal}>${journal ? 'hide journal' : 'journal'}</button>
     </div>
     ${note && html`<div class="muted" style="margin:8px 0">${note}</div>`}
     ${err && html`<div class="err">${err.message} ${err.rule ? `(${err.rule})` : ''} ${err.fix_hint || ''}</div>`}
@@ -435,7 +435,7 @@ function RecordView({ ent, id, refresh }) {
         const editable = editing && f.writable && f.name !== ent.workflow_field;
         const val = f.name in edit ? edit[f.name] : rec.values[f.name];
         return html`<div style=${'grid-column:span ' + fieldSpan(f)}>
-          <label>${flab(f)}${f.computed ? ' (вычисляемое)' : ''}</label>
+          <label>${flab(f)}${f.computed ? ' (computed)' : ''}</label>
           ${editable
             ? html`<${FieldInput} field=${f} value=${val} onChange=${v => setEdit({ ...edit, [f.name]: v })} />`
             : html`<div style="padding:4px 0 10px;min-height:20px">${
@@ -445,8 +445,8 @@ function RecordView({ ent, id, refresh }) {
       })}
       </div>
       ${editing && html`<div style="margin-top:10px">
-        <button class="btn green" onClick=${save}>Сохранить</button>
-        <button class="btn" onClick=${cancel}>Отмена</button>
+        <button class="btn green" onClick=${save}>Save</button>
+        <button class="btn" onClick=${cancel}>Cancel</button>
       </div>`}
     </div>`}
     <${Thread} ent=${ent} id=${id} />
@@ -472,21 +472,21 @@ function Thread({ ent, id }) {
   };
   const canInternal = ent.can_update;
   return html`<div class="card" style="margin-top:12px">
-    <h3 style="margin-top:0">Обсуждение</h3>
+    <h3 style="margin-top:0">Discussion</h3>
     ${(items || []).map(c => html`<div style="padding:6px 0;border-bottom:1px solid var(--line)">
-      <b>${c.author.id}</b> ${c.internal && html`<span class="pill" style="background:#33201c">внутр.</span>`}
+      <b>${c.author.id}</b> ${c.internal && html`<span class="pill" style="background:#33201c">internal</span>`}
       <span class="muted" style="font-size:11px"> · ${(c.ts || '').slice(0, 16).replace('T', ' ')}</span>
       <div style="white-space:pre-wrap">${c.body}</div>
     </div>`)}
-    ${(items && items.length === 0) && html`<div class="muted">пока нет сообщений</div>`}
+    ${(items && items.length === 0) && html`<div class="muted">no messages yet</div>`}
     ${err && html`<div class="err">${err.message}</div>`}
     <div style="margin-top:8px">
-      <textarea rows="2" placeholder="написать сообщение…" value=${body} onInput=${e => setBody(e.target.value)} />
+      <textarea rows="2" placeholder="write a message…" value=${body} onInput=${e => setBody(e.target.value)} />
       <div style="display:flex;align-items:center;gap:10px">
-        <button class="btn green" onClick=${post}>Отправить</button>
+        <button class="btn green" onClick=${post}>Send</button>
         ${canInternal && html`<label class="muted" style="cursor:pointer">
           <input type="checkbox" style="width:auto;margin-right:5px" checked=${internal}
-            onChange=${e => setInternal(e.target.checked)} /> внутренняя заметка</label>`}
+            onChange=${e => setInternal(e.target.checked)} /> internal note</label>`}
       </div>
     </div>
   </div>`;
@@ -520,14 +520,14 @@ function Dashboards() {
   }).catch(setErr); }, []);
   useEffect(() => { if (active) { setData(null); api(`/api/dashboards/${active}`).then(setData).catch(setErr); } }, [active]);
   if (err) return html`<div class="err">${err.message}</div>`;
-  if (!list) return html`<div class="muted">загрузка…</div>`;
-  if (!list.length) return html`<div class="muted">в этом паке нет дашбордов</div>`;
+  if (!list) return html`<div class="muted">loading…</div>`;
+  if (!list.length) return html`<div class="muted">no dashboards in this pack</div>`;
   return html`<div>
-    <h2>Дашборды</h2>
+    <h2>Dashboards</h2>
     <div class="tabs" style="margin-bottom:16px">
       ${list.map(d => html`<a class=${active === d.name ? 'on' : ''} onClick=${() => setActive(d.name)}>${d.title || d.name}</a>`)}
     </div>
-    ${!data ? html`<div class="muted">загрузка…</div>`
+    ${!data ? html`<div class="muted">loading…</div>`
       : html`<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start">
           ${data.tiles.map(t => html`<${Tile} t=${t} />`)}</div>`}
   </div>`;
@@ -568,9 +568,9 @@ function App() {
       <div class="who">${meta.pack || '(genesis)'} · v${meta.def_version}<br/>${meta.actor_id} — ${meta.role}
         <a style="display:block" onClick=${() => { session.clear(); location.reload(); }}>sign out</a></div>
       <div class="nav">
-        ${meta.search && html`<a class=${route === '/search' ? 'on' : ''} onClick=${() => nav('/search')}>🔍 Поиск</a>`}
+        ${meta.search && html`<a class=${route === '/search' ? 'on' : ''} onClick=${() => nav('/search')}>🔍 Search</a>`}
         <a class=${route === '/inbox' ? 'on' : ''} onClick=${() => nav('/inbox')}>Inbox ${inboxCount > 0 && html`<span class="badge">${inboxCount}</span>`}</a>
-        <a class=${route === '/dashboards' ? 'on' : ''} onClick=${() => nav('/dashboards')}>📊 Дашборды</a>
+        <a class=${route === '/dashboards' ? 'on' : ''} onClick=${() => nav('/dashboards')}>📊 Dashboards</a>
         ${meta.entities.map(e => html`<a class=${parts[1] === e.name ? 'on' : ''} onClick=${() => nav(`/e/${e.name}`)}>${elab(e)}</a>`)}
         <a class=${route === '/agents' ? 'on' : ''} onClick=${() => nav('/agents')} style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">Agents</a>
       </div>
