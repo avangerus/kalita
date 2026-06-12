@@ -78,22 +78,25 @@ roles:
     SiteBot agent             # the renderer: reads Published content, writes the public site
 
 permissions:
+    # acting a publish transition only REQUESTS go-live (it opens an approval);
+    # the live moment is the `approve`, which only the Owner holds. So requesting
+    # publication is broadly allowed — signing it is not.
     Owner:
         full    [SiteSettings, Page, Service, Article]
-        act     [submit_page, reject_page, unpublish_page, archive_page, submit_service, reject_service, unpublish_service, archive_service, submit_article, reject_article, unpublish_article, archive_article]
+        act     [submit_page, publish_page, reject_page, unpublish_page, archive_page, submit_service, publish_service, reject_service, unpublish_service, archive_service, submit_article, publish_article, reject_article, unpublish_article, archive_article]
         approve [publish_page, publish_service, publish_article]
     Editor:
         read   [SiteSettings]
         full   [Page, Service, Article]
-        act    [submit_page, reject_page, unpublish_page, submit_service, reject_service, unpublish_service, submit_article, reject_article, unpublish_article]
-    # the agent prepares content but the go-live gate is a human's: it may draft,
-    # edit and submit for review, but publish needs the Owner's signature.
+        act    [submit_page, publish_page, reject_page, unpublish_page, submit_service, publish_service, reject_service, unpublish_service, submit_article, publish_article, reject_article, unpublish_article]
+    # the agent drafts, edits and may REQUEST publication, but it cannot approve —
+    # so nothing it makes goes live without the Owner's signature.
     ContentBot:
         read   [SiteSettings]
         create [Page, Service, Article]
         update [Page, Service, Article]
-        act    [submit_page, submit_service, submit_article]
-        deny   [delete *, update SiteSettings.*, act publish_page, act publish_service, act publish_article]
+        act    [submit_page, publish_page, submit_service, publish_service, submit_article, publish_article]
+        deny   [delete *, update SiteSettings.*, approve publish_page, approve publish_service, approve publish_article]
     # read-only by construction: it renders the site, it cannot change it
     SiteBot:
         read   [SiteSettings, Page, Service, Article]

@@ -16,3 +16,4 @@ internal/webui/embedded/
 # Python
 __pycache__/
 *.pyc
+tmp/
