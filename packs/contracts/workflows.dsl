@@ -22,6 +22,13 @@ workflow Contract on status:
     Active        -> Expired:     auto when days_left < 0
     any           -> Terminated:  terminate label="Terminate"
 
+# Each finding the agent raises is triaged by a lawyer: addressed (the redline
+# went into the contract) or waived (accepted as-is, with the decision on record).
+workflow Finding on status:
+    Open -> Addressed: address label="Mark addressed"
+    Open -> Waived:    waive label="Waive"
+    any  -> Open:      reopen label="Reopen"
+
 automation:
     on create Contract:
         notify email(counterparty)
