@@ -1,59 +1,59 @@
-# Kalita MVP — бэклог на 8 недель
+# Kalita MVP — 8-Week Backlog
 
-Статус: проект. Основа: HLD.md, DSL-SPEC-v0.md, MCP-CONTRACT-v0.md, EVENT-STORE-v0.md.
-Режим работы: конвейер агентов; на каждый эпик — спека с критериями до кода; архитектурные отклонения от четырёх документов — только через ADR.
+Status: draft. Foundation: HLD.md, DSL-SPEC-v0.md, MCP-CONTRACT-v0.md, EVENT-STORE-v0.md.
+Working mode: agent pipeline; a spec with acceptance criteria precedes code for each epic; architectural deviations from the four foundation documents — only via ADR.
 
-## Неделя 1 — Фундамент: Event Store + identity
-- Скелет репо (Go, monorepo: `core/`, `ui/`, `examples/`, `docs/`), CI (build+test+lint).
-- Event Store: append, цепочка хэшей, чекпойнты, реплей; таблица актёров, ключи Ed25519.
-- **DoD:** приёмочные тесты Event Store §7.1 (реплей бит-в-бит), §7.2 (tamper), §7.4 (идемпотентность) зелёные.
+## Week 1 — Foundation: Event Store + Identity
+- Repo skeleton (Go, monorepo: `core/`, `ui/`, `examples/`, `docs/`), CI (build+test+lint).
+- Event Store: append, hash chain, checkpoints, replay; actors table, Ed25519 keys.
+- **DoD:** Event Store acceptance tests §7.1 (bit-exact replay), §7.2 (tamper), §7.4 (idempotency) are green.
 
-## Неделя 2 — Компилятор DSL
-- Лексер/парсер (рекурсивный спуск) → Semantic Model: `entity`, `roles`, `permissions` (без workflow/automation).
-- Модель ошибок `{code, file:line, message, fix_hint}` — с первого дня, не «потом».
-- **DoD:** сущности и права пака `examples/collections` компилируются; 20 заведомо кривых файлов дают структурированные ошибки с fix_hint (golden-тесты).
+## Week 2 — DSL Compiler
+- Lexer/parser (recursive descent) → Semantic Model: `entity`, `roles`, `permissions` (no workflow/automation).
+- Error model `{code, file:line, message, fix_hint}` — from day one, not "later".
+- **DoD:** entities and permissions of the `examples/collections` pack compile; 20 deliberately broken files produce structured errors with fix_hint (golden tests).
 
-## Неделя 3 — Entity Engine + REST + права
-- Проекции per entity (jsonb + индексные колонки), CRUD, валидация, computed-поля, `query` с фильтрами/курсором.
+## Week 3 — Entity Engine + REST + Permissions
+- Per-entity projections (jsonb + index columns), CRUD, validation, computed fields, `query` with filters/cursor.
 - Permission Engine: default deny, row-level (`where`), field-level, deny>allow.
-- **DoD:** CRUD дебиторки через REST; матрица прав (3 роли × 6 операций) покрыта тестами; всё порождает события.
+- **DoD:** CRUD for accounts-receivable via REST; permission matrix (3 roles × 6 operations) covered by tests; everything produces events.
 
-## Неделя 4 — Workflow + подписи (HITL)
-- Переходы: guards, `auto`, `assignee`, `requires approval`; очередь подписей; **WebAuthn-подпись** (тест Event Store §7.3 — офлайн-верификация).
-- Компилятор: полная грамматика v0 (workflow, automation-синтаксис, ui-секции — парсинг).
-- **DoD (гейт грамматики):** оба приёмочных пака — `collections` и `dev_department` — компилируются целиком. Не компилируются → стоп и пересмотр грамматики, прежде чем писать дальше.
+## Week 4 — Workflow + Signatures (HITL)
+- Transitions: guards, `auto`, `assignee`, `requires approval`; signature queue; **WebAuthn signature** (Event Store test §7.3 — offline verification).
+- Compiler: full v0 grammar (workflow, automation syntax, ui sections — parsing).
+- **DoD (grammar gate):** both acceptance packs — `collections` and `dev_department` — compile in full. If they do not compile → stop and revise the grammar before writing further.
 
-## Неделя 5 — Automation + задачи
-- Триггеры: `on schedule`, `on create/update`, `on stuck`; действия: `agent task`, `notify email`, `webhook out`, `create/update`, `escalate_to`.
-- Подсистема задач: пул, `take` с TTL-lease, `complete/fail/expired`, `report_progress` со сверкой с событиями.
-- **DoD:** сценарий дебиторки живёт без людей до HITL-точки: просрочка → задача агенту → (заглушка-агент) → эскалация по `stuck`.
+## Week 5 — Automation + Tasks
+- Triggers: `on schedule`, `on create/update`, `on stuck`; actions: `agent task`, `notify email`, `webhook out`, `create/update`, `escalate_to`.
+- Task subsystem: pool, `take` with TTL-lease, `complete/fail/expired`, `report_progress` reconciled against events.
+- **DoD:** accounts-receivable scenario runs without humans up to the HITL point: overdue → task to agent → (stub agent) → escalation via `stuck`.
 
-## Неделя 6 — MCP-сервер
-- Все tools v0 (контракт §2–§5), agent identity/scopes/rate limits, закрытый список ошибок.
-- **DoD:** Claude Code через MCP проходит шаги 1, 3, 4, 5, 6 приёмочного сценария (контракт §8) на заранее применённом паке.
+## Week 6 — MCP Server
+- All v0 tools (contract §2–§5), agent identity/scopes/rate limits, closed error list.
+- **DoD:** Claude Code via MCP passes steps 1, 3, 4, 5, 6 of the acceptance scenario (contract §8) on a pre-applied pack.
 
-## Неделя 7 — Генерируемый UI
-- React + Meta API: список (фильтры, views), форма (секции), доска, **очередь подписей**, журнал записи, логин (OIDC/локальный + WebAuthn).
-- **DoD:** человек в браузере полностью работает с дебиторкой: видит по правам, двигает по workflow, подписывает эскалацию passkey'ем.
+## Week 7 — Generated UI
+- React + Meta API: list (filters, views), form (sections), board, **signature queue**, record journal, login (OIDC/local + WebAuthn).
+- **DoD:** a human in the browser works with accounts-receivable end-to-end: sees data according to permissions, moves records through workflow, signs escalations with a passkey.
 
-## Неделя 8 — Change Pipeline + сборка
-- `propose_change` → валидация → план аддитивной миграции → подпись → атомарное применение → `revert` тем же путём.
-- Docker Compose (kalita+postgres), README, quickstart «система за 10 минут».
-- **DoD: сквозной приёмочный сценарий MCP §8 целиком** — агент с нуля предлагает пак, человек подписывает, агент работает в нём, упирается в права и HITL. Это и есть «MVP готов».
+## Week 8 — Change Pipeline + Build
+- `propose_change` → validation → additive migration plan → signature → atomic apply → `revert` via the same path.
+- Docker Compose (kalita+postgres), README, quickstart "system in 10 minutes".
+- **DoD: full MCP acceptance scenario §8** — agent proposes a pack from scratch, human signs, agent works within it, hits permission boundary and HITL. This is "MVP done".
 
-## Линии отсечения (если отстаём — режем в этом порядке)
-1. `view`/`board` в UI (остаются список+форма+подписи);
-2. `webhook out` и `notify email` (остаётся agent task);
-3. `on stuck` + эскалации;
-4. файловые поля.
-**Не режется никогда:** event store с подписями, deny-обязательность для агентов, очередь подписей, basis у мутаций — это и есть продукт.
+## Cut Lines (if behind schedule — cut in this order)
+1. `view`/`board` in UI (list + form + signatures remain);
+2. `webhook out` and `notify email` (agent task remains);
+3. `on stuck` + escalations;
+4. file fields.
+**Never cut:** event store with signatures, deny requirement for agents, signature queue, basis on mutations — these are the product.
 
-## После недели 8 — гейты из плана 90 дней
-- Публикация: open core на GitHub + MCP-реестры; пак `dev_department` разворачивается для собственной разработки (dogfood, переход конвейера на kalita).
-- Первый внешний полигон: знакомый с Битриксом (его топ-10 операций → первый клиентский пак).
-- **Kill-гейт +3 месяца:** ноль чужих пользователей → закрываем, план Б (видео-инциденты).
+## After Week 8 — Gates from the 90-Day Plan
+- Publication: open core on GitHub + MCP registries; `dev_department` pack deployed for internal development (dogfood, pipeline migrates to kalita).
+- First external pilot: an acquaintance with Bitrix (their top-10 operations → first client pack).
+- **Kill gate +3 months:** zero external users → shut down, plan B (video-incidents).
 
-## Главные риски исполнения
-1. Миграции даже аддитивные — самая тонкая часть недели 8; прототипировать применение миграции уже на неделе 3 (добавление поля к живым данным).
-2. Грамматический гейт недели 4 — единственная точка, где допустим пересмотр спеки; после неё грамматика замораживается до v1.
-3. UI — болото по времени; держать строго в рамках «достаточно для учётной системы», никакого полировочного перфекционизма.
+## Key Execution Risks
+1. Migrations, even additive ones, are the most delicate part of week 8; prototype migration application as early as week 3 (adding a field to live data).
+2. The grammar gate in week 4 is the only point where a spec revision is allowed; after it the grammar is frozen until v1.
+3. UI is a time sink; keep it strictly "good enough for a record-keeping system", no polishing perfectionism.

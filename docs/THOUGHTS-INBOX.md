@@ -1,281 +1,280 @@
-# Журнал мыслей фаундера → стратегические решения
+# Founder's thought log → strategic decisions
 
-Процесс: фаундер кидает мысли в чат, они фиксируются здесь с разбором: что
-меняем в системе, в какой форме, когда. Статусы: 🔥 принято в работу ·
-📐 спроектировано, ждёт очереди · 🧊 заморожено с причиной.
+Process: the founder drops thoughts into the chat, they are recorded here with analysis: what
+we change in the system, in what form, when. Statuses: 🔥 accepted into work ·
+📐 designed, waiting in queue · 🧊 frozen with reason.
 
 ---
 
-## 2026-06-13 — партия 1
+## 2026-06-13 — batch 1
 
-### T1. Коннекторы к внешним системам и мессенджерам 🔥
-**Мысль:** нужны подключения к разным системам, мессенджерам и т.д.
-**Разбор:** критично, но НЕ в ядро (правило: новый канал наружу = декларация
-в DSL, слово `integration` зарезервировано). Форма: коннектор = воркер-агент
-(как индексатор knowvault) со своей identity и deny. Стратегически главный —
-**Telegram**: для RU-СМБ интерфейс == мессенджер; «учётная система, у которой
-фронт — телега» — пустая ниша. Личный кабинет в телеге = бот-воркер: клиент
-пишет боту → запись/заявка в kalita → статусы обратно в чат. Кандидат на
-killer-фичу полигона. Делается по одному коннектору на платящую вертикаль.
+### T1. Connectors to external systems and messengers 🔥
+**Thought:** connections to various systems, messengers, etc. are needed.
+**Analysis:** critical, but NOT in the core (rule: a new outward channel = declaration
+in DSL, the word `integration` is reserved). Form: connector = worker-agent
+(like the knowvault indexer) with its own identity and deny. Strategically the most important —
+**Telegram**: for RU-SMB the interface == messenger; "an accounting system whose
+front end is Telegram" — an empty niche. A client portal in Telegram = a bot-worker: the client
+writes to the bot → a record/request in kalita → statuses back to the chat. A candidate for
+the killer feature of the polygon. Built one connector per paying vertical.
 
-### T2. KnowVault ingest: вытаскивание текста, подключение внешнего 📐
-**Мысль:** ingest-сервис забирает данные, сначала вытаскивает текст,
-индексирует в RAG; нужен способ подключать внешние источники.
-**Разбор:** уже спроектировано (KNOWVAULT-INTEGRATION): ingest = воркер-агент,
-берёт задачи start_index, text extraction — внутренность воркера. «Подключить
-внешнее» = создать Source-запись (kind: Files/Mail/Repo/Database/Chat) — UI
-уже умеет. Осталось исполнить: v0.2 пункт 5.
+### T2. KnowVault ingest: text extraction, connecting external sources 📐
+**Thought:** the ingest service fetches data, first extracts text,
+indexes into RAG; a way to connect external sources is needed.
+**Analysis:** already designed (KNOWVAULT-INTEGRATION): ingest = worker-agent,
+picks up start_index tasks, text extraction — internal to the worker. "Connect
+external" = create a Source record (kind: Files/Mail/Repo/Database/Chat) — the UI
+already supports this. Remaining: execute v0.2 point 5.
 
-### T3. Поглощение легаси: мимикрия без увековечивания 🔥
-**Мысль:** модуль kalita поглощает легаси, через агентов мимикрирует под него,
-но не становится «более совершенным легаси».
-**Разбор:** это агентный strangler-fig — и это НАШ enterprise-клин (окно №1,
-календарная волна легаси). Форма «Strangler mode»: (1) мост-агенты читают/
-пишут интерфейсы легаси (файлы, ODBC, API), записи зеркалируются в kalita;
-(2) процессы по одному переезжают в DSL, легаси становится read-only по ним;
-(3) мимикрия — ВРЕМЕННАЯ фаза с датой смерти, записанной в плане поглощения
-(иначе строим вечный эмулятор = «более совершенное легаси», чего фаундер
-справедливо боится). Артефакт: методичка + absorption-пак на пилоте.
+### T3. Legacy absorption: mimicry without perpetuation 🔥
+**Thought:** a kalita module absorbs legacy, mimics it via agents,
+but does not become "a more advanced legacy".
+**Analysis:** this is an agentic strangler-fig — and it is OUR enterprise wedge (window #1,
+the legacy calendar wave). "Strangler mode" form: (1) bridge-agents read/
+write legacy interfaces (files, ODBC, API), records are mirrored into kalita;
+(2) processes migrate to DSL one at a time, legacy becomes read-only for them;
+(3) mimicry — a TEMPORARY phase with a recorded end date in the absorption plan
+(otherwise we build a permanent emulator = "more advanced legacy", which the founder
+rightly fears). Artifact: a methodology + absorption-pack on the pilot.
 
-### T4. Управление git-командами 🧊→📐
-**Мысль:** kalita может управлять git, «не знаю зачем».
-**Разбор:** зачем — знаю: паки это текст, их дом — git. Полезное подмножество:
-**экспорт/синк определений узла в git-репо** (бэкап, версионирование, внешний
-PR-ревью предложений). Ядру git не нужен; это воркер. Дёшево, но не раньше
-полигона. Git-операции как действия конвейера разработки — уже покрыты паком
-dev_department (его воркеры и так зовут git у себя).
+### T4. Managing git commands 🧊→📐
+**Thought:** kalita can manage git, "I don't know why".
+**Analysis:** why — I know: packs are text, their home is git. Useful subset:
+**export/sync of node definitions to a git repo** (backup, versioning, external
+PR review of proposals). The core does not need git; this is a worker. Cheap, but not before
+the polygon. Git operations as pipeline steps in the development pipeline — already covered by the
+dev_department pack (its workers already call git themselves).
 
-### T5. Деплой и мутации без деплоя 📐 (уже есть на 80%)
-**Мысль:** деплоить и мутировать, может, без деплоя.
-**Разбор:** мутация без деплоя — это СУТЬ kalita: change pipeline применяет
-определения на живом узле, рестарт не нужен. Деплой остаётся только для
-бинаря платформы → недостающее: путь обновления платформы (kalita upgrade,
-blue-green узла) — v1.
+### T5. Deploy and mutations without deploy 📐 (already 80% there)
+**Thought:** deploy and mutate, possibly without a deploy.
+**Analysis:** mutation without deploy — that IS the ESSENCE of kalita: the change pipeline applies
+definitions to the live node, no restart needed. Deploy only remains for
+the platform binary → what is missing: the platform update path (kalita upgrade,
+blue-green node) — v1.
 
-### T6. «Что реально нужно» — независимый список против болей рынка
-1. **Демо за 10 минут**: docker run → живая дебиторка с данными и агентом.
-   Время-до-вау решает судьбу GitHub-запуска больше любой фичи. 🔥 перед
-   публикацией.
-2. **Дашборд результата для директора**: «за неделю агенты сделали N задач,
-   M подписей, K отклонено, взыскано X» — артефакт, продающий продление.
-   Боль «пилоты не доходят до прода» лечится видимым результатом. (v1
-   `metric`/`dashboard`, но минимальная сводка — раньше.)
-3. **Outcome-метрики в паках** (сколько взыскано/закрыто) — фундамент
-   value-pricing «продаём работу».
-4. **Экспорт чекпойнтов клиенту** («ваш нотариус»: журнал не переписан) —
-   дёшево, сильный довод доверия. P1.
-5. **T1 Telegram** — см. выше: недооцененный вход в рынок.
+### T6. "What is actually needed" — an independent list against market pain points
+1. **Demo in 10 minutes**: docker run → live accounts-receivable with data and an agent.
+   Time-to-wow determines the fate of the GitHub launch more than any feature. 🔥 before
+   publishing.
+2. **Result dashboard for the director**: "during the week agents completed N tasks,
+   M signatures, K rejected, X collected" — an artifact that sells renewals.
+   The pain "pilots never reach production" is cured by visible results. (v1
+   `metric`/`dashboard`, but a minimal summary — sooner.)
+3. **Outcome metrics in packs** (how much collected/closed) — foundation for
+   value-pricing "selling work".
+4. **Export of checkpoints to the client** ("your notary": the log was not rewritten) —
+   cheap, strong trust argument. P1.
+5. **T1 Telegram** — see above: underestimated market entry point.
 
-### T7. Большие массивы данных; разные базы для разных модулей 🔥→📐
-**Мысль:** kalita должна выдерживать большие массивы событий — как взрослый
-enterprise event sourcing с проекциями; можно ли разные базы под модули.
-**Разбор:** принято и спроектировано — ADR-002: журнал один (PG, партиции,
-снапшоты), проекции ядра двухъярусные (RAM → SQL по порогу), модульные базы —
-да, на уровне воркеров (Qdrant/ClickHouse/DuckDB), наполняются реплеем через
-Store.Since и выбрасываемы; журнал = внутренняя шина, брокеров не заводим.
+### T7. Large data volumes; separate databases for separate modules 🔥→📐
+**Thought:** kalita must handle large event volumes — like mature
+enterprise event sourcing with projections; can different databases be used for different modules.
+**Analysis:** accepted and designed — ADR-002: one journal (PG, partitions,
+snapshots), two-tier core projections (RAM → SQL above threshold), module databases —
+yes, at the worker level (Qdrant/ClickHouse/DuckDB), populated by replay via
+Store.Since and disposable; journal = internal bus, no brokers.
 
-### T8. Критерий размещения функций по уровням 🔥→📐
-**Мысль:** что в ядре (база, индексы), что на уровне «ядро-функций»
-(пользователи, справочники), что модульное (дебиторка → логистика/TSP → CRM
-для самой калиты).
-**Разбор — четыре уровня, у каждого тест на принадлежность:**
+### T8. Criteria for placing functions at each layer 🔥→📐
+**Thought:** what belongs in the core (database, indexes), what belongs at the "core-function"
+level (users, reference data), what is modular (accounts-receivable → logistics/TSP → CRM
+for kalita itself).
+**Analysis — four layers, each with a membership test:**
 
-| Уровень | Тест | Примеры |
+| Layer | Test | Examples |
 |---|---|---|
-| **Ядро** (Go) | «нужно, чтобы ЛЮБОЙ пак работал и не мог соврать» + невыразимо DSL | журнал, цепочки, компилятор, права, workflow, задачи, индексы, MCP |
-| **Core-пак** (system DSL) | «нужно почти каждому паку, выразимо DSL, меняется только обновлением платформы» | пользователи, справочники (валюты/страны/оргструктура), вложения, нумераторы документов, уведомления |
-| **Продуктовый пак** | «можно продать или удалить, не сломав соседей» (связи через depends) | дебиторка, договоры, логистика, CRM, knowvault-оркестрация |
-| **Воркер** | «нужен процесс, библиотека, секрет или внешний мир» | TSP-солвер, эмбеддинги, телеграм-мост, индексатор |
+| **Core** (Go) | "needed for ANY pack to work and be unable to lie" + inexpressible in DSL | journal, chains, compiler, permissions, workflow, tasks, indexes, MCP |
+| **Core-pack** (system DSL) | "needed by almost every pack, expressible in DSL, changes only with a platform update" | users, reference data (currencies/countries/org structure), attachments, document sequence generators, notifications |
+| **Product pack** | "can be sold or deleted without breaking neighbors" (linked via depends) | accounts-receivable, contracts, logistics, CRM, knowvault-orchestration |
+| **Worker** | "needs a process, library, secret, or the external world" | TSP solver, embeddings, Telegram bridge, indexer |
 
-Пример TSP/логистики показывает паттерн целиком: домен — пак (Доставки,
-Маршруты, статусы, права), математика — воркер-агент Router (берёт задачу
-optimize_routes, возвращает маршруты, всё в журнале). Домен в DSL,
-вычисления в воркере — всегда.
+The TSP/logistics example shows the full pattern: domain — pack (Deliveries,
+Routes, statuses, permissions), math — worker-agent Router (picks up
+optimize_routes task, returns routes, everything in the journal). Domain in DSL,
+computation in the worker — always.
 
-CRM для самой kalita (лиды, партнёры, комьюнити) — делается как обычный
-продуктовый пак на нашем же узле: dogfood №3 после dev_department и boards.
-Правило против соблазна: если функция тянется в ядро «потому что так
-быстрее» — это сигнал спроектировать её паком или воркером.
+CRM for kalita itself (leads, partners, community) — built as a normal
+product pack on our own node: dogfood #3, after dev_department and boards.
+Rule against the temptation: if a feature pulls toward the core "because it's faster that way"
+— that is the signal to design it as a pack or worker.
 
-### T9. Мультиязычность + предзаполненные справочники 📐
-**Мысль:** i18n; сразу заполнить меры/веса, валюты, страны, часовые пояса
-(IANA), производственный календарь.
-**Разбор:** i18n = слой лейблов поверх грамматики (слово зарезервировано, v1;
-грамматика остаётся английской — решение HLD). Справочники — это core-уровень
-по T8, и вводят новую способность формата: **data-паки** (пак несёт не только
-схему, но и seed-данные с версией): units (СИ), валюты ISO 4217, страны ISO
-3166, таймзоны IANA tzdata. **Производственный календарь** — отдельная жемчужина:
-по странам, обновляется ежегодно → это подписочные данные (готовый продукт!) и
-основа для business-days в выражениях/SLA (`stuck 5 рабочих дней`) — v1.
-Действие: формат seed-данных заложить в спеку пака до маркетплейса.
+### T9. Multilingualism + pre-populated reference data 📐
+**Thought:** i18n; immediately populate units/weights, currencies, countries, time zones
+(IANA), production calendar.
+**Analysis:** i18n = label layer on top of the grammar (word reserved, v1;
+grammar stays in English — an HLD decision). Reference data — core level
+per T8, and they introduce a new format capability: **data-packs** (a pack carries not only
+a schema but also seed data with a version): units (SI), currencies ISO 4217, countries ISO
+3166, time zones IANA tzdata. **Production calendar** — a separate gem:
+by country, updated annually → this is subscription data (a ready-made product!) and
+the foundation for business-days in expressions/SLA (`stuck 5 business days`) — v1.
+Action: lay out the seed-data format in the pack spec before the marketplace.
 
-### T10. ClickHouse, Redis, Kafka, векторные базы 📐 (закрыто ADR-002)
-**Мысль:** подключать векторные базы, ClickHouse, Redis, Kafka, «что бывает».
-**Разбор:** ответ уже записан в ADR-002, паттерн один — **sink/проекция-воркер**:
-журнал → Store.Since(seq) → воркер кормит свою базу. Qdrant у knowvault (уже),
-ClickHouse = аналитический sink, полнотекст = sink, Redis ядру не нужен
-(проекции в RAM), у воркеров — на их вкус. Kafka КАК ШИНА ЯДРА запрещена
-(вторая истина); если у клиента есть Kafka и он хочет события туда — это
-sink-воркер «journal→Kafka», легитимно. Generic-воркер «journal-sink» с
-конфигом назначения — кандидат v1: один код, N баз.
+### T10. ClickHouse, Redis, Kafka, vector databases 📐 (closed by ADR-002)
+**Thought:** connect vector databases, ClickHouse, Redis, Kafka, "whatever exists".
+**Analysis:** the answer is already written in ADR-002, one pattern — **sink/projection-worker**:
+journal → Store.Since(seq) → worker feeds its own database. Qdrant at knowvault (done),
+ClickHouse = analytics sink, full-text = sink, Redis not needed by the core
+(projections in RAM), workers — at their discretion. Kafka AS THE CORE BUS is prohibited
+(second truth); if a client has Kafka and wants events there — that is
+a "journal→Kafka" sink-worker, legitimate. A generic "journal-sink" worker with a
+destination config — v1 candidate: one codebase, N databases.
 
-### T11. Карта «боль рынка → функция» 🔥 (систематический проход)
-По верифицированным болям исследования. ✅ = есть, ⭐ = новая функция в очередь.
+### T11. "Market pain → feature" map 🔥 (systematic pass)
+Against verified pain points from research. ✅ = present, ⭐ = new feature in queue.
 
-**Боль 1: пилоты не доходят до прода (>80% без эффекта; страх + невидимый результат)**
-- ✅ HITL-подписи, журнал, откат — лечат страх
-- ⭐ **Shadow mode**: роль агента включается «вхолостую» — все действия идут
-  предложениями-диффами без применения; директор неделю смотрит, что агент
-  СДЕЛАЛ БЫ, потом включает. Порог входа → ноль. Killer-фича внедрения.
-- ⭐ **Ручка автономии роли** (trust dial): всё под подпись → подпись только
-  критичного → автономно. Доверие наращивается ступенями, видно в журнале.
-- ⭐ Отчёт «неделя на цифрах» для директора (T6.2).
+**Pain 1: pilots never reach production (>80% without effect; fear + invisible result)**
+- ✅ HITL signatures, journal, rollback — address fear
+- ⭐ **Shadow mode**: the agent role runs "dry" — all actions go as
+  proposal-diffs without being applied; the director watches for a week what the agent
+  WOULD HAVE DONE, then enables it. Onboarding threshold → zero. Killer deployment feature.
+- ⭐ **Agent role autonomy dial** (trust dial): everything requires signature → only critical requires signature → autonomous. Trust is built in steps, visible in the journal.
+- ⭐ "Week in numbers" report for the director (T6.2).
 
-**Боль 2: «почти правильно», тихая порча (66%, DELEGATE-52)**
-- ✅ грамматика, гейты, facts-сверка докладов
-- ⭐ **Rationale в действиях**: act/complete несут короткое «почему» — журнал
-  читается как объяснённая история, не лог.
+**Pain 2: "almost right", silent corruption (66%, DELEGATE-52)**
+- ✅ grammar, gates, fact-check on reports
+- ⭐ **Rationale in actions**: act/complete carry a brief "why" — the journal
+  reads as an explained history, not a log.
 
-**Боль 3: продаётся работа против ФОТ (Sequoia 6:1)**
-- ⭐ **Цена работы в деньгах**: ставка роли в Settings × нормо-часы задач =
-  «агенты сделали работы на X ₽ за месяц». Отчёт, продающий продление сам.
-- ⭐ Outcome-метрики пака (взыскано/закрыто) — value pricing (T6.3).
+**Pain 3: work is sold against payroll cost (Sequoia 6:1)**
+- ⭐ **Cost of work in money**: role rate in Settings × task work-hours =
+  "agents completed work worth X ₽ this month". A report that sells renewals on its own.
+- ⭐ Pack outcome metrics (collected/closed) — value pricing (T6.3).
 
-**Боль 4: данные в контуре**
-- ✅ ядро. ⭐ **Egress-отчёт**: «что покидало контур за месяц» — автогенерация
-  из журнала (исходящее = только декларированные webhook'и, уже события).
-  Комплаенс-артефакт бесплатно.
+**Pain 4: data within the perimeter**
+- ✅ core. ⭐ **Egress report**: "what left the perimeter this month" — auto-generated
+  from the journal (outgoing = only declared webhooks, already events).
+  Compliance artifact for free.
 
-**Боль 5: легаси-волна**
-- 📐 T3 поглощение. ⭐ Первая ступень — **read-only зеркало**: воркер
-  реплицирует данные легаси в пак; клиент получает поиск/дашборды/журнал
-  поверх умирающей системы без права записи. Лёгкая продажа, нулевой риск.
+**Pain 5: the legacy wave**
+- 📐 T3 absorption. ⭐ First step — **read-only mirror**: a worker
+  replicates legacy data into a pack; the client gets search/dashboards/journal
+  on top of the dying system with no write access. Easy sale, zero risk.
 
-**Боль 6: дистрибуция и доверие — главный дефицит**
-- ⭐ демо-узел за 10 минут (T6.1), экспорт чекпойнтов (T6.4)
-- ⭐ **Генерация документации пака из DSL**: kalita pack describe → README со
-  скриншотами/схемой — авторы паков получают витрину бесплатно (маркетплейс).
+**Pain 6: distribution and trust — the primary deficit**
+- ⭐ demo node in 10 minutes (T6.1), checkpoint export (T6.4)
+- ⭐ **Pack documentation generation from DSL**: kalita pack describe → README with
+  screenshots/schema — pack authors get a showcase for free (marketplace).
 
-**Боль 7: гиганты бандлят тонкое — выживает глубина в процессе**
-- ⭐ **Пожиратель Excel**: загрузить главный Excel отдела → агент предлагает
-  пак (схема+права+workflow из реальных данных). Вход в глубину процесса,
-  куда bundled-копилоты не достают.
+**Pain 7: giants bundle thin — depth in the process is what survives**
+- ⭐ **Excel eater**: upload the department's main Excel → the agent proposes
+  a pack (schema+permissions+workflow from real data). Entry into process depth
+  where bundled copilots cannot reach.
 
-Приоритет дешёвого/сильного: shadow mode → цена работы в ₽ → egress-отчёт →
-rationale. Все четыре — недели, не месяцы.
+Priority of cheap/powerful: shadow mode → cost of work in ₽ → egress report →
+rationale. All four — weeks, not months.
 
-### T12. KnowVault — троянский продукт: kalita невидима до момента открытия 🔥
-**Мысль (фаундер, 2026-06-14):** компания ставит KnowVault как приложение, не
-зная о kalita. Делают рабочие области, грузят документы, индексируется, весело
-задают вопросы в интерфейсе, подключают свою 1С по API — и только потом
-узнают, что у них давно стоит kalita и «там можно творить».
-**Разбор:** подтверждено как генеральная линия продаж (дверь №1 + land-and-
-expand). Продуктовые следствия:
-1. **Поставка = продукт KnowVault**: `docker compose up` → брендированный
-   KnowVault, слово kalita нигде не светится. Внутри: узел + воркеры + Qdrant.
-2. **Продуктовый UI обязателен** (тот самый «один кастомный экран»): поиск +
-   RAG-ответы + drag-drop загрузка документов. Универсальный kalita-UI
-   остаётся как раздел «Администрирование» (источники, права, журнал) под
-   брендом KnowVault.
-3. **File upload поднимается в приоритете** (из V1-GATE): «грузят документы»
-   — это upload в UI, не только пути к папкам.
-4. **Q&A-воркер**: search_perimeter + генерация ответа (LLM из VaultSettings);
-   вопросы уже журналируются (SearchQuery).
-5. **1С по API**: Source kind=Database + коннектор-воркер 1С (HTTP-сервисы/
-   ODATA) — по требованию первого клиента.
-6. **Механика открытия** («у вас уже есть kalita»): раздел «Автоматизация» в
-   админке → предлагает паки/агентов поверх их же данных. Это upsell-момент
-   и переход к платформенной подписке.
-Цена: KnowVault продаётся как продукт со своей ценой; открытие kalita — апселл.
+### T12. KnowVault — Trojan product: kalita is invisible until the reveal moment 🔥
+**Thought (founder, 2026-06-14):** the company installs KnowVault as an application,
+not knowing about kalita. They create workspaces, upload documents, indexing runs, they happily
+ask questions in the interface, connect their 1C via API — and only then
+discover that they have had kalita running all along and "you can do anything with it".
+**Analysis:** confirmed as the main sales strategy (door #1 + land-and-
+expand). Product implications:
+1. **Delivery = KnowVault product**: `docker compose up` → branded
+   KnowVault, the word kalita appears nowhere. Inside: node + workers + Qdrant.
+2. **Product UI is required** (the very "one custom screen"): search +
+   RAG answers + drag-drop document upload. The universal kalita-UI
+   remains as the "Administration" section (sources, permissions, journal) under
+   the KnowVault brand.
+3. **File upload elevated in priority** (from V1-GATE): "uploading documents"
+   — that means upload in the UI, not just folder paths.
+4. **Q&A worker**: search_perimeter + answer generation (LLM from VaultSettings);
+   questions are already logged (SearchQuery).
+5. **1C via API**: Source kind=Database + 1C connector-worker (HTTP services/
+   ODATA) — per the first client's request.
+6. **Reveal mechanic** ("you already have kalita"): "Automation" section in
+   the admin panel → offers packs/agents on top of their own data. This is the upsell moment
+   and the transition to a platform subscription.
+Price: KnowVault is sold as a product at its own price; the kalita reveal is an upsell.
 
-### T13. ABAC и сложные запросы — «кость в горле» (как у Jira) 🔥 КРИТИЧНО
-**Мысль:** помимо типов, главная проблема — ABAC и сложные запросы; именно это
-кость в горле Jira.
-**Разбор — фаундер прав, это самый острый архитектурный пробел.** Честная
-ревизия текущего состояния:
+### T13. ABAC and complex queries — "bone in the throat" (like Jira) 🔥 CRITICAL
+**Thought:** beyond types, the main problem is ABAC and complex queries; that is exactly
+the bone in the throat of Jira.
+**Analysis — the founder is right, this is the sharpest architectural gap.** Honest
+review of the current state:
 
-ЧТО ЕСТЬ (ABAC частично): row-level `where field = $self/$me`, field-level
-deny, deny>allow, роли. Это уже ABAC начального уровня.
+WHAT EXISTS (ABAC partially): row-level `where field = $self/$me`, field-level
+deny, deny>allow, roles. This is already entry-level ABAC.
 
-ЧЕГО НЕТ (и это больно):
-1. **Сложные условия прав:** только `field = value` и `and`. Нет `or`,
-   скобок, сравнения двух полей, проверки по связанной записи
-   (`where project.owner = $me` — видеть задачи проектов, где я владелец).
-   Jira-боль ровно эта: «дай доступ если (я репортёр ИЛИ я в команде проекта)
-   И статус не Closed».
-2. **Сложные запросы:** Query умеет только equality-фильтры. Нет диапазонов
-   (`points > 5`), `or`, сортировки по нескольким, поиска по тексту, запросов
-   по связям, агрегатных фильтров. JQL Jira — это то, чего у нас нет.
-3. **Saved-фильтры/views** как объекты (есть `view` в ui, но статичный).
+WHAT IS MISSING (and it hurts):
+1. **Complex permission conditions:** only `field = value` and `and`. No `or`,
+   parentheses, two-field comparison, check via a related record
+   (`where project.owner = $me` — see tasks in projects where I am the owner).
+   The exact Jira pain: "grant access if (I am the reporter OR I am on the project team)
+   AND status is not Closed".
+2. **Complex queries:** Query only supports equality filters. No ranges
+   (`points > 5`), `or`, multi-field sorting, text search, relation queries,
+   aggregate filters. Jira's JQL — that is what we lack.
+3. **Saved filters/views** as objects (there is `view` in ui, but it is static).
 
-ПЛАН (приоритет — выше dashboard, это фундамент ERP/CRM):
-- **A. Богатый язык условий** (общий для prav `where`, query-фильтров, guard'ов,
-  агрегатов): or/and/скобки, сравнения, in, поле-к-полю, путь по ref
-  (`project.owner`), `$me`/`$self`/`$now`. ОДИН проверяемый вычислитель,
-  закрытая грамматика — НЕ произвольный код (иначе теряем гарантии). Это
-  «JQL, но безопасный и единый для прав и запросов».
-- **B. Query API v2:** filter-выражения этого языка, sort[], full-text по
-  text-полям, пагинация (есть). Возможно отдельный POST /api/query с телом.
-- **C. ABAC по связанным записям:** разрешить в `where` путь через ref
-  (одно-двух-хоповый), это закрывает 90% Jira-кейсов.
-Риск: производительность (сканы) — но проекции в RAM + индексы по горячим
-полям (ADR-002) держат; сложные запросы — на sink-воркер аналитики при росте.
-**Это следующий крупный блок после текущих типов — он важнее dashboard.**
+PLAN (priority — above dashboard, this is the ERP/CRM foundation):
+- **A. Rich condition language** (shared across permission `where`, query filters, guards,
+  aggregates): or/and/parentheses, comparisons, in, field-to-field, path via ref
+  (`project.owner`), `$me`/`$self`/`$now`. ONE verifiable evaluator,
+  closed grammar — NOT arbitrary code (otherwise we lose guarantees). This is
+  "JQL, but safe and unified for permissions and queries".
+- **B. Query API v2:** filter expressions in this language, sort[], full-text on
+  text fields, pagination (present). Possibly a separate POST /api/query with a body.
+- **C. ABAC on related records:** allow a path through ref in `where`
+  (one-to-two hops), this closes 90% of Jira use cases.
+Risk: performance (scans) — but in-RAM projections + indexes on hot
+fields (ADR-002) hold up; complex queries — to the analytics sink-worker at scale.
+**This is the next major block after current types — it is more important than dashboard.**
 
-### T14. Портфель приложений малого бизнеса — «раскидать платформу» 🔥
-**Мысль:** строить на kalita системы для малого бизнеса и раскидать платформу
-широко: заявки, личные кабинеты, кадры (отпуска/больничные/найм),
-документооборот, CRM, сайт с интернет-магазином — «как rubberduck по улице».
-**Разбор — это GTM-стратегия, не просто список.** Каждый пункт = пак (страница
-DSL), и вместе они образуют каталог вертикалей на одном ядре. Соответствие
-модели T8 (домен=пак, тяжёлое=воркер) и стратегии (вертикали продают,
-платформа внутри):
+### T14. Small business application portfolio — "spreading the platform" 🔥
+**Thought:** build systems for small businesses on kalita and spread the platform
+widely: requests, client portals, HR (leave/sick-leave/hiring),
+document management, CRM, website with online store — "like a rubberduck on the street".
+**Analysis — this is a GTM strategy, not just a list.** Each item = a pack (one page
+of DSL), and together they form a vertical catalog on one core. Matches
+the T8 model (domain=pack, heavy=worker) and the strategy (verticals sell,
+platform is inside):
 
-| Приложение | Сложность пака | Воркеры | Готовность примитивов |
+| Application | Pack complexity | Workers | Primitive readiness |
 |---|---|---|---|
-| Заявки/обращения | низкая | — | ✅ есть (collections-подобный) |
-| Личный кабинет клиента | низкая | — | ✅ (инвайты + row-level есть) |
-| Кадры: отпуска/больничные | средняя | — | ✅ (workflow+approval+календарь*) |
-| Найм (ATS) | средняя | — | ✅ (этапы воронки = workflow) |
-| Документооборот | средняя | OCR? | ✅ (file+workflow+нумератор) |
-| CRM | средняя | — | ✅ (есть всё для dogfood №5) |
-| Интернет-магазин | высокая | платежи, витрина | ⚠ нужен escape hatch + платёжный воркер |
+| Requests/inquiries | low | — | ✅ present (collections-like) |
+| Client portal | low | — | ✅ (invites + row-level present) |
+| HR: leave/sick-leave | medium | — | ✅ (workflow+approval+calendar*) |
+| Hiring (ATS) | medium | — | ✅ (pipeline stages = workflow) |
+| Document management | medium | OCR? | ✅ (file+workflow+sequence generator) |
+| CRM | medium | — | ✅ (everything for dogfood #5) |
+| Online store | high | payments, storefront | ⚠ needs escape hatch + payment worker |
 
-*календарь рабочих дней — в плане T9.
-Вывод: 6 из 7 приложений выразимы УЖЕ имеющимися примитивами (+ABAC из T13
-усилит). Магазин — единственный, требующий escape hatch (витрина) и
-платёжного воркера. Стратегия «раскидать»: набор готовых паков в репозитории
-как витрина возможностей → партнёры/вайб-кодеры берут и внедряют (дверь №2).
-Каждый пак = демо + товар маркетплейса.
-ОЧЕРЕДЬ ПАКОВ (после ABAC): заявки → кабинет → CRM → кадры → документооборот →
-найм → магазин (последним, он самый тяжёлый).
+*working days calendar — planned in T9.
+Conclusion: 6 of 7 applications are expressible with EXISTING primitives (+ABAC from T13
+will strengthen them). The store is the only one requiring an escape hatch (storefront) and
+a payment worker. "Spread" strategy: a set of ready packs in the repository
+as a showcase of capabilities → partners/vibe-coders pick them up and deploy (door #2).
+Each pack = demo + marketplace item.
+PACK QUEUE (after ABAC): requests → portal → CRM → HR → document management →
+hiring → store (last, it is the heaviest).
 
-### T15. Типы представлений админки — закрытый набор (как Refine/enterprise) 📐
-**Мысль:** разные типы представлений для админки (как Refine и пр.); в
-энтерпрайзе набор-то скудный — доска, деталка, список, отчёт, кастомный блок.
-**Разбор — фаундер прав, и «скудный набор» это ФИЧА, не баг.** Закрытый список
-view-типов = UI остаётся проверяемым (агент не нарисует кривой экран), как и
-вся остальная грамматика. Refine/AdminJS/React-Admin доказали: 95% энтерпрайз-
-UI = горстка паттернов. Канонический набор kalita:
+### T15. Admin panel view types — closed set (like Refine/enterprise) 📐
+**Thought:** different view types for the admin panel (like Refine etc.); in
+enterprise the set is sparse — board, detail, list, report, custom block.
+**Analysis — the founder is right, and "sparse set" is a FEATURE, not a bug.** A closed list
+of view types = the UI stays verifiable (an agent cannot render a broken screen), just like
+the rest of the grammar. Refine/AdminJS/React-Admin proved: 95% of enterprise
+UI = a handful of patterns. Canonical kalita set:
 
-| View | Что | Статус |
+| View | What | Status |
 |---|---|---|
-| **list** | таблица: колонки, фильтры, сортировка, saved-views | ✅ есть |
-| **board** | канбан по enum-полю, свимлейны | ✅ (свимлейны — добавить) |
-| **detail** | карточка записи: секции, связи, журнал, действия | ✅ есть (form+RecordView) |
-| **report** | сводка: метрики/группировки/график (= dashboard T-выше) | ⚠ в работе |
-| **calendar** | записи по date-полю (отпуска, сроки, активности) | ⛔ нет — нужен |
-| **custom** | escape hatch: свой компонент (SDK/WASM) | ⚠ SDK-экран есть, формализовать |
+| **list** | table: columns, filters, sorting, saved-views | ✅ present |
+| **board** | kanban by enum field, swimlanes | ✅ (swimlanes — add) |
+| **detail** | record card: sections, relations, journal, actions | ✅ present (form+RecordView) |
+| **report** | summary: metrics/groupings/chart (= dashboard T-above) | ⚠ in progress |
+| **calendar** | records by date field (leave, deadlines, activities) | ⛔ absent — needed |
+| **custom** | escape hatch: own component (SDK/WASM) | ⚠ SDK screen present, formalize |
 
-Принцип: `ui Entity:` объявляет, КАКИЕ из этих view доступны и их конфиг;
-рендерер (встроенный или SDK) знает все типы. Новый view-тип добавляется в
-ядро редко и обдуманно (как новый примитив), не автором пака.
-ДОБАВИТЬ в очередь UI: calendar-view (важен для кадров/CRM/сроков),
-свимлейны в board, формализовать custom-блок как точку SDK/WASM.
-Связь: detail-view выигрывает от связей (T-links, есть) и ABAC (T13).
+Principle: `ui Entity:` declares WHICH of these views are available and their config;
+the renderer (built-in or SDK) knows all types. A new view type is added to
+the core rarely and deliberately (like a new primitive), not by a pack author.
+ADD to UI queue: calendar-view (important for HR/CRM/deadlines),
+swimlanes in board, formalize custom-block as the SDK/WASM extension point.
+Relation: detail-view benefits from relations (T-links, present) and ABAC (T13).
 
 ---
 
-Связанные документы: ROADMAP-TREE.md (очередь), PORTAL-VISION.md,
+Related documents: ROADMAP-TREE.md (queue), PORTAL-VISION.md,
 KNOWVAULT-INTEGRATION.md, SECURITY.md, adr/ADR-002-tiered-storage.md,
 DYNAMICS-VISION.md, TYPE-SYSTEM-V1.md.

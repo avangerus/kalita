@@ -1,89 +1,89 @@
 # Kalita MCP Contract v0
 
-Статус: проект. MCP-сервер — первоклассный интерфейс агентов (равный Web UI людей). Транспорт: streamable HTTP (основной), stdio (локальная разработка).
+Status: draft. The MCP server is a first-class agent interface (equal to the Web UI for humans). Transport: streamable HTTP (primary), stdio (local development).
 
-## 0. Принципы контракта
+## 0. Contract principles
 
-1. **Анонимных агентов нет.** Каждый вызов аутентифицирован ключом агента; агент = identity + роль + scopes. Регистрирует агента человек-администратор.
-2. **Права едины.** MCP не имеет собственной модели доступа — каждый вызов проходит тот же Permission Engine, что и клик человека. Деградация прав = деградация tools (агент даже не видит недоступные операции в `describe_system`).
-3. **Каждая мутация требует `basis`** — основание: ссылка на задачу, правило автоматизации, ADR или указание человека. Мутация без основания отклоняется. Основание пишется в журнал (провенанс).
-4. **Все вызовы журналируются** с identity, аргументами и результатом.
-5. **Ошибки — топливо самокоррекции:** структурированы, с `fix_hint`, никогда не свободный текст.
+1. **No anonymous agents.** Every call is authenticated with an agent key; agent = identity + role + scopes. Agents are registered by a human administrator.
+2. **Unified permissions.** The MCP has no access model of its own — every call goes through the same Permission Engine as a human click. Permission downgrade = tool downgrade (the agent does not even see unavailable operations in `describe_system`).
+3. **Every mutation requires `basis`** — a justification: a reference to a task, an automation rule, an ADR, or a human instruction. A mutation without a basis is rejected. The basis is written to the log (provenance).
+4. **All calls are logged** with identity, arguments, and result.
+5. **Errors are fuel for self-correction:** structured, with `fix_hint`, never free text.
 
-## 1. Аутентификация и сессия
+## 1. Authentication and session
 
-- `Authorization: Bearer <agent_key>` (Ed25519-производный токен).
-- Ответ любого вызова содержит `def_version` (версия SystemDefinition) — агент всегда знает, против какой версии системы работает.
-- Мутации принимают `idempotency_key` (повтор вызова безопасен).
-- Rate limits per agent: декларируются администратором, превышение = `RATE_LIMITED` с `retry_after`.
+- `Authorization: Bearer <agent_key>` (Ed25519-derived token).
+- The response to any call contains `def_version` (the SystemDefinition version) — the agent always knows which version of the system it is working against.
+- Mutations accept `idempotency_key` (repeating a call is safe).
+- Rate limits per agent: declared by the administrator; exceeding them returns `RATE_LIMITED` with `retry_after`.
 
 ## 2. Tools — Discovery (read-only)
 
 ### `describe_system()`
-→ паки и версии, сущности (имена+краткие схемы), workflows, роли, **мои права** (что эта identity может), `def_version`. Первый вызов любого агента.
+→ packs and versions, entities (names + brief schemas), workflows, roles, **my permissions** (what this identity can do), `def_version`. The first call any agent makes.
 
 ### `describe_entity(entity)`
-→ полная схема: поля, типы, модификаторы, workflow с переходами и guards, мои права на уровне полей/строк, ui-views.
+→ full schema: fields, types, modifiers, workflow with transitions and guards, my permissions at the field/row level, ui-views.
 
 ### `get_grammar(format: "ebnf" | "json")`
-→ машиночитаемая грамматика DSL текущей версии + канонические примеры. Для constrained decoding на стороне агента-строителя.
+→ machine-readable DSL grammar for the current version + canonical examples. For constrained decoding on the builder-agent side.
 
-## 3. Tools — Данные (runtime)
+## 3. Tools — Data (runtime)
 
 ### `query(entity, filter?, sort?, limit?, cursor?)`
-→ страница записей в пределах прав (row/field-level применяются молча: чего не видно — того нет).
+→ a page of records within the caller's permissions (row/field-level applied silently: what is not visible does not exist).
 
 ### `get_record(entity, id, with_journal?: bool)`
 
 ### `create_record(entity, values, basis, idempotency_key)`
 ### `update_record(entity, id, values, basis, idempotency_key, expected_updated_at?)`
-Оптимистическая блокировка через `expected_updated_at` → `CONFLICT` при гонке. Прямого `delete` в v0 нет — удаление моделируется состоянием workflow (решение: данные не исчезают, event store полон).
+Optimistic locking via `expected_updated_at` → `CONFLICT` on a race. No direct `delete` in v0 — deletion is modeled as a workflow state (rationale: data does not disappear; the event store is complete).
 
 ### `act(entity, id, action, args?, basis, idempotency_key)`
-Выполнить переход workflow. Если переход `requires approval` — возвращает `{status: "pending_approval", approval_id}`: **агент не может ждать и не может ускорить**; подпись придёт от человека, задача продолжится событием.
+Execute a workflow transition. If the transition `requires approval` — returns `{status: "pending_approval", approval_id}`: **the agent cannot wait and cannot accelerate**; the signature will come from a human, and the task will continue on an event.
 
 ### `read_journal(scope: record|entity|system, id?, since?, limit?)`
-События в пределах прав чтения.
+Events within the caller's read permissions.
 
-## 4. Tools — Задачи (агент-работник)
+## 4. Tools — Tasks (agent as worker)
 
 ### `list_my_tasks(status?: open|taken)`
-→ задачи, назначенные роли этой identity (шаги workflow, задания автоматизации) с полным контекстом записи.
+→ tasks assigned to the role of this identity (workflow steps, automation assignments) with the full record context.
 
-### `take_task(task_id)` → эксклюзивный lease с TTL; истёк — задача вернулась в пул.
+### `take_task(task_id)` → exclusive lease with TTL; if expired — task returned to the pool.
 ### `complete_task(task_id, result, basis)`
-### `fail_task(task_id, reason)` — честный отказ лучше тихого зависания; пишется в журнал, влияет на рейтинг меньше, чем провал по TTL.
-### `report_progress(task_id, note)` — заметка прикрепляется к задаче; ядро сверяет с фактическими событиями по задаче (анти-приукрашивание: доклад без событий помечается).
+### `fail_task(task_id, reason)` — an honest refusal is better than silent hanging; written to the log; impacts rating less than a TTL expiry failure.
+### `report_progress(task_id, note)` — a note is attached to the task; the core cross-checks it against actual events on the task (anti-embellishment: a report with no backing events is flagged).
 
-## 5. Tools — Изменение системы (агент-строитель)
+## 5. Tools — System changes (agent as builder)
 
 ### `validate_dsl(files: {path: text})` — dry-run
-→ `{ok}` либо `{errors: [{code, file, line, message, fix_hint}]}`. Не требует прав — это компилятор. Цикл самокоррекции: генерируй → валидируй → правь → повторяй, без участия людей и без следов в системе.
+→ `{ok}` or `{errors: [{code, file, line, message, fix_hint}]}`. Requires no permissions — this is the compiler. Self-correction loop: generate → validate → fix → repeat, with no human involvement and no traces in the system.
 
 ### `propose_change(diff, base_def_version, description, basis)`
-→ валидация; при `ok` → `{proposal_id, migration_plan, status: "pending_approval"}` — в очередь подписей человека. `base_def_version` обязателен: предложение против устаревшей версии = `STALE_BASE`, агент обязан перечитать систему.
+→ validation; on `ok` → `{proposal_id, migration_plan, status: "pending_approval"}` — enters the human signing queue. `base_def_version` is mandatory: a proposal against a stale version = `STALE_BASE`; the agent must re-read the system.
 
-### `get_proposal(proposal_id)` → статус: `pending | approved | rejected {reason} | applied`.
-Отклонение с причиной — обучающий сигнал агенту; причины пишутся человеком в очереди подписей.
+### `get_proposal(proposal_id)` → status: `pending | approved | rejected {reason} | applied`.
+Rejection with a reason is a training signal for the agent; reasons are written by the human in the signing queue.
 
-## 6. Модель ошибок (закрытый список v0)
+## 6. Error model (closed list v0)
 
-| Код | Семантика |
+| Code | Semantics |
 |---|---|
-| `PERMISSION_DENIED` | + какое правило запретило (имя из permissions) |
-| `VALIDATION_ERROR` | + поле, ограничение, fix_hint |
-| `GUARD_FAILED` | переход невозможен: + какой guard и текущие значения |
-| `PENDING_APPROVAL` | действие создало запрос подписи |
-| `CONFLICT` / `STALE_BASE` | гонка версий записи / определения |
+| `PERMISSION_DENIED` | + which rule denied it (name from permissions) |
+| `VALIDATION_ERROR` | + field, constraint, fix_hint |
+| `GUARD_FAILED` | transition is impossible: + which guard and the current values |
+| `PENDING_APPROVAL` | action created a signing request |
+| `CONFLICT` / `STALE_BASE` | record version / definition version race |
 | `RATE_LIMITED` | + retry_after |
-| `BASIS_REQUIRED` | мутация без основания |
+| `BASIS_REQUIRED` | mutation without a basis |
 
-Принцип: ошибка всегда содержит достаточно данных, чтобы агент исправился **без человека** — кроме `PERMISSION_DENIED` и `PENDING_APPROVAL`, которые по замыслу решает только человек.
+Principle: an error always contains enough information for the agent to fix itself **without a human** — except for `PERMISSION_DENIED` and `PENDING_APPROVAL`, which by design can only be resolved by a human.
 
-## 7. Чего нет в v0 (зарезервировано)
+## 7. What is absent from v0 (reserved)
 
-`simulate_change` (слой 2), `subscribe` (push-события агентам — в v0 polling через `list_my_tasks`), межузловые вызовы (слой 3), управление identity через MCP (только человек-админ через UI), `search_perimeter` (RAG-поиск по корпоративным данным через KnowVault — см. KNOWVAULT-INTEGRATION.md).
+`simulate_change` (layer 2), `subscribe` (push events to agents — in v0 polling via `list_my_tasks`), cross-node calls (layer 3), identity management via MCP (human admin via UI only), `search_perimeter` (RAG search over corporate data via KnowVault — see KNOWVAULT-INTEGRATION.md).
 
-## 8. Приёмочный сценарий контракта
+## 8. Contract acceptance scenario
 
-Один агент (Claude Code + этот MCP) обязан, не касаясь ничего кроме tools: (1) прочитать грамматику, (2) предложить пак «заявки» диффом, (3) после подписи человека создать 5 записей, (4) провести одну по workflow до HITL-перехода, (5) получить отказ по правам на запрещённую операцию со structured-ошибкой, (6) отчитаться о задаче. Это сквозной тест MVP недели 8.
+A single agent (Claude Code + this MCP) must, touching nothing outside the tools: (1) read the grammar, (2) propose the "requests" pack as a diff, (3) after a human signs, create 5 records, (4) advance one through the workflow to a HITL transition, (5) receive a structured permission-denied error on a forbidden operation, (6) report on a task. This is the end-to-end test for MVP week 8.

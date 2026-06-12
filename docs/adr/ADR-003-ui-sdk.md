@@ -1,69 +1,73 @@
-# ADR-003: UI — встроенный админ-клиент + отдельный SDK над замороженным контрактом
+# ADR-003: UI — Embedded Admin Client + Separate SDK over a Frozen Contract
 
-**Status:** Accepted (2026-06-14). Ответ на вопрос фаундера: «не суй JS внутрь,
-сделай SDK на React».
+**Status:** Accepted (2026-06-14). Response to the founder's question: "don't
+embed JS inside — build an SDK on React."
 
-**Context:** универсальный клиент сейчас — один app.js (preact+htm), вшит в
-бинарь через go:embed. Это отлично для админки, но не годится для продуктовых
-лиц (поиск KnowVault, кабинеты, брендированные витрины) и для партнёров/авторов
-паков, которым нужен `npm install`, а не «впиши код в наш файл».
+**Context:** the universal client today is a single app.js (preact+htm), embedded
+in the binary via go:embed. This works well for the admin UI, but is not suitable
+for product-facing screens (KnowVault search, portals, branded storefronts) nor
+for partners and pack authors who need `npm install` rather than "paste code into
+our file."
 
-**Decision — три части:**
+**Decision — three parts:**
 
-1. **HTTP API — единственный контракт продукта и точка заморозки.** Всё
-   («что показать» — /api/meta; данные — /api/records; действия — act/approve;
-   поиск — /api/search). UI любой природы — лишь потребитель. Контракт
-   версионируется и не ломается без major.
+1. **HTTP API — the sole product contract and freeze point.** Everything
+   ("what to show" — /api/meta; data — /api/records; actions — act/approve;
+   search — /api/search). Any UI, regardless of kind, is merely a consumer.
+   The contract is versioned and will not break without a major version bump.
 
-2. **Встроенный админ-клиент остаётся.** Генерируемая админка (списки, доска,
-   Inbox, Agents) — вшита, без сборки, версия совпадает с ядром, on-prem без
-   node. Это «порядок». Тащить сюда бандлер — против принципа коробки.
+2. **The embedded admin client remains.** The generated admin UI (lists, board,
+   Inbox, Agents) — embedded, no build step, version matches the core, on-prem
+   without node. This is "order." Pulling a bundler in here goes against the
+   out-of-the-box principle.
 
-3. **SDK как отдельный пакет `packages/kalita-sdk` — чистый ESM, без сборки.**
-   - `client.js` — framework-agnostic обёртка API (auth-токен, records, act,
-     approve, search, meta, invites). Работает в любом JS.
-   - `react.js` — хуки (useMeta, useRecords, useRecord, useInbox, useSearch)
-     поверх client.js.
-   - ESM-модули импортируются напрямую (наша философия «без сборки» сохранена)
-     И публикуются в npm как `@kalita/sdk` для полноценных React-проектов.
-   - Встроенный клиент со временем рефакторится поверх того же client.js —
-     один источник истины для обращений к API.
+3. **SDK as a separate package `packages/kalita-sdk` — pure ESM, no build step.**
+   - `client.js` — framework-agnostic API wrapper (auth token, records, act,
+     approve, search, meta, invites). Works in any JS environment.
+   - `react.js` — hooks (useMeta, useRecords, useRecord, useInbox, useSearch)
+     on top of client.js.
+   - ESM modules are imported directly (our "no build" philosophy is preserved)
+     AND published to npm as `@kalita/sdk` for full React projects.
+   - The embedded client is eventually refactored on top of the same client.js —
+     a single source of truth for all API calls.
 
-**Кто чем строит:**
-- админка/служебные экраны → встроенный клиент (мы);
-- продуктовые лица (поиск, кабинет, витрина), партнёрские брендированные
-  приложения → SDK (мы и партнёры).
+**Who builds what:**
+- admin / service screens → embedded client (us);
+- product-facing screens (search, portal, storefront), partner-branded
+  applications → SDK (us and partners).
 
-**Alternatives considered:** (1) всё на React со сборкой — отвергнуто: убивает
-«коробку без node» для on-prem админки; (2) оставить только инлайн — отвергнуто:
-тупик для партнёров и продуктовых лиц (вопрос фаундера); (3) GraphQL-слой —
-отвергнуто: REST+meta уже самоописателен, второй контракт = вторая истина.
+**Alternatives considered:** (1) everything in React with a build step — rejected:
+kills "out-of-the-box without node" for the on-prem admin UI; (2) keep inline
+only — rejected: dead end for partners and product faces (founder's question);
+(3) GraphQL layer — rejected: REST+meta is already self-describing; a second
+contract = a second source of truth.
 
-**Expected outcome (falsifiable):** сторонний разработчик собирает рабочий
-экран (логин + список записей + действие) на `@kalita/sdk` в Vite-проекте за
-< 30 строк, не читая исходники ядра. Не выходит — SDK недостаточно тонкий/полный.
+**Expected outcome (falsifiable):** a third-party developer builds a working
+screen (login + record list + action) with `@kalita/sdk` in a Vite project in
+< 30 lines, without reading the core source code. Fails — the SDK is not thin
+or complete enough.
 
-**Consequences:** API становится публичным обязательством (документировать и
-не ломать); npm-публикация добавляет релизный шаг для SDK (но НЕ для ядра);
-KnowVault-поиск и кабинеты переезжают на SDK по мере появления.
+**Consequences:** the API becomes a public commitment (document it and do not
+break it); npm publishing adds a release step for the SDK (but NOT for the core);
+KnowVault search and portals migrate to the SDK as they are built.
 
-## Дополнение (2026-06-14): три уровня SDK, последний — главный
+## Addendum (2026-06-14): Three SDK Levels, the Last Being Primary
 
-Финальная роль SDK (формулировка фаундера): «хочешь сайт — подключаешь
-SDK-компоненту в свой дизайн и получаешь удобный инструмент работы с API
-kalita и нотациями ui». То есть SDK — это способ натянуть ЛЮБОЙ дизайн на
-kalita, не переписывая логику. Три уровня:
+The final role of the SDK (founder's formulation): "if you want a site — you
+plug in an SDK component into your design and get a convenient tool for working
+with the kalita API and UI notations." In other words, the SDK is the way to
+apply ANY design on top of kalita without rewriting the logic. Three levels:
 
-1. **client.js** — сырой API (records/act/search/...). Полный контроль.
-2. **react.js хуки** — useRecords/useSearch/useInbox: данные в твой JSX.
-3. **notation-driven компоненты** — `<KList entity>`, `<KDetail>`, `<KBoard>`,
-   `<KForm>`: компонент САМ читает /api/meta (колонки, типы, права, кнопки,
-   view-конфиг) и рендерится; дизайн отдаётся через render-props/слоты и
-   className, так что сайт сохраняет свой облик. Дизайнер втыкает `<KList
-   entity="Deal"/>` в свою сетку — получает таблицу сделок с правами и
-   действиями, ноль строк логики. Это «WordPress-тема»: тема рисует, ядро+
-   нотация наполняют.
+1. **client.js** — raw API (records/act/search/...). Full control.
+2. **react.js hooks** — useRecords/useSearch/useInbox: data into your JSX.
+3. **Notation-driven components** — `<KList entity>`, `<KDetail>`, `<KBoard>`,
+   `<KForm>`: the component ITSELF reads /api/meta (columns, types, permissions,
+   buttons, view config) and renders; design is provided via render-props/slots
+   and className, so the site keeps its own look and feel. A designer drops
+   `<KList entity="Deal"/>` into their grid — gets a deals table with permissions
+   and actions, zero lines of logic. This is "WordPress theme": the theme paints,
+   the core + notation fill in.
 
-Принцип: notation-driven компоненты — тонкие обёртки над хуками, презентация
-сменная (unstyled by default), нулевой домен внутри. Закрытый набор совпадает
-с view-типами (T15): list/board/detail/form/report/calendar/custom.
+Principle: notation-driven components are thin wrappers over hooks, presentation
+is swappable (unstyled by default), zero domain logic inside. The closed set
+matches the view types (T15): list/board/detail/form/report/calendar/custom.

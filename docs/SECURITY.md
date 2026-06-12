@@ -1,76 +1,81 @@
-# Kalita — модель угроз и состояние безопасности
+# Kalita — Threat Model and Security Status
 
-Статус: v0 (2026-06-13). Честный документ: что держит, что нет, что чинить до
-какого этапа. Безопасность kalita — это продукт (агентам доверяют работу), а
-не приложение к нему.
+Status: v0 (2026-06-13). An honest document: what holds, what does not, what to
+fix before which stage. Security in kalita is a product (agents are trusted with
+work), not an appendage to it.
 
-## 1. Модель угроз — от кого защищаемся
+## 1. Threat Model — Who We Are Protecting Against
 
-| Угроза | Вектор |
+| Threat | Vector |
 |---|---|
-| T1. Враждебный/сломавшийся агент | валидный токен, пытается выйти за права, наврать, испортить данные |
-| T2. Украденный ключ/токен агента | злоумышленник действует от имени агента |
-| T3. Сетевой злоумышленник в LAN | перехват, имперсонация, перебор токенов |
-| T4. Инсайдер с доступом к Postgres | подмена/удаление истории задним числом |
-| T5. Автор враждебного пака | DSL как канал атаки |
-| T6. Флуд/DoS | заполнение журнала, исчерпание ресурсов |
+| T1. Hostile/broken agent | valid token, attempts to exceed its rights, lie, corrupt data |
+| T2. Stolen agent key/token | attacker acts as the agent |
+| T3. Network attacker on LAN | interception, impersonation, token brute-force |
+| T4. Insider with Postgres access | retroactive substitution/deletion of history |
+| T5. Author of a hostile pack | DSL as an attack channel |
+| T6. Flood/DoS | log overflow, resource exhaustion |
 
-## 2. Что уже держит (by design)
+## 2. What Already Holds (by design)
 
-- **T1 — главная ставка платформы:** default deny; deny > allow; агентская
-  роль без deny не компилируется; workflow-поле не пишется напрямую; HITL
-  нельзя обойти или ускорить (перехода без подписи не существует); мутации без
-  basis отклоняются; доклады сверяются с фактами (facts=0 виден); права
-  применяются в ядре — UI/MCP не имеют собственной логики доступа.
-- **T2 (частично):** анонимных актёров нет; токены показываются один раз, в
-  журнале только sha256; сравнение constant-time; отключение актёра мгновенно
-  гасит и токен, и подписи; ротация ключей — событие журнала.
-- **T4:** append-only журнал + цепочка SHA-256; UPDATE/DELETE отбиты триггером
-  БД; чекпойнты подписываются node-ключом и могут выгружаться наружу —
-  переписанный задним числом журнал ловится офлайн-верификацией. Подписи
-  решений (Ed25519) проверяются без доступа к серверу.
-- **T5:** DSL не содержит кода — пак не может исполнить ничего; исходящие
-  webhook только декларированные (egress виден из спеки); предложение пака
-  применяется только подписью человека с ролью-аппрувером, с планом миграции
-  на руках; разрушающие изменения невыразимы.
-- **T6 (частично):** rate limit на актёра в MCP; неуспешные аутентификации
-  НЕ пишутся в журнал намеренно (иначе перебор токенов = флуд журнала).
-- Выражения fail-closed: невычислимое условие = запрет, не разрешение.
+- **T1 — the platform's primary bet:** default deny; deny > allow; an agent role
+  without deny does not compile; the workflow field cannot be written directly;
+  HITL cannot be bypassed or fast-forwarded (a transition without a signature
+  does not exist); mutations without a basis are rejected; reports are reconciled
+  against facts (facts=0 is visible); permissions are enforced in the core —
+  UI/MCP have no access logic of their own.
+- **T2 (partially):** no anonymous actors; tokens are shown only once, the log
+  stores only sha256; comparison is constant-time; disabling an actor
+  immediately kills both the token and its signatures; key rotation is a log
+  event.
+- **T4:** append-only log + SHA-256 chain; UPDATE/DELETE are blocked by a DB
+  trigger; checkpoints are signed with the node key and can be exported
+  externally — a log rewritten after the fact is caught by offline verification.
+  Decision signatures (Ed25519) are verifiable without server access.
+- **T5:** the DSL contains no code — a pack cannot execute anything; outbound
+  webhooks are declaration-only (egress is visible from the spec); applying a
+  pack requires a signature from a human with the approver role, migration plan
+  in hand; destructive changes are inexpressible.
+- **T6 (partially):** rate limit per actor in MCP; failed authentication attempts
+  are intentionally NOT written to the log (otherwise token brute-force = log
+  flood).
+- Expressions fail-closed: an unevaluable condition = deny, not allow.
 
-## 3. Известные дыры (по приоритету)
+## 3. Known Gaps (by priority)
 
-### P0 — закрыть ДО любого деплоя вне localhost
-1. **REST dev-заголовки (X-Actor-Id/Role)** — имперсонация любым, кто видит
-   порт. Снести; людям — сессии по токену (как у агентов) до прихода WebAuthn.
-2. **Нет TLS.** Узел должен либо сам поднимать TLS (autocert/файлы), либо
-   жёстко документировать reverse-proxy; токены по plaintext HTTP — это T3.
-3. **CORS/CSRF не настроены** — до выпуска UI обязателен same-origin режим.
+### P0 — Fix BEFORE any deployment outside localhost
+1. **REST dev headers (X-Actor-Id/Role)** — impersonation by anyone who can
+   reach the port. Remove; for humans — token-based sessions (same as agents)
+   until WebAuthn arrives.
+2. **No TLS.** The node must either set up TLS itself (autocert/files) or
+   strictly document a reverse-proxy requirement; tokens over plaintext HTTP = T3.
+3. **CORS/CSRF not configured** — same-origin mode is mandatory before the UI
+   is released.
 
-### P1 — до первого внешнего пользователя
-4. **WebAuthn для людей** — сейчас человеческие решения подписываются только
-   при наличии зарегистрированного ключа; токен ≠ неотрекаемость. Passkey
-   делает подпись доказательной (ключ на устройстве, спека Event Store §4).
-5. **Секреты:** PG DSN в env/.env; нужен файл конфигурации с правами 0600 и
-   поддержка docker secrets.
-6. **Журналирование auth-провалов** — в память/лог с rate-limit по IP (не в
-   журнал, см. T6), алерт при N провалов.
-7. **Lockout/инвалидация:** нет команды экстренного отзыва всех токенов.
+### P1 — Before the first external user
+4. **WebAuthn for humans** — currently human decisions are signed only when a
+   registered key is present; a token ≠ non-repudiation. A passkey makes the
+   signature evidential (key on device, Event Store spec §4).
+5. **Secrets:** PG DSN in env/.env; needs a config file with 0600 permissions
+   and docker secrets support.
+6. **Auth-failure logging** — to memory/log with IP rate-limit (not to the log,
+   see T6), alert on N failures.
+7. **Lockout/invalidation:** no emergency command to revoke all tokens.
 
-### P2 — до enterprise-продаж
-8. Crypto-shredding payload'ов (зарезервировано в Event Store §6).
-9. Внешнее анкорение чекпойнтов (клиентский бэкап, notary).
-10. Скан зависимостей в CI (govulncheck) + подпись релизов.
-11. WASM-песочница escape hatch с capability-моделью (контракт уже требует).
+### P2 — Before enterprise sales
+8. Crypto-shredding of payloads (reserved in Event Store §6).
+9. External checkpoint anchoring (client backup, notary).
+10. Dependency scanning in CI (govulncheck) + release signing.
+11. WASM sandbox escape hatch with capability model (the contract already requires it).
 
-## 4. Правила, которые нельзя нарушать при развитии
+## 4. Rules That Must Not Be Violated During Development
 
-1. Ни один интерфейс не получает собственной модели доступа — только ядро.
-2. Новые события — только аддитивно; журнал не «чистится» никогда.
-3. Любой новый канал наружу объявляется в DSL (видимый egress).
-4. Ошибка вычисления права = запрет (fail closed), всегда.
-5. Секрет не попадает в журнал ни в каком виде, кроме хэша.
-6. **On-premise по умолчанию: никаких облачных сервисов в ядре или паках.**
-   Дашборды, аналитика, поиск, BI — считаются и рисуются в контуре. Внешние
-   модели/сервисы — только через воркер с декларированным egress (правило 3) и
-   по явному решению клиента. Референсы вроде «как Power BI» — описание жанра,
-   НЕ зависимость.
+1. No interface gets its own access model — only the core does.
+2. New events — additive only; the log is never "cleaned".
+3. Every new outbound channel is declared in the DSL (visible egress).
+4. A permission evaluation error = deny (fail closed), always.
+5. A secret never appears in the log in any form other than a hash.
+6. **On-premise by default: no cloud services in the core or packs.**
+   Dashboards, analytics, search, BI — computed and rendered within the
+   perimeter. External models/services — only through a worker with a declared
+   egress (rule 3) and by explicit client decision. References like "like Power BI"
+   describe the genre, NOT a dependency.

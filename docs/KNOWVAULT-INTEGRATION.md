@@ -1,65 +1,65 @@
-# KnowVault — модуль на ядре kalita
+# KnowVault — module on the kalita core
 
-Статус: принято (2026-06-13, пересмотр после ревью фаундера: «на ядре kalita,
-но как отдельный модуль; в ядро ничего не впаивать»).
+Status: accepted (2026-06-13, revised after founder review: "on the kalita core,
+but as a separate module; nothing is to be embedded into the core").
 
-## 0. Санитарное правило (главное)
+## 0. Sanity rule (the most important one)
 
-**Ядро kalita не знает ни о каких доменах.** Ни дебиторки, ни knowvault, ни
-service desk в `internal/` нет и быть не может — там живут только слова
-`entity`, `workflow`, `права`, `задачи`. Всё доменное — паки:
+**The kalita core knows nothing about any domain.** No accounts-receivable, no knowvault, no
+service desk exists or can exist in `internal/` — only the words
+`entity`, `workflow`, `permissions`, `tasks` live there. Everything domain-specific goes in packs:
 
-- `examples/` — приёмочные паки (тестовые эталоны грамматики: collections,
-  dev_department). В поставку не входят.
-- `packs/` — продуктовые модули. KnowVault — первый.
+- `examples/` — acceptance packs (test grammar reference implementations: collections,
+  dev_department). Not included in a release.
+- `packs/` — product modules. KnowVault is the first.
 
-## 1. Форма модуля: пак + агенты-работники
+## 1. Module form: pack + worker agents
 
-KnowVault на kalita состоит из двух частей:
+KnowVault on kalita consists of two parts:
 
-### 1.1 `packs/knowvault/` — DSL-пак (оркестрация, права, журнал)
-- `Workspace`, `Source` (файлы/почта/репозитории/базы/чаты) — обычные сущности;
-- workflow индексации: `New → Indexing → Indexed/Failed`, `Paused` только с
-  подписью VaultAdmin;
-- `SearchQuery` — журнал поисков как сущность: каждый поиск = запись с актёром,
-  ролью и числом результатов (провенанс средствами самой платформы);
-- роли с deny-границами: `Indexer agent` не может трогать пути источников и
-  читать чужие запросы; `Searcher agent` не видит источники-базы напрямую;
-- застрявшая индексация (12h) эскалируется человеку.
+### 1.1 `packs/knowvault/` — DSL pack (orchestration, permissions, audit log)
+- `Workspace`, `Source` (files/mail/repositories/databases/chats) — ordinary entities;
+- indexing workflow: `New → Indexing → Indexed/Failed`, `Paused` only with
+  a VaultAdmin signature;
+- `SearchQuery` — search log as an entity: each search = a record with actor,
+  role, and result count (provenance via the platform itself);
+- roles with deny boundaries: `Indexer agent` cannot touch source paths or
+  read other actors' queries; `Searcher agent` cannot see database sources directly;
+- stuck indexing (12 h) is escalated to a human.
 
-Пак компилируется штатным `kalita check --pack packs/knowvault`.
+The pack is compiled with the standard `kalita check --pack packs/knowvault`.
 
-### 1.2 Воркеры — существующий стек как агенты kalita
-Тяжёлая машинерия (ingest, эмбеддинги, Qdrant, коннекторы) — существующий
-Python-стек `D:\work\knowvault_app`, подключённый к узлу **как агенты**:
+### 1.2 Workers — existing stack as kalita agents
+The heavy machinery (ingest, embeddings, Qdrant, connectors) is the existing
+Python stack `D:\work\knowvault_app`, connected to the node **as agents**:
 
-- процесс-индексатор регистрируется актёром с ролью `Indexer` (ключ Ed25519),
-  берёт задачи `start_index` из пула kalita (TTL-аренда), индексирует,
-  двигает Source по workflow, отчитывается `report_progress` (сверка с фактами);
-- поисковый сервис отвечает на `search_perimeter` (MCP-tool kalita, §2),
-  создавая `SearchQuery`-записи под ролью `Searcher`.
+- the indexer process registers as an actor with the `Indexer` role (Ed25519 key),
+  picks up `start_index` tasks from the kalita pool (TTL-lease), indexes,
+  advances Source through the workflow, reports back via `report_progress` (fact check);
+- the search service responds to `search_perimeter` (kalita MCP-tool, §2),
+  creating `SearchQuery` records under the `Searcher` role.
 
-Так knowvault получает бесплатно всё, ради чего kalita существует: identity,
-права, журнал с подписями, аренды задач, эскалации, replay — а ядро не
-получает ни строчки поискового кода.
+This gives knowvault everything kalita exists for, for free: identity,
+permissions, signed audit log, task leases, escalations, replay — while the core
+receives not a single line of search code.
 
-## 2. MCP-tool `search_perimeter` (зарезервирован, реализация после MVP)
+## 2. MCP-tool `search_perimeter` (reserved, implementation after MVP)
 
-`search_perimeter(query, workspace?, limit?)` → сниппеты + ссылки на источники.
-- Право на вызов — через права роли на `Workspace`/`SearchQuery` пака;
-- результаты фильтруются workspaces актёра ДО возврата;
-- вызов порождает `SearchQuery`-запись (журналирование — не опция).
+`search_perimeter(query, workspace?, limit?)` → snippets + links to sources.
+- Call permission — via the role's rights on `Workspace`/`SearchQuery` in the pack;
+- results are filtered by the actor's workspaces BEFORE being returned;
+- the call creates a `SearchQuery` record (logging is not optional).
 
-## 3. Этапность
+## 3. Phasing
 
-1. **Сейчас:** пак в `packs/knowvault/` компилируется (сделано); ядро чистое.
-2. **После MVP (недели 6–8):** воркер-индексатор knowvault_app подключается
-   агентом через MCP; общий docker-compose (kalita + postgres + qdrant +
-   knowvault-сервисы) — один контур.
-3. **v1:** зеркалирование ACL источников → workspaces, по одному коннектору
-   на платящую вертикаль (ничего впрок).
+1. **Now:** pack in `packs/knowvault/` compiles (done); core is clean.
+2. **After MVP (weeks 6–8):** knowvault_app indexer-worker connects
+   as an agent via MCP; shared docker-compose (kalita + postgres + qdrant +
+   knowvault-services) — one perimeter.
+3. **v1:** mirroring source ACL → workspaces, one connector
+   per paying vertical (nothing speculative).
 
-## 4. Чистка репозиториев (решение фаундера)
+## 4. Repository cleanup (founder's decision)
 
-Рабочее — `knowvault_app`. Кандидаты в архив: `knowvault` (оркестровые
-эксперименты), `knowvault-v3`, `knowvault_v2`.
+Working — `knowvault_app`. Archive candidates: `knowvault` (orchestration
+experiments), `knowvault-v3`, `knowvault_v2`.

@@ -1,27 +1,27 @@
-# Сайт + личный кабинет + оплата (установка фаундера, 2026-06-13)
+# Website + client portal + payments (founder's position, 2026-06-13)
 
-Целевая связка («как на Битриксе, но через агента»): **пользователь через MCP
-говорит — и получает сайт с личным кабинетом клиента и оплатой.** Это ключевая
-функция kalita для рынка малого/среднего бизнеса.
+Target combination ("like Bitrix, but through an agent"): **the user speaks via MCP
+and gets a website with a client portal and payments.** This is the key
+kalita capability for the SMB market.
 
-## Что уже выразимо сегодня (ничего строить не надо)
-- **Личный кабинет = роль + row-level права.** Внешний клиент — обычный актёр
-  с ролью Customer и правами `read Order where customer = $me`; кабинет — тот
-  же генерируемый UI, отфильтрованный правами. Заказы, статусы, обращения,
-  журнал — бесплатно из пака.
-- Workflow заказа/обращения, эскалации, задачи — штатно.
+## What is already expressible today (nothing needs to be built)
+- **Client portal = role + row-level permissions.** An external client is an ordinary actor
+  with the Customer role and `read Order where customer = $me` permissions; the portal is the
+  same generated UI, filtered by permissions. Orders, statuses, inquiries,
+  audit log — all free from the pack.
+- Order/inquiry workflow, escalations, tasks — standard.
 
-## Чего не хватает (план, после MVP)
-1. **Self-registration внешних пользователей** — публичная регистрация с
-   привязкой к записи (Customer) и выдачей роли; сейчас актёров заводит админ.
-2. **Контентные страницы (сайт-витрина)** — НЕ расширять DSL до вёрстки
-   (граница порядка/свободы): витрина — кастомные страницы/тема поверх
-   публичного API (escape hatch уровня UI), кабинет — генерируемый.
-3. **Оплата** — `component`-интеграции (Stripe/ЮKassa/крипто) по контракту:
-   Payment-сущность в паке, провайдер — escape hatch воркер; платёжные события
-   в журнал, споры/возвраты — workflow с HITL.
+## What is missing (plan, after MVP)
+1. **Self-registration of external users** — public registration with
+   binding to a record (Customer) and role assignment; currently actors are created by an admin.
+2. **Content pages (storefront website)** — DO NOT extend the DSL to include layout
+   (the order/freedom boundary): the storefront is custom pages/theme on top of
+   the public API (UI-level escape hatch), the portal is generated.
+3. **Payments** — `component` integrations (Stripe/YooKassa/crypto) by contract:
+   Payment entity in the pack, provider — escape hatch worker; payment events
+   in the audit log, disputes/refunds — workflow with HITL.
 
-## Граница порядка и свободы (правило)
-Кабинет, заказы, статусы, оплата, документы — **порядок** (DSL, гарантии).
-Витрина, лендинг, дизайн — **свобода** (кастомный слой поверх API).
-Смешивать нельзя: свободная вёрстка не должна уметь трогать данные мимо прав.
+## The order/freedom boundary (rule)
+Portal, orders, statuses, payments, documents — **order** (DSL, guarantees).
+Storefront, landing page, design — **freedom** (custom layer on top of the API).
+They must not be mixed: free-form layout must not be able to touch data outside of permissions.

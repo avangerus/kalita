@@ -1,78 +1,78 @@
 # Kalita Event Store v0
 
-Статус: проект. Это «необратимое решение дня №1» (HLD п.8): журнал — единственная истина, всё остальное — проекции. Менять эту модель задним числом нельзя, поэтому она фиксируется до первой строки кода.
+Status: draft. This is the "irreversible day-1 decision" (HLD §8): the log is the single source of truth; everything else is a projection. Changing this model retroactively is impossible, so it is fixed before the first line of code.
 
-## 0. Принципы
+## 0. Principles
 
-1. **Append-only.** У роли приложения в PostgreSQL нет прав UPDATE/DELETE на таблицу событий — физически.
-2. **Всё — событие.** Изменение данных, переход workflow, предложение/подпись/применение DSL, взятие/сдача задачи, регистрация агента. Если этого нет в журнале — этого не было.
-3. **Проекции выводимы и выбрасываемы.** Текущее состояние любой сущности перестраивается реплеем с нуля; совпадение бит-в-бит — приёмочный тест.
-4. **Подпись и цепочка хэшей** — доказательная сила журнала (слои 2–3: репутация, страхуемость).
-5. **Детерминизм для будущей симуляции:** все вычисленные на момент события значения (`now()`, guard-инпуты) фиксируются в payload — реплей не перевычисляет мир.
+1. **Append-only.** The application role in PostgreSQL has no UPDATE/DELETE rights on the events table — physically.
+2. **Everything is an event.** Data changes, workflow transitions, DSL proposals/signatures/applications, task take/complete, agent registration. If it is not in the log — it did not happen.
+3. **Projections are derivable and discardable.** The current state of any entity is rebuilt by replaying from scratch; bit-for-bit identity is the acceptance test.
+4. **Signature and hash chain** — evidentiary force of the log (layers 2–3: reputation, insurability).
+5. **Determinism for future simulation:** all values computed at the time of the event (`now()`, guard inputs) are fixed in the payload — replay does not recompute the world.
 
-## 1. Схема события
+## 1. Event schema
 
 ```
-event_id        uuid v7 (время в id)
-seq             bigint, монотонный без дыр (per node)
+event_id        uuid v7 (time in id)
+seq             bigint, monotonic without gaps (per node)
 ts              timestamptz
 actor           {type: human|agent|system, id, role}
-kind            см. таксономию
+kind            see taxonomy
 subject         {entity, record_id} | {proposal_id} | {task_id} | {actor_id}
 payload         jsonb
-basis           {type: task|rule|adr|human|approval, id}   — провенанс
-def_version     версия SystemDefinition, при которой произошло событие
+basis           {type: task|rule|adr|human|approval, id}   — provenance
+def_version     SystemDefinition version at the time of the event
 idempotency_key nullable
 prev_hash       bytea
-hash            bytea = SHA-256(prev_hash || canonical_json(всё выше))
-signature       bytea nullable (Ed25519/WebAuthn, см. §4)
+hash            bytea = SHA-256(prev_hash || canonical_json(everything above))
+signature       bytea nullable (Ed25519/WebAuthn, see §4)
 ```
 
-`payload` для `record.updated` — **подиффно**: `[{field, old, new}]`, не снапшот. Журнал читается человеком («кто что поменял») и питает аналитику дрифта (слой 2) без парсинга снапшотов.
+`payload` for `record.updated` — **diff format**: `[{field, old, new}]`, not a snapshot. The log is human-readable ("who changed what") and feeds drift analytics (layer 2) without parsing snapshots.
 
-## 2. Таксономия kind (закрытый список v0)
+## 2. Kind taxonomy (closed list v0)
 
-| Группа | События |
+| Group | Events |
 |---|---|
-| data | `record.created`, `record.updated`, `record.action` (переход workflow: + action, from, to, guard_inputs) |
+| data | `record.created`, `record.updated`, `record.action` (workflow transition: + action, from, to, guard_inputs) |
 | definition | `definition.proposed`, `.validated`, `.approved`, `.rejected`, `.applied`, `.reverted` |
 | approval | `approval.requested`, `.granted`, `.rejected` (+reason) |
 | task | `task.created`, `.taken`, `.progress`, `.completed`, `.failed`, `.expired` |
 | actor | `actor.registered`, `.role_changed`, `.key_rotated`, `.disabled` |
 | system | `node.started`, `projection.rebuilt`, `checkpoint.sealed` |
 
-Новые kind добавляются только аддитивно (как enum в DSL).
+New kinds are added only additively (like an enum in the DSL).
 
-## 3. Целостность: цепочка и чекпойнты
+## 3. Integrity: chain and checkpoints
 
-- `hash` каждого события включает `prev_hash` → подмена/удаление в середине ломает цепь (tamper-evident).
-- Раз в N событий (и раз в сутки) — `checkpoint.sealed`: узел подписывает голову цепи node-ключом. Чекпойнт можно выгружать наружу (клиентский бэкап, позже — внешнее анкорение) — доказательство «журнал не переписан задним числом».
+- The `hash` of each event includes `prev_hash` → substituting or deleting a middle event breaks the chain (tamper-evident).
+- Every N events (and once daily) — `checkpoint.sealed`: the node signs the chain head with the node key. A checkpoint can be exported externally (client backup, later — external anchoring) — proof that "the log has not been rewritten retroactively".
 
-## 4. Подписи (кто чем подписывает)
+## 4. Signatures (who signs with what)
 
-| Субъект | Механизм | Что подписывает обязательно |
+| Subject | Mechanism | What is signed (mandatory) |
 |---|---|---|
-| Человек | **WebAuthn/passkey** (ключ на устройстве человека, не на сервере) | `approval.granted/.rejected`, `definition.approved` — assertion сохраняется в `signature` |
-| Агент | Ed25519-ключ агента (клиентская подпись запроса) | все мутации; ядро верифицирует и кладёт подпись в событие |
-| Узел | node-ключ | чекпойнты |
+| Human | **WebAuthn/passkey** (key on the user's device, not on the server) | `approval.granted/.rejected`, `definition.approved` — the assertion is stored in `signature` |
+| Agent | Ed25519 agent key (client-side request signature) | all mutations; the core verifies and stores the signature in the event |
+| Node | node key | checkpoints |
 
-Решение: серверного хранения человеческих ключей нет — иначе подпись не имеет доказательной силы («сервер мог сам»). MVP включает WebAuthn сразу: это дёшево (стандартные библиотеки), а задним числом не пристраивается.
+Decision: no server-side storage of human keys — otherwise the signature has no evidentiary force ("the server could have done it itself"). The MVP includes WebAuthn from day 1: it is cheap (standard libraries) and cannot be retrofitted later.
 
-## 5. Хранение и проекции
+## 5. Storage and projections
 
-- PostgreSQL, таблица `events`, партиционирование по месяцам; индексы: `(seq)`, `(subject)`, `(actor.id, ts)`, `(kind, ts)`. Профиль нагрузки SMB-узла — 10–100 тыс. событий/мес: тривиально.
-- **Проекции обновляются в той же транзакции, что и append события** (single-node MVP: никакого eventual consistency, никакого outbox — читаешь сразу то, что записал). Асинхронный реплей — только для перестройки/восстановления.
-- Проекции v0: таблицы текущего состояния per entity (jsonb + извлечённые индексные колонки), очередь задач, очередь подписей, версии определений.
-- Файлы (`file`-поля) — content-addressed хранилище рядом; событие держит хэш содержимого.
+- PostgreSQL, `events` table, partitioned by month; indexes: `(seq)`, `(subject)`, `(actor.id, ts)`, `(kind, ts)`. SMB node load profile — 10–100k events/month: trivial.
+- **Projections are updated in the same transaction as the event append** (single-node MVP: no eventual consistency, no outbox — you read exactly what you wrote). Async replay — only for rebuilding/recovery.
+- Projections v0: current-state tables per entity (jsonb + extracted index columns), task queue, signing queue, definition versions.
+- Files (`file` fields) — content-addressed storage alongside; the event holds the content hash.
 
-## 6. Retention и «право на забвение»
+## 6. Retention and "right to be forgotten"
 
-- По умолчанию журнал вечен — это смысл системы.
-- Конфликт с GDPR/152-ФЗ решается паттерном **crypto-shredding** (зарезервировано, не в MVP): чувствительные payload шифруются per-subject ключом; уничтожение ключа = данные нечитаемы, цепочка хэшей цела. В схеме v0 для этого уже есть место: payload допускает `{encrypted: true, key_id}`.
+- By default the log is permanent — that is the point of the system.
+- The conflict with GDPR/152-FZ is resolved via the **crypto-shredding** pattern (reserved, not in MVP): sensitive payloads are encrypted with a per-subject key; destroying the key renders the data unreadable while the hash chain remains intact. In the v0 schema there is already a slot for this: payload allows `{encrypted: true, key_id}`.
 
-## 7. Приёмочные тесты Event Store
+## 7. Event Store acceptance tests
 
-1. **Реплей:** прогнать 100k смешанных событий → снести проекции → перестроить → состояние идентично бит-в-бит.
-2. **Tamper:** изменить любое событие в середине напрямую в БД → верификация цепи находит разрыв и указывает место.
-3. **Подпись:** approval, подписанный WebAuthn, верифицируется офлайн-утилитой без доступа к серверу (доказательная сила).
-4. **Идемпотентность:** повтор мутации с тем же `idempotency_key` не создаёт второго события.
+1. **Replay:** run 100k mixed events → drop projections → rebuild → state is identical bit-for-bit.
+2. **Tamper:** modify any event in the middle directly in the DB → chain verification finds the break and points to the location.
+3. **Signature:** an approval signed with WebAuthn is verified by an offline utility without server access (evidentiary force).
+4. **Idempotency:** repeating a mutation with the same `idempotency_key` does not create a second event.

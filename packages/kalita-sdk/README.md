@@ -17,7 +17,7 @@ import { KalitaClient } from '@kalita/sdk';
 const k = new KalitaClient({ baseUrl: '', token });
 const { records } = await k.query('Debtor', { filter: { status: 'Overdue' } });
 await k.act('Debtor', records[0].id, 'send_claim', { type: 'human', id: 'me' });
-const { answer, sources } = await k.search('Сумма договора с Вектором?');
+const { answer, sources } = await k.search('What is the contract amount with Vector?');
 ```
 
 ## React — a working screen in under 30 lines

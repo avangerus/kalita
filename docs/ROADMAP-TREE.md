@@ -1,61 +1,62 @@
-# Дерево функций kalita (зафиксировано 2026-06-13)
+# Kalita Feature Tree (recorded 2026-06-13)
 
-Правило приоритета: сначала всё, что нужно живому полигону (знакомый с
-Битриксом), затем публичный рост, затем стратегические слои.
+Priority rule: first everything the live pilot needs (the Bitrix acquaintance),
+then public growth, then strategic layers.
 
-## 0. Конфигурация — три уровня (принцип)
+## 0. Configuration — Three Levels (principle)
 
-Где живёт настройка, определяется тем, КТО её меняет:
+Where a setting lives is determined by WHO changes it:
 
-1. **Узел (инфраструктура):** listen/TLS/PG DSN/approver — флаги, env,
-   конфиг-файл 0600. Секреты только здесь или у воркеров. Меняет админ.
-2. **Пак (бизнес-настройки):** `Settings`-сущность-синглтон в DSL — напр.
+1. **Node (infrastructure):** listen/TLS/PG DSN/approver — flags, env,
+   config file 0600. Secrets live only here or in workers. Changed by admin.
+2. **Pack (business settings):** `Settings` singleton entity in DSL — e.g.
    `VaultSettings: embedding_model, chunk_size, llm_endpoint, language`.
-   Меняется через UI по правам; смена модели = событие журнала (аудит «кто
-   переключил модель» бесплатно). **Секретам здесь запрещено** (SECURITY
-   правило №5) — в записи только key_id, сам ключ у воркера.
-3. **Воркер (агент):** его процессные параметры — его конфиг; но бизнес-
-   настройки он ОБЯЗАН читать из Settings-сущности узла и применять.
+   Changed via UI according to permissions; changing the model = a log event
+   (audit "who switched the model" for free). **Secrets are forbidden here**
+   (SECURITY rule #5) — only key_id in the record, the key itself belongs to
+   the worker.
+3. **Worker (agent):** its process parameters are its config; but business
+   settings it MUST read from the node's Settings entity and apply.
 
-## 1. Агент как актор (единая модель подключения)
+## 1. Agent as Actor (unified connection model)
 
-Любое внешнее существо — воркер knowvault, Claude Code, мост федерации —
-подключается ОДНИМ способом: актор реестра (id, роль, токен/ключ, deny).
-Дополнить: **метаданные регистрации** (model, endpoint, owner, description) в
-payload actor.registered → видны в UI и журнале; экран «Agents» (admin):
-список, статус, отключить, ротация ключа/токена, последняя активность.
+Any external entity — knowvault worker, Claude Code, federation bridge —
+connects in ONE way: registry actor (id, role, token/key, deny).
+Add: **registration metadata** (model, endpoint, owner, description) in
+payload actor.registered → visible in UI and log; "Agents" screen (admin):
+list, status, disable, key/token rotation, last activity.
 
-## 2. v0.2 — до полигона (≈2-3 недели)
+## 2. v0.2 — Before the Pilot (≈2-3 weeks)
 
-Ядро:
-- [ ] синглтон-сущности (`entity X: ... singleton`) для Settings
-- [ ] метаданные акторов + `kalita user revoke` (экстренный отзыв, P1.7)
-- [ ] инкрементальные проекции для горячих сканов (registry, facts)
+Core:
+- [ ] singleton entities (`entity X: ... singleton`) for Settings
+- [ ] actor metadata + `kalita user revoke` (emergency revocation, P1.7)
+- [ ] incremental projections for hot scans (registry, facts)
 UI:
-- [ ] экран Agents (admin)
-- [ ] ref-поля выпадайками (сейчас голый id), фильтры/поиск в списках, пагинация
-- [ ] file-поля (upload в content-addressed хранилище)
+- [ ] Agents screen (admin)
+- [ ] ref fields with dropdowns (currently bare id), filters/search in lists, pagination
+- [ ] file fields (upload to content-addressed storage)
 MCP:
-- [ ] long-polling `wait_for_task` (вместо опроса)
+- [ ] long-polling `wait_for_task` (instead of polling)
 KnowVault:
-- [ ] воркер-индексатор как актор (первая интеграция), `search_perimeter`
-- [ ] VaultSettings-синглтон в паке
-Портал (минимум для полигона):
-- [ ] self-registration внешнего пользователя с привязкой к записи (Customer)
+- [ ] indexer worker as an actor (first integration), `search_perimeter`
+- [ ] VaultSettings singleton in the pack
+Portal (minimum for the pilot):
+- [ ] self-registration of an external user with binding to a record (Customer)
 
-## 3. v1 — публичный рост
+## 3. v1 — Public Growth
 
-- escape hatch: WASM-компоненты (кастомные экраны, интеграции, платежи)
-- симуляция перед подписью (семя слоя 2; event sourcing уже готов)
-- агрегаты и дашборды в DSL (`metric`, `dashboard` — слова зарезервированы)
-- i18n лейблов (не грамматики)
-- разрушающие миграции через ручную процедуру с экспортом
-- федерация: мост-агент MVP (журнал-как-outbox; никаких sync RPC)
-- маркетплейс паков (semver+подпись автора уже в формате пака)
+- escape hatch: WASM components (custom screens, integrations, payments)
+- pre-signature simulation (seed of layer 2; event sourcing already ready)
+- aggregates and dashboards in DSL (`metric`, `dashboard` — words reserved)
+- i18n labels (not grammar)
+- destructive migrations via manual procedure with export
+- federation: bridge-agent MVP (log-as-outbox; no sync RPC)
+- pack marketplace (semver+author signature already in pack format)
 - WebAuthn/passkey (P1.4), crypto-shredding (P2)
 
-## 4. Слои 2–3 — стратегия (спроектировано, не строится)
+## 4. Layers 2–3 — Strategy (designed, not being built)
 
-Рейтинги агентов на корпусе подписей · детектор дрифта · переносимая
-репутация · страхуемость · кросс-организационные контракты · рынок
-подписантов. См. HLD §8.
+Agent ratings on the signature corpus · drift detector · portable
+reputation · insurability · cross-organizational contracts · signer market.
+See HLD §8.

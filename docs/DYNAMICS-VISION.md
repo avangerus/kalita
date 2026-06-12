@@ -1,78 +1,79 @@
-# Kalita как аналог Microsoft Dynamics — разбор (2026-06-14)
+# Kalita as a Microsoft Dynamics analogue — analysis (2026-06-14)
 
-Главная идея фаундера: построить на kalita аналог MS Dynamics 365 (ERP+CRM).
-Это поднимает планку выше Jira: Dynamics — это не одно приложение, а СЕМЕЙСТВО
-бизнес-приложений на общей платформе (Dataverse) с общей моделью данных,
-ролями, BI и low-code расширением. Ровно то, чем kalita и является по
-замыслу — поэтому совпадение глубокое, не случайное.
+The founder's main idea: build a MS Dynamics 365 (ERP+CRM) analogue on kalita.
+This raises the bar higher than Jira: Dynamics is not a single application, it is a FAMILY
+of business applications on a shared platform (Dataverse) with a shared data model,
+roles, BI, and low-code extensibility. That is exactly what kalita is by design —
+which makes the overlap deep, not coincidental.
 
-## Что такое Dynamics архитектурно (и почему kalita — правильная основа)
+## What Dynamics is architecturally (and why kalita is the right foundation)
 
-| Слой Dynamics | Аналог в kalita | Статус |
+| Dynamics layer | kalita analogue | Status |
 |---|---|---|
-| Dataverse (общая БД, таблицы, связи) | ядро: entity/links/journal | ✅ есть |
-| Безопасность по ролям/строкам/полям | permission engine | ✅ есть |
-| Business Process Flows (этапы) | workflow + HITL | ✅ есть |
-| Power Automate (потоки) | automation + воркеры | ✅ есть |
-| Model-driven apps (генерируемый UI) | meta-driven UI | ✅ есть |
-| Power Apps (canvas, кастом UI) | SDK + escape hatch | ⚠ частично (SDK есть, WASM нет) |
-| Power BI (дашборды) | агрегаты + дашборды | ⚠ агрегаты есть, дашбордов нет |
-| Модули (Sales/Finance/SCM/HR) | продуктовые паки | ✅ модель есть, паков нет |
+| Dataverse (shared DB, tables, relations) | core: entity/links/journal | ✅ present |
+| Role/row/field-level security | permission engine | ✅ present |
+| Business Process Flows (stages) | workflow + HITL | ✅ present |
+| Power Automate (flows) | automation + workers | ✅ present |
+| Model-driven apps (generated UI) | meta-driven UI | ✅ present |
+| Power Apps (canvas, custom UI) | SDK + escape hatch | ⚠ partial (SDK present, WASM absent) |
+| Power BI (dashboards) | aggregates + dashboards | ⚠ aggregates present, dashboards absent |
+| Modules (Sales/Finance/SCM/HR) | product packs | ✅ model present, packs absent |
 
-Вывод: **архитектурно kalita = Dataverse + Power Platform в зародыше.**
-Совпадение не натянуто — обе платформы строят семейство приложений на общем
-ядре с ролями и low-code. Это сильнейшее подтверждение, что мы строили
-правильную вещь.
+Conclusion: **architecturally kalita = Dataverse + Power Platform in embryo.**
+The overlap is not contrived — both platforms build a family of applications on a shared
+core with roles and low-code. This is the strongest confirmation that we have been building
+the right thing.
 
-## Чего Dynamics требует, а у нас НЕТ (честные пробелы)
+## What Dynamics requires that we do NOT have (honest gaps)
 
-### Критичные для ERP/CRM
-1. **Деньги по-взрослому:** decimal (есть), но нужны валюты с курсами,
-   многовалютность, округление по правилам. → data-пак currencies + тип money
-   с валютой (money уже хранит валюту — дораскрыть).
-2. **Документ-нумерация** (INV-2026-00042) — нумератор. → core-пак (в очереди).
-3. **Позиции документа** (заказ → строки заказа) — мастер-деталь. У нас это
-   ref + агрегаты (sum строк = итог заказа). ✅ выразимо уже сейчас.
-4. **Проводки/регистры** (бухгалтерия: дебет/кредит, остатки) — это
-   event-sourcing, наша СИЛЬНАЯ сторона: проводка = событие, остаток =
-   проекция/агрегат. kalita тут структурно лучше реляционного Dynamics.
-5. **Календарь/рабочие дни** для SLA, сроков оплаты. → data-пак (в плане T9).
-6. **Отчёты/дашборды** — НЕ облачный BI. Сводки считаются ядром из агрегатов
-   и рисуются нашим фронтом, всё в контуре. → агрегаты есть, нужен dashboard-блок.
+### Critical for ERP/CRM
+1. **Serious money:** decimal (present), but currencies with exchange rates,
+   multi-currency, rounding rules are needed. → data-pack currencies + money type
+   with currency (money already stores currency — expose it fully).
+2. **Document numbering** (INV-2026-00042) — a sequence generator. → core-pack (in queue).
+3. **Document line items** (order → order lines) — master-detail. Here we have
+   ref + aggregates (sum of lines = order total). ✅ already expressible.
+4. **Ledger entries/registers** (accounting: debit/credit, balances) — this is
+   event-sourcing, our STRONG side: entry = event, balance =
+   projection/aggregate. kalita is structurally better here than relational Dynamics.
+5. **Calendar/working days** for SLAs and payment due dates. → data-pack (planned in T9).
+6. **Reports/dashboards** — NOT cloud BI. Summaries are computed by the core from aggregates
+   and rendered by our frontend, all within the perimeter. → aggregates present, dashboard block needed.
 
-### Важные, но не блокеры старта
-7. Расчётные движки (ценообразование, налоги, скидки) → WASM escape hatch.
-8. Импорт/экспорт данных (миграция из legacy) → есть export/import + поглощение.
-9. Интеграции (банки, ЭДО, маркетплейсы) → воркеры-коннекторы.
-10. Мультиязычность интерфейса → i18n (в плане).
+### Important but not blockers for launch
+7. Calculation engines (pricing, taxes, discounts) → WASM escape hatch.
+8. Data import/export (migration from legacy) → export/import + absorption is available.
+9. Integrations (banks, EDI, marketplaces) → connector-workers.
+10. Interface multilingualism → i18n (planned).
 
-## Стратегическая развилка — мой независимый взгляд
+## Strategic fork — my independent view
 
-Dynamics — это НЕ «ещё одна вертикаль», это заявка на платформу-семейство.
-Честно: строить «полный аналог Dynamics» как продукт — ловушка (Dynamics
-писали тысячи людей 20 лет; в лоб не догнать). Но это и НЕ нужно. Правильная
-формулировка: **kalita даёт фундамент, на котором аналог Dynamics-модуля
-собирается паком за дни, а не платформа конкурирует с Dynamics целиком.**
+Dynamics is NOT "just another vertical" — it is a claim to become a platform family.
+Honestly: building a "full Dynamics analogue" as a product is a trap (Dynamics was
+written by thousands of people over 20 years; catching up head-on is impossible). But that is also
+NOT necessary. The correct framing is: **kalita provides the foundation on which a Dynamics-module
+analogue is assembled as a pack in days, while the platform does not compete with all of
+Dynamics as a whole.**
 
-Путь: не «Dynamics-killer», а доказать модель на ОДНОМ модуле, который болит
-у рынка и где Dynamics дорог/тяжёл для среднего бизнеса (РФ: Dynamics ушёл,
-1С доминирует — окно!). Кандидаты первого модуля:
-- **CRM (Sales)** — лиды/сделки/контакты/воронка. Самый частый вход, легко
-  показать, мы его и так делаем для себя (dogfood CRM).
-- **Дебиторка/казначейство** — уже есть пак collections, близко.
-- **Закупки/склад** — мастер-деталь + остатки (наша event-sourcing сила).
+The path: not "Dynamics-killer", but prove the model on ONE module that hurts
+the market and where Dynamics is too expensive/heavy for mid-market (Russia: Dynamics is gone,
+1C dominates — a window is open!). First-module candidates:
+- **CRM (Sales)** — leads/deals/contacts/pipeline. The most common entry point, easy
+  to demo, we already build it for ourselves (dogfood CRM).
+- **Accounts receivable/treasury** — collections pack already exists, close.
+- **Procurement/warehouse** — master-detail + balances (our event-sourcing strength).
 
-## Что это меняет в очереди примитивов
-Поднимает в приоритете (нужно для ERP/CRM-класса):
-1. **Нумератор** (документы) — уже следующий
-2. **money с валютой** раскрыть + data-пак валют/стран (T9)
-3. **dashboard-блок** (сводки поверх агрегатов) — on-prem, ноль внешних
-   сервисов; никаких облачных BI — данные не покидают контур
-4. **Comment + User/Group** (core-пак) — взаимодействие в записях
-Остальное (WASM, календарь, i18n) — по плану.
+## What this changes in the primitives queue
+Elevates in priority (needed for ERP/CRM class):
+1. **Sequence generator** (documents) — already next
+2. **money with currency** expose fully + data-pack currencies/countries (T9)
+3. **dashboard block** (summaries on top of aggregates) — on-prem, zero external
+   services; no cloud BI — data never leaves the perimeter
+4. **Comment + User/Group** (core-pack) — in-record collaboration
+Everything else (WASM, calendar, i18n) — per plan.
 
-## Тест успеха
-Собрать CRM-модуль «как Dynamics Sales» одним паком: Лид → Сделка (воронка
-этапов) → Контакт/Организация → Активности (звонки/письма) → дашборд воронки
-с агрегатами. Если соберётся страницей DSL — заявка на «аналог Dynamics»
-обоснована. Это dogfood №5.
+## Success test
+Assemble the CRM module "like Dynamics Sales" as a single pack: Lead → Deal (pipeline
+stages) → Contact/Organization → Activities (calls/emails) → pipeline dashboard
+with aggregates. If it fits on one page of DSL — the "Dynamics analogue" claim
+is justified. This is dogfood #5.

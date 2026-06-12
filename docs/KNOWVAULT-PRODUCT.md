@@ -1,47 +1,47 @@
-# KnowVault как законченный продукт — definition of done
+# KnowVault as a finished product — definition of done
 
-Принцип (T12): компания ставит KnowVault как приложение, не зная о kalita.
-«Законченный» = поставил по инструкции → пользуешься → ни разу не столкнулся
-с DSL, MCP, токенами, воркерами вручную. kalita — невидимый двигатель.
+Principle (T12): a company installs KnowVault as an application without knowing about kalita.
+"Finished" = installed by following instructions → in active use → never once encountered
+DSL, MCP, tokens, or workers manually. kalita is the invisible engine.
 
-## Что отделяет «движок работает» от «продукт можно отдать людям»
+## What separates "the engine works" from "the product can be handed to people"
 
-### 1. Одна команда установки 🔥
-- [ ] `docker compose up` поднимает ВЕСЬ стек: узел kalita + Postgres +
-      Qdrant + indexer-воркер + search-воркер, со связанными конфигами
-- [ ] узел стартует с паком knowvault как genesis, воркеры авто-регистрируются
-      (нужен механизм bootstrap-токена: воркер при первом старте получает
-      identity по shared-секрету из compose, не руками)
-- [ ] бренд: «KnowVault», нигде в UI/логах/доках не светится «kalita»
+### 1. Single installation command 🔥
+- [ ] `docker compose up` brings up the ENTIRE stack: kalita node + Postgres +
+      Qdrant + indexer-worker + search-worker, with linked configs
+- [ ] the node starts with the knowvault pack as genesis, workers auto-register
+      (a bootstrap-token mechanism is required: on first start a worker receives
+      its identity via a shared secret from compose, not manually)
+- [ ] branding: "KnowVault" — "kalita" never appears in UI/logs/docs
 
-### 2. Продуктовый UI, а не админка 🔥
-- [ ] экран **«Поиск»** — лицо продукта: поле вопроса → ответ с источниками →
-      клик открывает документ. Это кастомный экран (escape hatch UI).
-- [ ] **загрузка документов** drag-drop (file-поля из V1-GATE) — «грузят
-      документы», а не «прописывают пути к папкам»
-- [ ] рабочие области, источники, статусы индексации — в продуктовой обёртке
-      (генерируемый UI под брендом, раздел «Документы/Источники»)
-- [ ] вход по логину/паролю или ссылке-инвайту, НЕ «вставьте токен» (это для
-      разработчика, не для бухгалтера)
+### 2. Product UI, not an admin panel 🔥
+- [ ] **"Search"** screen — the face of the product: question field → answer with sources →
+      click opens the document. This is a custom screen (escape hatch UI).
+- [ ] **document upload** drag-drop (file fields from V1-GATE) — users "upload
+      documents", not "specify paths to folders"
+- [ ] workspaces, sources, indexing statuses — in a product wrapper
+      (generated UI under the brand, "Documents/Sources" section)
+- [ ] login by username/password or invite link, NOT "paste your token" (that is for
+      a developer, not an accountant)
 
-### 3. HTTP, а не скрипты 🔥
-- [ ] search — HTTP-эндпоинт (узел проксирует в search-воркер, или воркер
-      держит сервис), UI-экран его дёргает. Сейчас логика в ask.py — перенести.
-- [ ] indexer и search как сервисы compose, не запускаемые руками py-файлы
+### 3. HTTP, not scripts 🔥
+- [ ] search — HTTP endpoint (node proxies to search-worker, or worker
+      hosts a service), UI screen calls it. Current logic lives in ask.py — migrate it.
+- [ ] indexer and search as compose services, not manually launched py files
 
-### 4. Эксплуатация для не-айтишника
-- [ ] бэкап одной кнопкой/командой, восстановление по инструкции
-- [ ] «здоровье системы»: индексатор жив? Qdrant жив? модель отвечает? —
-      статус-страница, чтобы не лезть в логи
+### 4. Operations for non-technical users
+- [ ] one-button/one-command backup, restore by documented procedure
+- [ ] "system health": is the indexer alive? Is Qdrant alive? Is the model responding? —
+      status page so nobody has to dig through logs
 
-### 5. Момент открытия kalita (апселл, не сразу)
-- [ ] раздел «Автоматизация» в админке — заперт/пустой в базовом KnowVault,
-      открывается при апгрейде; там и начинается «оказывается, тут платформа»
+### 5. The kalita reveal moment (upsell, not upfront)
+- [ ] "Automation" section in the admin panel — locked/empty in base KnowVault,
+      unlocks on upgrade; that is where "turns out there's a platform here" begins
 
-## Порядок (автопилот идёт сверху)
-HTTP-эндпоинт поиска → экран Поиск в UI → file upload → bootstrap воркеров →
-compose всего стека → брендирование → статус-страница.
+## Order (autopilot goes top-down)
+HTTP search endpoint → Search screen in UI → file upload → worker bootstrap →
+full stack compose → branding → status page.
 
-Это и есть путь от сегодняшней живой демонстрации к коробке. Остальные
-V1-GATE задачи (passkeys, i18n, агрегаты) нужны KnowVault тоже, но эти семь —
-то, без чего его нельзя назвать продуктом.
+This is the path from today's live demo to a boxed product. The other
+V1-GATE tasks (passkeys, i18n, aggregates) are also needed for KnowVault, but these seven —
+are the ones without which it cannot be called a product.

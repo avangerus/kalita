@@ -1,78 +1,78 @@
-# Ревизия системы типов и примитивов до уровня «полноценное приложение» (как Jira)
+# Revision of the type system and primitives to the level of "a full-featured application" (like Jira)
 
-Запрос фаундера (2026-06-14): обогатить типами данных, типами хранилищ,
-функциями — чтобы строить полноценные приложения, как Jira на entity-engine
-OFBiz.
+Founder request (2026-06-14): enrich with data types, storage types,
+and functions — to enable building full-featured applications, like Jira on the entity-engine
+of OFBiz.
 
-Правило, чтобы не убить гарантии: каждый новый примитив проходит тест T8 —
-либо он полностью проверяем компилятором (тогда в DSL/ядро), либо требует
-произвольных вычислений (тогда воркер или WASM escape hatch), но НЕ
-расхлябанное выражение, которое агент сможет испортить.
+Rule to avoid breaking guarantees: every new primitive must pass the T8 test —
+either it is fully checkable by the compiler (then it goes into DSL/core), or it requires
+arbitrary computation (then it is a worker or WASM escape hatch), but NOT
+a loose expression that an agent could corrupt.
 
-## Что реально строит Jira из примитивов — и чего нам не хватает
+## What Jira actually builds from primitives — and what we are missing
 
-| Возможность Jira | Чего не хватает в kalita v0 | Уровень |
+| Jira capability | What is missing in kalita v0 | Level |
 |---|---|---|
-| Кастомные поля разных типов | богаче скаляры | DSL-тип |
-| Пользователь/группа как поле | core.User реальный + groups | core-пак |
-| Связи задач (blocks/relates) | ссылки многие-ко-многим + типы связей | DSL |
-| Комментарии, история, вложения | comment-примитив, история (есть), file (есть) | core-пак |
-| Метки, компоненты | tags/мультиселект | DSL-тип |
-| Доски, свимлейны, фильтры | есть board; нужны saved-фильтры, свимлейны | DSL/UI |
-| Формулы (story points roll-up) | вычисления-агрегаты | воркер/функция |
-| Уведомления, @mentions | notify (есть базово), mentions | core-пак |
-| Дашборды, отчёты | агрегаты (в V1-GATE) | DSL/воркер |
-| SLA, эскалации | stuck (есть), бизнес-календарь | DSL+data-пак |
+| Custom fields of different types | richer scalars | DSL type |
+| User/group as a field | real core.User + groups | core pack |
+| Issue links (blocks/relates) | many-to-many references + link types | DSL |
+| Comments, history, attachments | comment primitive, history (exists), file (exists) | core pack |
+| Labels, components | tags/multiselect | DSL type |
+| Boards, swimlanes, filters | board exists; need saved filters, swimlanes | DSL/UI |
+| Formulas (story points roll-up) | aggregate computations | worker/function |
+| Notifications, @mentions | notify (basic exists), mentions | core pack |
+| Dashboards, reports | aggregates (in V1-GATE) | DSL/worker |
+| SLA, escalations | stuck (exists), business calendar | DSL+data pack |
 
-## A. Богаче СКАЛЯРЫ (DSL, проверяемы компилятором) — берём
-Закрытый список расширяем: `decimal(p,s)` (деньги точнее money), `duration`
-(2d4h — нормируется), `email`/`url`/`phone` (валидируемые строки),
-`json`(ограниченный, для произвольных метаданных без схемы — осторожно),
-`color`, `geo`(lat,lng), `percent`. Каждый — со своей валидацией в ядре.
-**tags: `array[string]`** и **мультиселект `array[enum[...]]`** — метки/
-компоненты Jira. Все добавляются аддитивно, не ломают паки.
+## A. Richer SCALARS (DSL, checkable by compiler) — accepted
+The closed list is extended: `decimal(p,s)` (more precise than money), `duration`
+(2d4h — normalized), `email`/`url`/`phone` (validated strings),
+`json` (constrained, for arbitrary metadata without a schema — use carefully),
+`color`, `geo`(lat,lng), `percent`. Each — with its own validation in the core.
+**tags: `array[string]`** and **multiselect `array[enum[...]]`** — Jira labels/
+components. All are added additively; they do not break existing packs.
 
-## B. СВЯЗИ (DSL) — берём, это сердце Jira
-- `array[ref[Entity]]` уже есть (многие-ко-многим в одну сторону).
-- Нужны **именованные двусторонние связи** с типом:
-  `link Task <-> Task as blocks/blocked_by` — Jira issue links. Проверяемо:
-  тип связи объявлен, обратная сторона генерируется. Это новый top-level
-  блок `links:`, не выражение → гарантии целы.
+## B. LINKS (DSL) — accepted, this is the heart of Jira
+- `array[ref[Entity]]` already exists (one-directional many-to-many).
+- **Named bidirectional links** with a type are needed:
+  `link Task <-> Task as blocks/blocked_by` — Jira issue links. Checkable:
+  the link type is declared, the reverse side is generated. This is a new top-level
+  `links:` block, not an expression → guarantees are preserved.
 
-## C. ХРАНИЛИЩА (не в грамматику — конфиг/воркер) — берём по ADR-002
-Фаундер прав про «типы хранилищ», но они НЕ в DSL:
-- blob: Disk (есть) | S3/MinIO (интерфейс BlobStore — дописать реализацию)
-- проекции: RAM (есть) | SQL (порог ADR-002) | внешние sink-воркеры
-- векторы: Qdrant (есть) — воркер
-Выбор хранилища — это деплой/конфиг узла и контракты воркеров, не дело
-автора пака. DSL остаётся про СМЫСЛ, не про инфраструктуру.
+## C. STORAGE BACKENDS (not in grammar — config/worker) — accepted per ADR-002
+The founder is right about "storage types", but they do NOT belong in the DSL:
+- blob: Disk (exists) | S3/MinIO (BlobStore interface — implement the adapter)
+- projections: RAM (exists) | SQL (ADR-002 threshold) | external sink workers
+- vectors: Qdrant (exists) — worker
+Storage choice is a node deployment/config concern and worker contracts, not the
+pack author's business. The DSL stays about MEANING, not infrastructure.
 
-## D. ФУНКЦИИ — самый острый вопрос, тут граница
-Jira-формулы (roll-up story points, вычисляемые поля) хочется, но произвольные
-функции в DSL = конец гарантий (агент впишет что угодно). Решение — ДВА вида:
-1. **Декларативные агрегаты в ядре** (проверяемы): `computed = sum(children.points)`,
-   `count(где ...)`, `rollup`. Закрытый список агрегатных функций, как computed
-   сейчас. Покрывает 80% «формул» Jira. — берём (часть в V1-GATE).
-2. **WASM escape hatch** для остального (произвольная логика): типизированный
-   контракт вход→выход, песочница. Автор объявляет `component my_calc(in)->out`,
-   реализация в WASM. Гарантии: не может обойти права/журнал. — V1.
-Расхлябанных inline-формул не будет НИКОГДА — это принцип «лего».
+## D. FUNCTIONS — the sharpest question; this is the boundary
+Jira-style formulas (roll-up story points, computed fields) are desirable, but arbitrary
+functions in the DSL = end of guarantees (an agent could write anything). Solution — TWO kinds:
+1. **Declarative aggregates in the core** (checkable): `computed = sum(children.points)`,
+   `count(where ...)`, `rollup`. A closed list of aggregate functions, like computed
+   fields today. Covers 80% of Jira "formulas". — accepted (some in V1-GATE).
+2. **WASM escape hatch** for the rest (arbitrary logic): typed
+   in→out contract, sandbox. The author declares `component my_calc(in)->out`,
+   implementation in WASM. Guarantees: cannot bypass permissions/log. — V1.
+Loose inline formulas will NEVER be added — that is the "lego" principle.
 
-## E. core-ПАК растёт (системный DSL) — берём
-Comment (полиморфная привязка к любой сущности), User/Group настоящие,
-Reaction/Mention, Attachment-обёртка над file, Numerator (KEY-123 как в Jira).
-Это data+system пак, не ядро.
+## E. core PACK grows (system DSL) — accepted
+Comment (polymorphic attachment to any entity), real User/Group,
+Reaction/Mention, Attachment wrapper over file, Numerator (KEY-123 as in Jira).
+This is a data+system pack, not the core.
 
-## Очередь (после текущей коробки KnowVault)
-1. Скаляры A + tags (быстро, аддитивно)
-2. links: двусторонние связи (даёт Jira-модель задач)
-3. агрегаты D.1 (computed roll-up) — закрывает «формулы» на 80%
-4. core-пак: Comment, User/Group, Numerator
-5. S3 BlobStore (хранилище, реализация интерфейса)
-6. WASM escape hatch D.2 (произвольные функции, безопасно)
+## Queue (after the current KnowVault box)
+1. Scalars A + tags (fast, additive)
+2. links: bidirectional links (gives Jira task model)
+3. aggregates D.1 (computed roll-up) — closes "formulas" at 80%
+4. core pack: Comment, User/Group, Numerator
+5. S3 BlobStore (storage, interface implementation)
+6. WASM escape hatch D.2 (arbitrary functions, safely)
 
-## Тест успеха
-Собрать issue-tracker «как Jira» одним паком: проекты, задачи, типы связей,
-кастомные поля, метки, комментарии, доски, roll-up очков, KEY-нумерация —
-страницей DSL, без единой строки в ядре. Это dogfood №4 и доказательство
-полноты примитивов.
+## Success test
+Build an issue tracker "like Jira" as a single pack: projects, tasks, link types,
+custom fields, labels, comments, boards, story-point roll-up, KEY numbering —
+one page of DSL, not a single line in the core. This is dogfood #4 and proof of
+primitive completeness.

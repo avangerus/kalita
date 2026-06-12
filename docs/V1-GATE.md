@@ -1,66 +1,66 @@
-# Гейт 1.0 — что отделяет нас от продаваемой версии
+# Gate 1.0 — What Separates Us from a Sellable Version
 
-Определение 1.0: платящий клиент живёт на узле в своём контуре без нашего
-ежедневного участия. Всё в списке выводится из этого определения.
-Зафиксировано 2026-06-14. Оценки — в неделях конвейерного темпа.
+Definition of 1.0: a paying client lives on a node within their own perimeter
+without our daily involvement. Everything in the list is derived from this
+definition. Recorded 2026-06-14. Estimates are in weeks of pipeline pace.
 
-## Блокеры (без этого продавать нельзя)
+## Blockers (cannot sell without these)
 
-### Эксплуатация (≈2 нед)
-- [ ] **kalita upgrade**: обновление бинаря с миграцией системных структур,
-      откат на предыдущую версию (T5)
-- [ ] **Бэкап/восстановление как процедура**: pg_dump + офлайн-верификация
-      цепочки + восстановление узла — оператор-гайд с учениями
-- [ ] **Разрушающие миграции** через ручную процедуру с экспортом (v0
-      запрещает — клиенту понадобится переименовать поле уже в месяц 1)
-- [ ] Бенчмарк-сьют в CI (обещан в разговоре о шторме): деградация ловится
-      числом на пуше
+### Operations (≈2 wks)
+- [ ] **kalita upgrade**: binary update with system-structure migration,
+      rollback to the previous version (T5)
+- [ ] **Backup/restore as a procedure**: pg_dump + offline chain verification
+      + node restore — operator guide with drills
+- [ ] **Destructive migrations** via manual procedure with export (v0
+      forbids them — a client will need to rename a field within month 1)
+- [ ] Benchmark suite in CI (promised in the storm discussion): regressions
+      are caught by a number on push
 
-### Безопасность P1 (≈2 нед)
-- [ ] **WebAuthn/passkey** подписи людей (токен ≠ неотрекаемость; спека
-      Event Store §4 этого требует)
-- [ ] Секреты: конфиг-файл 0600 + docker secrets (вместо env)
-- [ ] Журнал auth-провалов (в лог с rate-limit по IP) + `kalita lockdown`
-      (экстренный отзыв всех токенов)
-- [ ] govulncheck в CI + подписанные релизы
+### Security P1 (≈2 wks)
+- [ ] **WebAuthn/passkey** human signatures (token ≠ non-repudiation; Event
+      Store spec §4 requires this)
+- [ ] Secrets: config file 0600 + docker secrets (instead of env)
+- [ ] Auth-failure log (to log with IP rate-limit) + `kalita lockdown`
+      (emergency revocation of all tokens)
+- [ ] govulncheck in CI + signed releases
 
-### Полнота ядра (≈3 нед)
-- [ ] **core-пак**: core.User как настоящая системная сущность (сейчас
-      строка-заглушка), вложения; справочники-данные (T9) — формат data-паков
-- [ ] **file-поля** (upload в content-addressed хранилище) — остаток v0.2 UI
-- [ ] **i18n лейблов**: RU-клиент должен видеть «Должник», а не Debtor —
-      label-аннотации в ui-блоке или словарь пака (грамматика остаётся EN)
-- [ ] **Агрегаты-минимум**: count/sum по статусам для дашборда директора —
-      без полного `metric`-языка, но цифры недели должны быть
-- [ ] **Escape hatch v1**: WASM-компонент с типизированным контрактом —
-      минимальный (одна функция вход→выход), иначе потолок DSL = стена у
-      первого же клиента
+### Core Completeness (≈3 wks)
+- [ ] **core pack**: core.User as a real system entity (currently a stub
+      string), attachments; reference data (T9) — data-pack format
+- [ ] **file fields** (upload to content-addressed storage) — v0.2 UI remainder
+- [ ] **i18n labels**: a RU client must see their locale, not the DSL name —
+      label annotations in the ui block or a pack dictionary (grammar stays EN)
+- [ ] **Minimum aggregates**: count/sum by status for a director dashboard —
+      no full `metric` language, but weekly numbers must exist
+- [ ] **Escape hatch v1**: WASM component with typed contract —
+      minimal (one function in→out); otherwise DSL ceiling = wall for the
+      first client
 
-### Продукт внедрения (≈2 нед, из T11 — они и есть причина покупать)
-- [ ] **Shadow mode**: роль работает «вхолостую» предложениями — снимает
-      страх включения
-- [ ] **Отчёт «неделя на цифрах» + цена работы в деньгах** (ставка роли ×
-      нормо-часы) — продаёт продление без продавца
-- [ ] **Egress-отчёт** из журнала — комплаенс-артефакт контура
+### Deployment Product (≈2 wks, from T11 — these are the reason to buy)
+- [ ] **Shadow mode**: role operates in "dry-run" proposal mode — removes
+      the fear of going live
+- [ ] **"Week in numbers" report + cost of work in money** (role rate ×
+      man-hours) — sells renewals without a salesperson
+- [ ] **Egress report** from the log — perimeter compliance artifact
 
-### Open-core гигиена (≈0.5 нед)
-- [ ] Лицензия (решение: ядро Apache-2.0 / паки и enterprise-фичи отдельно —
-      обсудить с фаундером), CONTRIBUTING, SECURITY.md контакт
-- [ ] Гайд автора пака + гайд воркера (по образцу indexer.py)
+### Open-Core Hygiene (≈0.5 wks)
+- [ ] License (decision: core Apache-2.0 / packs and enterprise features
+      separately — discuss with founder), CONTRIBUTING, SECURITY.md contact
+- [ ] Pack author guide + worker guide (modeled on indexer.py)
 
-## Желательно в 1.0, не блокер
-- [ ] KnowVault полный (эмбеддинги + Qdrant + search_perimeter) — модуль,
-      двигается своим темпом; полигону нужен раньше 1.0
-- [ ] Trust dial (ступени автономии роли) — может прийти 1.1
-- [ ] Генерация README пака из DSL (маркетплейс-витрина)
-- [ ] Снапшоты проекций (по замерам бенчмарка; ADR-002 порог)
+## Nice to Have in 1.0, Not a Blocker
+- [ ] KnowVault full (embeddings + Qdrant + search_perimeter) — module,
+      moves at its own pace; the pilot needs it before 1.0
+- [ ] Trust dial (role autonomy levels) — may come in 1.1
+- [ ] Pack README generation from DSL (marketplace showcase)
+- [ ] Projection snapshots (based on benchmark measurements; ADR-002 threshold)
 
-## Сознательно ПОСЛЕ 1.0
-Федерация (remote[...]), маркетплейс, симуляция перед подписью (слой 2),
-рейтинги агентов, crypto-shredding, внешнее анкорение, Telegram-фронт (T1 —
-если полигон не потребует раньше), производственный календарь/business days.
+## Deliberately AFTER 1.0
+Federation (remote[...]), marketplace, pre-signature simulation (layer 2),
+agent ratings, crypto-shredding, external anchoring, Telegram front (T1 —
+unless the pilot requires it sooner), production calendar/business days.
 
-## Итого
-≈9-10 недель конвейерного темпа до 1.0. Порядок исполнения: эксплуатация →
-безопасность P1 → полнота ядра → продукт внедрения (параллельно с полигоном,
-который сортирует приоритеты лучше любого плана).
+## Summary
+≈9-10 weeks of pipeline pace to 1.0. Execution order: operations →
+security P1 → core completeness → deployment product (in parallel with the
+pilot, which sorts priorities better than any plan).
