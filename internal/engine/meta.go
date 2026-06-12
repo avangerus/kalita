@@ -49,6 +49,7 @@ type MetaEntity struct {
 	CanCreate     bool         `json:"can_create"`
 	CanRead       bool         `json:"can_read"`
 	CanUpdate     bool         `json:"can_update"`
+	CanRevert     bool         `json:"can_revert"` // full on the entity → may undo/rewind (supervisory)
 	WorkflowField string       `json:"workflow_field,omitempty"`
 	Actions       []MetaAction `json:"actions,omitempty"`
 	UI            MetaUI       `json:"ui"`
@@ -89,6 +90,7 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 			CanCreate: e.can(actor, "create", name, "", nil).allowed,
 			CanRead:   e.can(actor, "read", name, "", nil).allowed,
 			CanUpdate: e.can(actor, "update", name, "", nil).allowed,
+			CanRevert: e.hasFull(role, name),
 		}
 		// an entity readable only row-level (where) still must appear: probe
 		// with a permissive check — if any read rule exists at all

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -164,4 +165,83 @@ func TestRESTEndToEnd(t *testing.T) {
 	if resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("mutation without basis must be 422, got %d", resp.StatusCode)
 	}
+}
+
+// The audit/time-travel endpoints the UI's history panel drives: diff (read),
+// revert and rewind (supervisory, gated on `full`).
+func TestRevertRewindDiffREST(t *testing.T) {
+	srv := newTestServer(t)
+	anna := &apiClient{t, srv.URL, "anna", "Accountant"} // full [Debtor] → may revert
+	bot := &apiClient{t, srv.URL, "collector-1", "Collector"}
+
+	// meta exposes can_revert per entity (the UI shows the controls only when set)
+	_, meta := anna.do("GET", "/api/meta", nil)
+	debtorCanRevert := false
+	for _, e := range meta["entities"].([]any) {
+		if m := e.(map[string]any); m["name"] == "Debtor" {
+			debtorCanRevert, _ = m["can_revert"].(bool)
+		}
+	}
+	if !debtorCanRevert {
+		t.Fatal("Accountant has full[Debtor] → Debtor.can_revert must be true")
+	}
+
+	_, c := anna.do("POST", "/api/records/Contract", mutate(map[string]any{"company": "Acme", "due_date": "2026-05-01"}))
+	cid := mustCreated(t, c)
+	_, d := anna.do("POST", "/api/records/Debtor", mutate(map[string]any{"company": "Acme", "contract": cid, "debt": 100000}))
+	id := mustCreated(t, d)
+
+	// find the creation seq
+	_, j := anna.do("GET", "/api/records/Debtor/"+id+"/journal", nil)
+	var createSeq float64
+	for _, ev := range j["events"].([]any) {
+		if e := ev.(map[string]any); e["kind"] == "record.created" {
+			createSeq = e["seq"].(float64)
+		}
+	}
+
+	// a genuine edit, then diff sees it net
+	anna.do("PATCH", "/api/records/Debtor/"+id, mutate(map[string]any{"debt": 50000}))
+	_, diff := anna.do("GET", fmt.Sprintf("/api/records/Debtor/%s/diff?from=%d", id, int(createSeq)), nil)
+	sawDebt := false
+	for _, f := range diff["fields"].([]any) {
+		if fm := f.(map[string]any); fm["field"] == "debt" {
+			sawDebt = true
+		}
+	}
+	if !sawDebt {
+		t.Fatalf("diff must report the debt change, got %v", diff["fields"])
+	}
+
+	// a collector (no full) may not revert → 403
+	resp, _ := bot.do("POST", "/api/records/Debtor/"+id+"/revert", map[string]any{"basis": map[string]any{"type": "human", "id": "collector-1"}})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("collector revert must be 403, got %d", resp.StatusCode)
+	}
+
+	// anna reverts the last edit → debt back to 100000
+	resp, _ = anna.do("POST", "/api/records/Debtor/"+id+"/revert", map[string]any{"basis": map[string]any{"type": "human", "id": "anna"}})
+	if resp.StatusCode != 200 {
+		t.Fatalf("revert: %d", resp.StatusCode)
+	}
+	_, got := anna.do("GET", "/api/records/Debtor/"+id, nil)
+	if v := got["values"].(map[string]any); v["debt"].(float64) != 100000 {
+		t.Fatalf("after revert debt = %v, want 100000", v["debt"])
+	}
+
+	// rewind to creation restores the original state
+	resp, _ = anna.do("POST", "/api/records/Debtor/"+id+"/rewind",
+		map[string]any{"to_seq": int(createSeq), "basis": map[string]any{"type": "human", "id": "anna"}})
+	if resp.StatusCode != 200 {
+		t.Fatalf("rewind: %d", resp.StatusCode)
+	}
+}
+
+func mustCreated(t *testing.T, rec map[string]any) string {
+	t.Helper()
+	id, ok := rec["id"].(string)
+	if !ok {
+		t.Fatalf("expected a created record with an id, got %v", rec)
+	}
+	return id
 }

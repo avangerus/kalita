@@ -69,8 +69,14 @@ A pack-agnostic, notation-driven client so L2 packs render for free. Build the
 - **Rendering kernel** (mostly exists, harden): lists, 3-column forms, kanban,
   dashboards, async pickers — all from per-actor pack metadata, no build step.
 - **Differentiator surfaces** — the things that are in the kernel but invisible:
-  the **audit timeline + diff + "rewind to here"**, the **HITL approval inbox**
-  (Ed25519 signing), the **agent work board**, the journal viewer.
+  - **audit timeline + diff + "rewind to here"** — **DONE**: REST diff/revert/
+    rewind endpoints + `can_revert` in meta; the record view's History panel
+    renders readable changes (field old→new, state moves), an "Undo last" and a
+    per-event "rewind here" for supervisors (gated on `full`). Verified live over
+    REST; api regression test added. (Visual pass pending — browser backend was
+    down in-session.)
+  - still to surface: the **HITL approval inbox** polish (exists as Inbox), the
+    **agent work board**, richer journal/diff views.
 - **White-label / branding.** Per-client theming for the studio's multi-tenant
   on-prem model (one client = one node).
 - **Customer portal.** Invite-based, row-level visibility (already specced).

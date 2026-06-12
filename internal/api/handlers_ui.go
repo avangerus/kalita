@@ -3,6 +3,7 @@
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/avangerus/kalita/internal/engine"
@@ -71,6 +72,70 @@ func (s *Server) journal(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"events": out})
+}
+
+type revertRequest struct {
+	ToSeq uint64            `json:"to_seq,omitempty"` // rewind target; 0/absent = revert the last change
+	Basis *eventstore.Basis `json:"basis"`
+}
+
+// revert undoes a record's most recent change (compensating event). Supervisory:
+// the engine gates it on `full`.
+func (s *Server) revert(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.actor(r)
+	if !ok {
+		writeAuthRequired(w)
+		return
+	}
+	var req revertRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR", "message": "bad json"})
+		return
+	}
+	rec, err := s.eng.Revert(r.Context(), actor, r.PathValue("entity"), r.PathValue("id"), req.Basis)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rec)
+}
+
+// rewind restores a record to its state as of a chosen journal seq.
+func (s *Server) rewind(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.actor(r)
+	if !ok {
+		writeAuthRequired(w)
+		return
+	}
+	var req revertRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR", "message": "bad json"})
+		return
+	}
+	rec, err := s.eng.RewindTo(r.Context(), actor, r.PathValue("entity"), r.PathValue("id"), req.ToSeq, req.Basis)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rec)
+}
+
+// diff reports the net change to a record between two journal seqs (read).
+// ?from=<seq>&to=<seq>; to omitted/0 = now.
+func (s *Server) diff(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.actor(r)
+	if !ok {
+		writeAuthRequired(w)
+		return
+	}
+	from, _ := strconv.ParseUint(r.URL.Query().Get("from"), 10, 64)
+	to, _ := strconv.ParseUint(r.URL.Query().Get("to"), 10, 64)
+	d, err := s.eng.Diff(r.Context(), actor, r.PathValue("entity"), r.PathValue("id"), from, to)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
 }
 
 func (s *Server) approvals(w http.ResponseWriter, r *http.Request) {

@@ -429,12 +429,82 @@ function RefValue({ field, value }) {
   return html`${text || html`<span class="muted">—</span>`}`;
 }
 
+// --- audit timeline (the differentiator surfaced) -------------------------------
+
+// kindLabel: a human verb for a journal event kind.
+const KIND_LABEL = {
+  'record.created': 'created', 'record.updated': 'edited', 'record.action': 'transition',
+  'comment.posted': 'commented', 'task.created': 'task queued', 'task.taken': 'task taken',
+  'task.completed': 'task done', 'approval.requested': 'sent for signature',
+  'approval.granted': 'signed', 'approval.rejected': 'rejected',
+};
+const kindLabel = (k) => KIND_LABEL[k] || k;
+
+// changeLines: the human-readable net of one mutation event's payload.
+function changeLines(e) {
+  const p = e.payload || {};
+  if (e.kind === 'record.created') return ['created'];
+  if (e.kind === 'record.updated') return (p.changes || []).map(c => `${c.field}: ${fmt(c.old) || '∅'} → ${fmt(c.new) || '∅'}`);
+  if (e.kind === 'record.action') return [`${p.from || '∅'} → ${p.to || '∅'}${p.action ? ` (${p.action})` : ''}`];
+  return [];
+}
+const isMutation = (k) => k === 'record.created' || k === 'record.updated' || k === 'record.action';
+
+// Timeline: a record's audited history as a readable sequence — every change,
+// who made it, and (for a supervisor) one-click undo of the last change or a
+// rewind to any earlier point. The undo is itself a journaled event, so the
+// timeline shows the undos too (basis: revert/rewind of seq N).
+function Timeline({ ent, id, canRevert, onChanged }) {
+  const [events, setEvents] = useState(null);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState(null);
+  const load = () => api(`/api/records/${ent.name}/${id}/journal`).then(j => setEvents(j.events)).catch(setErr);
+  useEffect(load, [ent.name, id]);
+  const mutations = (events || []).filter(e => isMutation(e.kind));
+  const lastMutSeq = mutations.length ? mutations[mutations.length - 1].seq : 0;
+
+  const undoLast = async () => {
+    setBusy(true); setErr(null);
+    try { await api(`/api/records/${ent.name}/${id}/revert`, { method: 'POST', body: JSON.stringify({ basis: basis() }) }); await load(); onChanged(); }
+    catch (e) { setErr(e); } setBusy(false);
+  };
+  const rewindTo = async (seq) => {
+    setBusy(true); setErr(null);
+    try { await api(`/api/records/${ent.name}/${id}/rewind`, { method: 'POST', body: JSON.stringify({ to_seq: seq, basis: basis() }) }); await load(); onChanged(); }
+    catch (e) { setErr(e); } setBusy(false);
+  };
+
+  if (!events) return html`<div class="card muted">loading history…</div>`;
+  return html`<div class="card">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <b style="flex:1">History · ${events.length} events</b>
+      ${canRevert && lastMutSeq > 0 && html`<button class="btn" disabled=${busy} onClick=${undoLast} title="undo the most recent change">↩ Undo last</button>`}
+    </div>
+    ${err && html`<div class="err">${err.message} ${err.fix_hint || ''}</div>`}
+    ${events.map(e => {
+      const lines = changeLines(e);
+      const undone = e.basis && (e.basis.type === 'revert' || e.basis.type === 'rewind');
+      return html`<div style="padding:6px 0;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:flex-start">
+        <span class="muted" style="font-size:11px;width:118px;flex:none">${(e.ts || '').slice(0, 16).replace('T', ' ')}</span>
+        <div style="flex:1">
+          <span class="pill" style=${undone ? 'background:#33201c' : ''}>${kindLabel(e.kind)}</span>
+          <b> ${e.actor.id}</b> <span class="muted">(${e.actor.type})</span>
+          ${undone && html`<span class="muted"> · ${e.basis.type} of #${e.basis.id}</span>`}
+          ${lines.map(l => html`<div style="font-size:13px;margin-top:2px">${l}</div>`)}
+        </div>
+        ${canRevert && isMutation(e.kind) && e.seq < lastMutSeq && html`
+          <button class="btn" style="flex:none;font-size:12px;padding:3px 8px" disabled=${busy}
+            onClick=${() => rewindTo(e.seq)} title="restore the record to its state at this point">⤺ rewind here</button>`}
+      </div>`;
+    })}
+  </div>`;
+}
+
 function RecordView({ ent, id, refresh }) {
-  const [rec, setRec] = useState(null); const [journal, setJournal] = useState(null);
+  const [rec, setRec] = useState(null); const [showHist, setShowHist] = useState(false);
   const [edit, setEdit] = useState({}); const [editing, setEditing] = useState(false);
   const [err, setErr] = useState(null); const [note, setNote] = useState(null);
   const load = () => api(`/api/records/${ent.name}/${id}`).then(setRec).catch(setErr);
-  useEffect(() => { load(); setJournal(null); setEdit({}); setEditing(false); }, [ent.name, id]);
+  useEffect(() => { load(); setShowHist(false); setEdit({}); setEditing(false); }, [ent.name, id]);
 
   if (err && !rec) return html`<div class="err">${err.message}</div>`;
   if (!rec) return html`<div class="muted">loading…</div>`;
@@ -455,24 +525,17 @@ function RecordView({ ent, id, refresh }) {
     catch (e) { setErr(e); }
   };
   const cancel = () => { setEdit({}); setEditing(false); setErr(null); };
-  const showJournal = () => api(`/api/records/${ent.name}/${id}/journal`).then(j => setJournal(j.events));
 
   return html`<div>
     <h2>${elab(ent)} <span class="muted">${reclabel(rec.values)}</span> ${state && html`<span class="pill">${state}</span>`}</h2>
     <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
       ${!editing && actions.map(a => html`<button class="btn ${a.requires_approval ? '' : 'green'}" onClick=${() => act(a.action)}>${a.label || humanize(a.action)}${a.requires_approval ? ' ✍' : ''}</button>`)}
       ${!editing && ent.can_update && html`<button class="btn" onClick=${() => setEditing(true)}>✎ Edit</button>`}
-      <button class="btn" onClick=${journal ? () => setJournal(null) : showJournal}>${journal ? 'hide journal' : 'journal'}</button>
+      <button class="btn ${showHist ? 'on' : ''}" onClick=${() => setShowHist(!showHist)}>${showHist ? 'hide history' : '🕰 History'}</button>
     </div>
     ${note && html`<div class="muted" style="margin:8px 0">${note}</div>`}
     ${err && html`<div class="err">${err.message} ${err.rule ? `(${err.rule})` : ''} ${err.fix_hint || ''}</div>`}
-    ${journal ? html`<div class="card">${journal.map(e => html`
-        <div style="padding:4px 0;border-bottom:1px solid var(--line)">
-          <span class="pill">${e.kind}</span> <b>${e.actor.id}</b> <span class="muted">(${e.actor.type})</span>
-          ${e.basis && html`<span class="muted"> · basis: ${e.basis.type}:${e.basis.id.slice(0, 18)}</span>`}
-          <pre style="margin:4px 0 0">${JSON.stringify(e.payload)}</pre>
-        </div>`)}</div>`
-      : html`<div class="card">
+    <div class="card">
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 18px">
       ${ent.fields.filter(f => f.readable).map(f => {
         const editable = editing && f.writable && f.name !== ent.workflow_field;
@@ -491,7 +554,8 @@ function RecordView({ ent, id, refresh }) {
         <button class="btn green" onClick=${save}>Save</button>
         <button class="btn" onClick=${cancel}>Cancel</button>
       </div>`}
-    </div>`}
+    </div>
+    ${showHist && html`<${Timeline} ent=${ent} id=${id} canRevert=${ent.can_revert} onChanged=${() => { load(); refresh(); }} />`}
     <${Thread} ent=${ent} id=${id} />
   </div>`;
 }
