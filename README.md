@@ -207,10 +207,18 @@ the kernel:
 packs/servicedesk/   ITSM Service Desk — incidents, problems, changes, SLA, KB, CMDB
 packs/crm/           Sales CRM — accounts, leads, pipeline, weighted forecast
 packs/eshop/         Online store — catalog, master-detail orders, fulfilment
+packs/devtrack/      Tracker where AGENTS do the tasks — assign → agent works → human accepts
 packs/hr/            leave & balances        packs/tracker/   Jira-like issues
 packs/knowvault/     RAG knowledge base      packs/boards/    simple boards
 examples/collections, examples/dev_department, examples/pangram (every construct)
 ```
+
+The headline is `devtrack`: a human files an issue, an **agent takes it from the
+pool over MCP, does the work and submits, and a human accepts the result behind a
+signature** — agents as audited, supervised employees. The platform mechanics
+(task pool, leases, HITL, audit journal) are in the kernel; `workers/agent_runner`
+is the reference loop that drives them. No ERP framework or tracker offers this
+natively.
 
 Each is built and exercised end-to-end through the MCP path (dogfood): the
 Service Desk runs an ITSM flow with HITL on CAB approvals and live SLA timers,
