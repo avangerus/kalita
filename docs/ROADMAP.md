@@ -41,10 +41,10 @@ a customer touches it. Do the **known** work only.
   "inside the client's contour" promise made real.
 
 **Language (DSL)**
-- **Lock the spec.** DSL-SPEC reflects what exists today (types, enums, refs,
-  workflows, ABAC, automation, computed +`*_since`/`*_until`, dashboards, i18n,
-  mdg, revert/rewind/diff). Freeze the grammar surface so packs build on stable
-  ground.
+- **Lock the spec** — **DONE**: DSL-SPEC-v0 reconciled to the shipped compiler
+  (rich scalars, serial, mdg, array[file]/tags/multiselect, dashboards, i18n
+  labels, aggregates + `*_since`/`*_until`/business calendars, ref-path scopes)
+  and marked frozen. All 10 packs + 3 acceptance examples compile clean.
 - **Close only the *known* rough edges:** permission-scope narrowing (multi-term
   `and` intersection, `or`, `core.*` ref-paths — correct today, just scanning);
   constraints beyond `unique`. Resist adding speculative features here.
