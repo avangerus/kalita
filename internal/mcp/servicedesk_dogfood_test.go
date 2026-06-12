@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/avangerus/kalita/internal/dsl"
@@ -11,6 +12,27 @@ import (
 	"github.com/avangerus/kalita/internal/eventstore"
 	"github.com/avangerus/kalita/internal/identity"
 )
+
+// packFiles loads every .dsl file in a pack directory — so a pack split across
+// several files (entities/workflows/permissions/…) compiles as one.
+func packFiles(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read pack dir: %v", err)
+	}
+	files := map[string]string{}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".dsl") {
+			src, err := os.ReadFile(dir + "/" + e.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			files[e.Name()] = string(src)
+		}
+	}
+	return files
+}
 
 // Dogfood on a REAL spec: the СТП ПУИТ ITSM Service Desk (D:/work/tecius/it_puit
 // HLD). We load the functional-core pack, then drive it like operators do —
@@ -20,15 +42,7 @@ import (
 // proves the dashboard/null work holds up on a demanding domain, not a toy.
 func TestDogfoodServiceDeskPack(t *testing.T) {
 	ctx := context.Background()
-	files := map[string]string{}
-	for _, f := range []string{"pack.dsl", "servicedesk.dsl"} {
-		src, err := os.ReadFile("../../packs/servicedesk/" + f)
-		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
-		}
-		files[f] = string(src)
-	}
-	model, errs := dsl.Compile(files)
+	model, errs := dsl.Compile(packFiles(t, "../../packs/servicedesk"))
 	if len(errs) > 0 {
 		t.Fatalf("servicedesk pack must compile: %v", errs[0])
 	}
