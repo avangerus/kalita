@@ -230,7 +230,7 @@ kalita**, not parts of it.
 
 ## Design documents
 
-[HLD](docs/HLD.md) · [DSL Spec](docs/DSL-SPEC-v0.md) ·
+[Roadmap](docs/ROADMAP.md) · [HLD](docs/HLD.md) · [DSL Spec](docs/DSL-SPEC-v0.md) ·
 [MCP Contract](docs/MCP-CONTRACT-v0.md) · [Event Store](docs/EVENT-STORE-v0.md) ·
 [Type System](docs/TYPE-SYSTEM-V1.md) · [Security threat model](docs/SECURITY.md)
 *(read before deploying beyond localhost)* · [ADRs](docs/adr/)
