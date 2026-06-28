@@ -11,8 +11,10 @@ import os
 import sys
 import tempfile
 import unittest
+import urllib.error
 import uuid
 import zipfile
+from http.server import BaseHTTPRequestHandler
 from unittest import mock
 
 # ---------------------------------------------------------------------------
@@ -127,99 +129,78 @@ class TestBug01ServiceHasNoIndependentEmbedModel(unittest.TestCase):
 
 class TestBug02ModelChangeTriggerRebuild(unittest.TestCase):
 
-    def _make_indexer_http_mock(self, existing_model, target_model):
-        """Returns (fake_http, calls) where calls accumulates method+url pairs."""
+    def _make_indexer_http_mock(self, existing_model, existing_dim, target_dim):
+        """fake http that models GET collection (dim), GET sentinel (model),
+        and DELETE.  existing_model=None simulates a pre-sentinel collection."""
         meta_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "kv_collection_meta"))
         calls = []
 
         def fake_http(url, body=None, method=None, headers=None):
             calls.append((method or "GET", url))
-            if meta_id in url and method in (None, "GET"):
+            # sentinel point lookup
+            if f"/points/{meta_id}" in url and method in (None, "GET"):
                 if existing_model:
                     return {"result": {"id": meta_id,
                                        "payload": {"_meta": True,
                                                    "model": existing_model,
-                                                   "dim": 1024}}}
-                # No sentinel → no result
-                return {"result": None}
+                                                   "dim": existing_dim}}}
+                return {"result": None}  # no sentinel
+            # collection config lookup (dim)
+            if "/collections/" in url and "/points" not in url and method in (None, "GET"):
+                if existing_dim is None:
+                    raise urllib.error.HTTPError(url, 404, "not found", {}, None)
+                return {"result": {"config": {"params": {"vectors": {"size": existing_dim}}}}}
             if method == "DELETE" and "/collections/" in url:
                 return {}
             return {}
 
         return fake_http, calls
 
-    def test_collection_needs_rebuild_returns_true_on_model_mismatch(self):
-        """collection_needs_rebuild() returns True and deletes the collection
-        when the sentinel model differs from the target model."""
+    def test_reconcile_drops_on_model_mismatch(self):
+        """reconcile_collection drops the collection when the sentinel model
+        differs from the target (same dim)."""
         import indexer as idx
-
-        existing = "text-embedding-nomic-embed-text-v1.5"
-        target = "text-embedding-bge-m3"
-        fake_http, calls = self._make_indexer_http_mock(existing, target)
-
+        fake_http, calls = self._make_indexer_http_mock(
+            existing_model="text-embedding-nomic-embed-text-v1.5",
+            existing_dim=1024, target_dim=1024)
         with mock.patch.object(idx, "http", fake_http):
-            result = idx.collection_needs_rebuild("kv_ws1", target)
+            result = idx.reconcile_collection("kv_ws1", "text-embedding-bge-m3", 1024)
+        self.assertTrue(result, "must rebuild on model mismatch")
+        self.assertTrue([c for c in calls if c[0] == "DELETE"], "collection must be deleted")
 
-        self.assertTrue(result, "collection_needs_rebuild must return True on model mismatch")
-        delete_calls = [c for c in calls if c[0] == "DELETE"]
-        self.assertTrue(delete_calls,
-                        "collection must be deleted when model changes — BUG-02 not fixed")
-
-    def test_collection_needs_rebuild_returns_false_on_model_match(self):
-        """collection_needs_rebuild() returns False when model matches."""
+    def test_reconcile_drops_pre_sentinel_collection(self):
+        """ROOT 2: a pre-sentinel collection (model unknown) whose dim differs
+        from target must be dropped — the live-acceptance failure case."""
         import indexer as idx
-
-        model = "text-embedding-bge-m3"
-        fake_http, calls = self._make_indexer_http_mock(model, model)
-
+        fake_http, calls = self._make_indexer_http_mock(
+            existing_model=None,  # old collection, no sentinel
+            existing_dim=768, target_dim=1024)
         with mock.patch.object(idx, "http", fake_http):
-            result = idx.collection_needs_rebuild("kv_ws1", model)
+            result = idx.reconcile_collection("kv_ws1", "text-embedding-bge-m3", 1024)
+        self.assertTrue(result,
+                        "pre-sentinel collection with mismatched dim MUST be dropped — "
+                        "this is exactly the bug that survived the mock tests")
+        self.assertTrue([c for c in calls if c[0] == "DELETE"], "collection must be deleted")
 
-        self.assertFalse(result,
-                         "collection_needs_rebuild must return False when model matches")
-        delete_calls = [c for c in calls if c[0] == "DELETE"]
-        self.assertFalse(delete_calls, "collection must NOT be deleted when model is the same")
-
-    def test_force_rebuild_skips_fingerprints(self):
-        """sync_source with force_rebuild=True calls indexed_fingerprints only if
-        needed — effectively treating prior as empty so every file is re-embedded.
-
-        This test verifies the branching logic via indexer module internals without
-        a live Qdrant: we patch indexed_fingerprints to confirm it is NOT consulted
-        when force_rebuild=True."""
+    def test_reconcile_noop_when_consistent(self):
+        """reconcile_collection does nothing when model AND dim already match."""
         import indexer as idx
+        fake_http, calls = self._make_indexer_http_mock(
+            existing_model="text-embedding-bge-m3", existing_dim=1024, target_dim=1024)
+        with mock.patch.object(idx, "http", fake_http):
+            result = idx.reconcile_collection("kv_ws1", "text-embedding-bge-m3", 1024)
+        self.assertFalse(result, "no rebuild when consistent")
+        self.assertFalse([c for c in calls if c[0] == "DELETE"], "must NOT delete when consistent")
 
-        called = []
-
-        def mock_indexed_fingerprints(*a, **kw):
-            called.append(True)
-            return {}
-
-        # sync_source requires tool(), embed(), ensure_collection() — stub them all.
-        def noop(*a, **kw):
-            return {}
-
-        src = {"values": {"workspace": "ws1", "kind": "Files", "path": "/nonexistent"}}
-
-        patches = [
-            mock.patch.object(idx, "indexed_fingerprints", mock_indexed_fingerprints),
-            mock.patch.object(idx, "settings", return_value=("text-embedding-bge-m3", 512)),
-            mock.patch.object(idx, "collection_needs_rebuild", return_value=False),
-            mock.patch.object(idx, "tool", return_value={}),
-        ]
-        for p in patches:
-            p.start()
-        try:
-            # walk will find nothing in /nonexistent, so we just check fingerprints logic
-            idx.sync_source("sid-1", src, {}, "tid-1", force_rebuild=True)
-        except Exception:
-            pass  # expected — no real walk/embed
-        finally:
-            for p in patches:
-                p.stop()
-
-        self.assertFalse(called,
-                         "indexed_fingerprints must NOT be called when force_rebuild=True")
+    def test_reconcile_noop_when_absent(self):
+        """A non-existent collection is a no-op (ensure_collection will create it)."""
+        import indexer as idx
+        fake_http, calls = self._make_indexer_http_mock(
+            existing_model=None, existing_dim=None, target_dim=1024)
+        with mock.patch.object(idx, "http", fake_http):
+            result = idx.reconcile_collection("kv_ws1", "text-embedding-bge-m3", 1024)
+        self.assertFalse(result, "absent collection → no rebuild flag")
+        self.assertFalse([c for c in calls if c[0] == "DELETE"], "nothing to delete")
 
     def test_reindex_action_sets_force_rebuild_in_index_source(self):
         """index_source detects the reindex path (status=New, last_indexed set)
@@ -273,6 +254,188 @@ class TestBug02ModelChangeTriggerRebuild(unittest.TestCase):
         self.assertTrue(sync_calls, "sync_source was not called")
         self.assertFalse(sync_calls[0]["force_rebuild"],
                          "Failed->retry must NOT force rebuild (incremental is correct here)")
+
+
+# ===========================================================================
+# BUG-02 (live defect): full sync against a REAL Qdrant-behaving HTTP server.
+# This is NOT a mock that hides Qdrant's behavior — it is an in-process server
+# that ENFORCES the two behaviors that made the production bug invisible:
+#   1. PUT /collections/{name} returns 409 if the collection already exists.
+#   2. PUT .../points rejects a vector whose length != the collection's dim
+#      (HTTP 400) — exactly how Qdrant refuses a dim-mismatched upsert.
+# The scenario: a 768-dim collection WITHOUT a sentinel (built by old code) +
+# a target model that yields 1024-dim, then a rebuild.  Expectation: the
+# collection is recreated at 1024, sentinel = target model, no old vectors, and
+# the upsert does NOT fail.
+# ===========================================================================
+
+class _FakeQdrant(BaseHTTPRequestHandler):
+    """A tiny Qdrant look-alike that enforces dim on upsert and 409 on re-create.
+    State lives on the server instance (self.server.collections)."""
+
+    def log_message(self, *_):  # silence
+        pass
+
+    # ---- helpers ----
+    def _send(self, code, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_body(self):
+        n = int(self.headers.get("Content-Length", 0))
+        return json.loads(self.rfile.read(n)) if n else {}
+
+    def _col_name(self):
+        # /collections/<name>[/...]
+        parts = self.path.split("?")[0].strip("/").split("/")
+        return parts[1] if len(parts) > 1 else None
+
+    # ---- routes ----
+    def do_GET(self):
+        cols = self.server.collections
+        name = self._col_name()
+        meta_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "kv_collection_meta"))
+        if f"/points/{meta_id}" in self.path:
+            col = cols.get(name)
+            if col and meta_id in col["points"]:
+                return self._send(200, {"result": {"id": meta_id,
+                                                   "payload": col["points"][meta_id]["payload"]}})
+            return self._send(404, {"status": {"error": "not found"}})
+        # GET collection config
+        if name and "/points" not in self.path:
+            col = cols.get(name)
+            if not col:
+                return self._send(404, {"status": {"error": "not found"}})
+            return self._send(200, {"result": {"config": {"params": {
+                "vectors": {"size": col["dim"], "distance": "Cosine"}}}}})
+        return self._send(404, {"status": {"error": "unknown"}})
+
+    def do_PUT(self):
+        cols = self.server.collections
+        name = self._col_name()
+        body = self._read_body()
+        if name and self.path.split("?")[0].endswith(name):
+            # create collection
+            if name in cols:
+                return self._send(409, {"status": {"error": "already exists"}})
+            dim = body["vectors"]["size"]
+            cols[name] = {"dim": dim, "points": {}}
+            return self._send(200, {"result": True})
+        if "/points" in self.path:
+            col = cols.get(name)
+            if not col:
+                return self._send(404, {"status": {"error": "no collection"}})
+            for p in body.get("points", []):
+                if len(p["vector"]) != col["dim"]:
+                    # this is the real Qdrant dim-mismatch rejection
+                    return self._send(400, {"status": {
+                        "error": f"dim mismatch: got {len(p['vector'])}, want {col['dim']}"}})
+                col["points"][p["id"]] = {"vector": p["vector"], "payload": p["payload"]}
+            return self._send(200, {"result": {"status": "completed"}})
+        return self._send(404, {"status": {"error": "unknown"}})
+
+    def do_POST(self):
+        cols = self.server.collections
+        name = self._col_name()
+        body = self._read_body()
+        col = cols.get(name)
+        if self.path.split("?")[0].endswith("/points/scroll"):
+            pts = []
+            if col:
+                for pid, p in col["points"].items():
+                    pl = p["payload"]
+                    if pl.get("_meta"):
+                        continue
+                    pts.append({"id": pid, "payload": pl})
+            return self._send(200, {"result": {"points": pts, "next_page_offset": None}})
+        if self.path.split("?")[0].endswith("/points/delete"):
+            return self._send(200, {"result": {"status": "completed"}})
+        return self._send(404, {"status": {"error": "unknown"}})
+
+    def do_DELETE(self):
+        cols = self.server.collections
+        name = self._col_name()
+        cols.pop(name, None)
+        return self._send(200, {"result": True})
+
+
+class TestBug02LiveRebuildAgainstRealQdrantBehavior(unittest.TestCase):
+    """Reproduces the production failure with a server that enforces dim + 409,
+    not a mock that hides them."""
+
+    def setUp(self):
+        from http.server import ThreadingHTTPServer
+        import threading
+        self.srv = ThreadingHTTPServer(("127.0.0.1", 0), _FakeQdrant)
+        self.srv.collections = {}
+        self.port = self.srv.server_address[1]
+        self.t = threading.Thread(target=self.srv.serve_forever, daemon=True)
+        self.t.start()
+
+    def tearDown(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+    def test_rebuild_over_old_dim_collection_without_sentinel(self):
+        import indexer as idx
+
+        ws = "ws-live"
+        col = f"kv_{ws}"
+        meta_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "kv_collection_meta"))
+
+        # --- seed: a 768-dim collection with an OLD vector and NO sentinel ---
+        self.srv.collections[col] = {
+            "dim": 768,
+            "points": {"old-point-1": {"vector": [0.0] * 768,
+                                       "payload": {"source": "src-old", "file": "old.txt",
+                                                   "fp": "1:1", "text": "stale"}}},
+        }
+
+        # a real source dir with one file to index
+        tmpdir = tempfile.mkdtemp()
+        with open(os.path.join(tmpdir, "doc.txt"), "w", encoding="utf-8") as f:
+            f.write("The new model speaks in 1024 dimensions.")
+
+        src = {"values": {"workspace": ws, "kind": "Files", "path": tmpdir}}
+
+        # target model yields 1024-dim vectors (different from the old 768)
+        TARGET_MODEL = "text-embedding-bge-m3"
+        TARGET_DIM = 1024
+
+        def fake_embed(model, texts):
+            self.assertEqual(model, TARGET_MODEL)
+            return [[0.01 * (i + 1)] * TARGET_DIM for i, _ in enumerate(texts)]
+
+        # point indexer at our fake Qdrant; stub only LM (embed), settings, node calls
+        with mock.patch.object(idx, "QDRANT", f"http://127.0.0.1:{self.port}"), \
+             mock.patch.object(idx, "embed", fake_embed), \
+             mock.patch.object(idx, "settings", return_value=(TARGET_MODEL, 512)), \
+             mock.patch.object(idx, "tool", return_value={}):
+            # rebuild path (user pressed reindex)
+            note = idx.sync_source("src-new", src, {}, "tid-live", force_rebuild=True)
+
+        cols = self.srv.collections
+        self.assertIn(col, cols, "collection must exist after rebuild")
+        # 1. recreated at the target dim
+        self.assertEqual(cols[col]["dim"], TARGET_DIM,
+                         "collection must be recreated at the target dim (1024), not left at 768")
+        # 2. sentinel present and points to the target model
+        self.assertIn(meta_id, cols[col]["points"], "sentinel must be written")
+        self.assertEqual(cols[col]["points"][meta_id]["payload"]["model"], TARGET_MODEL)
+        self.assertEqual(cols[col]["points"][meta_id]["payload"]["dim"], TARGET_DIM)
+        # 3. old 768-dim vectors are gone
+        self.assertNotIn("old-point-1", cols[col]["points"],
+                         "stale vectors from the old collection must not survive a rebuild")
+        # 4. the new doc's chunk(s) were upserted (upsert did NOT fail on dim)
+        content_points = [p for pid, p in cols[col]["points"].items()
+                          if not p["payload"].get("_meta")]
+        self.assertTrue(content_points, "new content must be indexed — upsert must not have failed")
+        for p in content_points:
+            self.assertEqual(len(p["vector"]), TARGET_DIM)
+        self.assertIn("1 re-embedded", note, f"unexpected sync note: {note}")
 
 
 # ===========================================================================
@@ -378,7 +541,7 @@ class TestBug03UploadUsesExtract(unittest.TestCase):
         with mock.patch.object(idx, "_extract_upload", mock_extract_upload), \
              mock.patch.object(idx, "http_bytes", mock_http_bytes), \
              mock.patch.object(idx, "settings", return_value=("text-embedding-bge-m3", 512)), \
-             mock.patch.object(idx, "collection_needs_rebuild", return_value=False), \
+             mock.patch.object(idx, "reconcile_collection", return_value=False), \
              mock.patch.object(idx, "indexed_fingerprints", return_value={}), \
              mock.patch.object(idx, "embed", return_value=[[0.1] * 1024]), \
              mock.patch.object(idx, "ensure_collection"), \

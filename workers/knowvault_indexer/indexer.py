@@ -150,21 +150,45 @@ def ensure_collection(name, dim, model):
             upsert_collection_meta(name, model, dim)
 
 
-def collection_needs_rebuild(name, target_model):
-    """BUG-02: if the collection was built with a different model, delete it so
-    the next ensure_collection call creates it fresh with the right dim.
-    Returns True when a full rebuild is required."""
-    existing_model, _ = get_collection_meta(name)
-    if existing_model is None:
-        return False  # new or pre-sentinel collection — no rebuild needed
-    if existing_model != target_model:
-        try:
-            http(f"{QDRANT}/collections/{name}", method="DELETE")
-        except urllib.error.HTTPError as e:
-            if e.code != 404:
-                raise
-        return True
-    return False
+def collection_dim(name):
+    """The configured vector size of an existing collection, or None if it does
+    not exist. Read from Qdrant's collection config — independent of the sentinel,
+    so it works even for old collections that predate the sentinel."""
+    try:
+        r = http(f"{QDRANT}/collections/{name}")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+    vec = ((((r.get("result") or {}).get("config") or {}).get("params") or {}).get("vectors") or {})
+    return vec.get("size")
+
+
+def reconcile_collection(name, target_model, target_dim):
+    """BUG-02: bring an existing collection in line with the TARGET model+dim
+    BEFORE any vector is written — independent of force_rebuild.
+
+    Drops (for a clean recreate by ensure_collection) when the existing collection
+    differs from the target in EITHER model OR dimension. This covers:
+      - model swap (sentinel model != target)              -> rebuild
+      - dimension change after a model swap                -> rebuild
+      - pre-sentinel collections (model unknown)           -> rebuild, because we
+        cannot prove the old model matches; rebuilding is the only safe choice and
+        guarantees no dim-mismatch upsert can occur.
+    A non-existent collection is a no-op. Returns True iff it was dropped (the
+    caller must then treat the index as empty)."""
+    dim = collection_dim(name)
+    if dim is None:
+        return False  # nothing there yet — ensure_collection will create it fresh
+    model, _ = get_collection_meta(name)
+    if model == target_model and dim == target_dim:
+        return False  # already consistent with the target
+    try:
+        http(f"{QDRANT}/collections/{name}", method="DELETE")
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+    return True
 
 
 def _extract_upload(url, name):
@@ -225,16 +249,24 @@ def sync_source(sid, src, basis, tid, force_rebuild=False):
     the human note; raises on I/O failure for the caller to translate.
 
     force_rebuild=True ignores all cached fingerprints and re-embeds every file
-    (used when the user explicitly triggers reindex, or when the embedding model
-    changed and the collection was rebuilt from scratch)."""
+    (used when the user explicitly triggers reindex). Regardless of force_rebuild,
+    a collection whose model OR dimension does not match the target is always
+    recreated first, so a dim-mismatch upsert can never happen."""
     workspace = src["values"].get("workspace", "")
     collection = f"kv_{workspace}"
     model, chunk_size = settings()
 
-    # BUG-02: if the collection was built with a different model, wipe it so
-    # ensure_collection recreates it with the correct dimension.
-    if not force_rebuild:
-        force_rebuild = collection_needs_rebuild(collection, model)
+    # BUG-02: reconcile the collection with the TARGET model+dim BEFORE reading
+    # fingerprints or writing any vector — UNCONDITIONALLY (force_rebuild does not
+    # skip this; that was the live-acceptance defect). We learn the target dim by
+    # probing the model once: a model swap changes the dim, and a dim mismatch on
+    # upsert must be impossible. If the existing collection's model OR dim differs
+    # (including pre-sentinel collections with unknown model), it is dropped here
+    # and recreated fresh by ensure_collection at the correct dimension.
+    target_dim = len(embed(model, ["probe"])[0])
+    rebuilt = reconcile_collection(collection, model, target_dim)
+    if rebuilt:
+        force_rebuild = True  # collection was wiped — every file is new
 
     # an indexable unit is (relpath, fingerprint, loader): a single uploaded
     # document, or every supported file under a crawled path. The fingerprint
