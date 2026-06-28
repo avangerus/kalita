@@ -1,0 +1,279 @@
+{
+  "_note": "HELD-OUT — do NOT read this file during fix iterations. Accept / reject fixes only from the aggregate metrics in the results file.",
+  "generated_at": "2026-06-28T17:53:28.821235+00:00",
+  "embed_model": "text-embedding-nomic-embed-text-v1.5",
+  "seed": 42,
+  "collections": [
+    "kv_019eb765-0658-7468-aecb-7b65242b2809",
+    "kv_019eb796-b11f-7402-9f74-8b40fd172920",
+    "kv_019ebccd-ae5c-7358-9d07-acefddfea38f",
+    "kv_019ebcfb-ebc4-74ef-b293-72b7507c4b61",
+    "kv_019ebd0c-af5c-77b3-be24-d25571d13ca4",
+    "kv_019f0eb5-9f76-7b9e-95f8-562274ccdda4",
+    "kv_019f0f04-6bf6-75c5-8715-302567935c38"
+  ],
+  "corpus_questions": [
+    {
+      "id": 1,
+      "type": "corpus",
+      "question": "Что произошло после регистрации типового запроса оператором СТП?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "20201202_ПФР_ПУИТ_СТП_НМД_Описание_процесса_управления_типовыми.md"
+    },
+    {
+      "id": 2,
+      "type": "corpus",
+      "question": "What is the primitive readiness status for the Client portal application?",
+      "gold_collection": "kv_019ebccd-ae5c-7358-9d07-acefddfea38f",
+      "gold_file": "THOUGHTS-INBOX.md"
+    },
+    {
+      "id": 3,
+      "type": "corpus",
+      "question": "Что включает в себя обработка групповых политик?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_ЕСК_РУК_Руководство администратора_v01.md"
+    },
+    {
+      "id": 4,
+      "type": "corpus",
+      "question": "Для чего подходит диаграмма Круговая индикаторная шкала?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_Мониторинг_РУК_Руководство администратора.md"
+    },
+    {
+      "id": 5,
+      "type": "corpus",
+      "question": "Что делают фильтры и пороги в представлении данных?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_Мониторинг_РУК_Руководство администратора.md"
+    },
+    {
+      "id": 6,
+      "type": "corpus",
+      "question": "Какие типы инцидентов отслеживает компонент «Мониторинг ИТ-инфраструктуры»?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "20201202_ПФР_ПУИТ_СТП_НМД_Описание_процесса_управления_инцидентами.md"
+    },
+    {
+      "id": 7,
+      "type": "corpus",
+      "question": "Что нужно сделать с остановленными виртуальными машинами после успешного восстановления модуля?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_Мониторинг_РУК_Руководство администратора.md"
+    },
+    {
+      "id": 8,
+      "type": "corpus",
+      "question": "Что описывает Конфигурационный элемент?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_ТОРС_РУК_Руководство пользователя_v01.md"
+    },
+    {
+      "id": 9,
+      "type": "corpus",
+      "question": "What is the version number for Spectrum Control?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "20240830_ПУИТ_Приложение_1_Описание_объекта_закупки.md"
+    },
+    {
+      "id": 10,
+      "type": "corpus",
+      "question": "Какие данные о стенде указаны в списке?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "135. Паспорт ТП ПИО_v 21_07.07.2025.md"
+    },
+    {
+      "id": 11,
+      "type": "corpus",
+      "question": "Какие операции должны быть выполнены на стороне ОПФР для подключения к Системе?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_ЦУИТ_РУК_Руководство администратора_Модуль визуализации_v02.md"
+    },
+    {
+      "id": 12,
+      "type": "corpus",
+      "question": "What is the default deployment model for the system?",
+      "gold_collection": "kv_019ebccd-ae5c-7358-9d07-acefddfea38f",
+      "gold_file": "SECURITY.md"
+    },
+    {
+      "id": 13,
+      "type": "corpus",
+      "question": "What are the components of a \"Spread\" strategy?",
+      "gold_collection": "kv_019ebccd-ae5c-7358-9d07-acefddfea38f",
+      "gold_file": "THOUGHTS-INBOX.md"
+    },
+    {
+      "id": 14,
+      "type": "corpus",
+      "question": "Где можно найти сервисные и навигационные инструменты для работы с данными в компоненте ТОРС?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_ТОРС_РУК_Руководство пользователя_v01.md"
+    },
+    {
+      "id": 15,
+      "type": "corpus",
+      "question": "Какой номер телефона у Шаламовой Ирины Евгеньевны?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "135. Паспорт ТП ПИО_v 21_07.07.2025.md"
+    },
+    {
+      "id": 16,
+      "type": "corpus",
+      "question": "Как можно использовать отслеживаемые базовые значения пороговых критериев ситуации?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_Мониторинг_РУК_Руководство администратора.md"
+    },
+    {
+      "id": 17,
+      "type": "corpus",
+      "question": "Где можно найти справочную информацию о работе IBM Tivoli Storage Productivity Center?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_ЦУИТ_РУК_Руководство администратора_Хранение данных и SAN-сеть_v02.asd.md"
+    },
+    {
+      "id": 18,
+      "type": "corpus",
+      "question": "Где можно найти условия перехода статусов инцидента?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "20201202_ПФР_ПУИТ_СТП_НМД_Описание процесса управления инцидентами_v01.md"
+    },
+    {
+      "id": 19,
+      "type": "corpus",
+      "question": "What information is dictated by `/api/meta`?",
+      "gold_collection": "kv_019ebccd-ae5c-7358-9d07-acefddfea38f",
+      "gold_file": "adr/ADR-004-frontend-layers.md"
+    },
+    {
+      "id": 20,
+      "type": "corpus",
+      "question": "",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_Мониторинг_РУК_Руководство администратора.md"
+    },
+    {
+      "id": 21,
+      "type": "corpus",
+      "question": "Какие условия должны быть соблюдены для предоставления компонента «Мониторинг ИТ-инфраструктуры» ПУИТ?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "20240830_ПУИТ_Приложение_1_Описание_объекта_закупки.md"
+    },
+    {
+      "id": 22,
+      "type": "corpus",
+      "question": "What are the names of the tables listed in this excerpt?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПУИТ_П2_СТП_Пояснительная_записка_к_техническому_проекту.md"
+    },
+    {
+      "id": 23,
+      "type": "corpus",
+      "question": "Где нужно настраивать компонент VMware PowerCLI?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_ЦУИТ_РУК_Руководство администратора_Автоматизированные рабочие места пользователей_v02.md"
+    },
+    {
+      "id": 24,
+      "type": "corpus",
+      "question": "",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_Мониторинг_РУК_Руководство администратора.md"
+    },
+    {
+      "id": 25,
+      "type": "corpus",
+      "question": "Что происходит при регистрации новой проблемы?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "20201202_ПФР_ПУИТ_СТП_НМД_Описание_процесса_управления_проблемами.md"
+    },
+    {
+      "id": 26,
+      "type": "corpus",
+      "question": "What are the column names and data types in this excerpt?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПУИТ_П2_СТП_Пояснительная_записка_к_техническому_проекту.md"
+    },
+    {
+      "id": 27,
+      "type": "corpus",
+      "question": "What are the data types and names of the fields WORKORDER accepts?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПУИТ_П2_СТП_Пояснительная_записка_к_техническому_проекту.md"
+    },
+    {
+      "id": 28,
+      "type": "corpus",
+      "question": "What are some operations planned for the next two weeks?",
+      "gold_collection": "kv_019ebccd-ae5c-7358-9d07-acefddfea38f",
+      "gold_file": "V1-GATE.md"
+    },
+    {
+      "id": 29,
+      "type": "corpus",
+      "question": "Как создать объект, ассоциированный с учетной записью компьютера?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_ЕСК_РУК_Руководство администратора_v01.md"
+    },
+    {
+      "id": 30,
+      "type": "corpus",
+      "question": "Где можно найти информацию о сфере применения?",
+      "gold_collection": "kv_019f0f04-6bf6-75c5-8715-302567935c38",
+      "gold_file": "ПФР_ПУИТ_СТП_РУК_Руководство администратора СТП и ТОРС_v04.md"
+    }
+  ],
+  "traps": [
+    {
+      "id": 1000,
+      "type": "trap",
+      "question": "Какова столица Австралии?"
+    },
+    {
+      "id": 1001,
+      "type": "trap",
+      "question": "Как приготовить пасту карбонара?"
+    },
+    {
+      "id": 1002,
+      "type": "trap",
+      "question": "Кто написал роман \"Война и мир\"?"
+    },
+    {
+      "id": 1003,
+      "type": "trap",
+      "question": "Какие основные принципы квантовой физики?"
+    },
+    {
+      "id": 1004,
+      "type": "trap",
+      "question": "В какой год была изобретена лампочка накаливания?"
+    },
+    {
+      "id": 1005,
+      "type": "trap",
+      "question": "Что такое фотосинтез в растениях?"
+    },
+    {
+      "id": 1006,
+      "type": "trap",
+      "question": "Какой самый глубокий океанский желоб на Земле?"
+    },
+    {
+      "id": 1007,
+      "type": "trap",
+      "question": "Как работает двигатель внутреннего сгорания?"
+    },
+    {
+      "id": 1008,
+      "type": "trap",
+      "question": "Какая валюта используется в Японии?"
+    },
+    {
+      "id": 1009,
+      "type": "trap",
+      "question": "Какие отличия между котами и собаками?"
+    }
+  ]
+}
