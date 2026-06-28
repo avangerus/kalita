@@ -20,3 +20,6 @@ tmp/
 
 # Native dev run state (node key, logs, indexed files)
 /.native/
+
+# Agent scratch: review/planning notes — must NOT enter git
+/agent/
