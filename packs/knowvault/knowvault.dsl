@@ -9,7 +9,7 @@
 # Secrets are FORBIDDEN here (SECURITY rule #5) — workers hold their own keys
 # and reference them by id.
 entity VaultSettings singleton:
-    embedding_model: string required default="bge-m3"
+    embedding_model: string required default="text-embedding-bge-m3"
     llm_endpoint: string
     chunk_size: int default=512
     language: enum[Auto, Ru, En] default=Auto

@@ -17,6 +17,7 @@ Zero dependencies: stdlib only.
 import json
 import os
 import sys
+import tempfile
 import time
 import urllib.request
 import urllib.error
@@ -81,8 +82,8 @@ def settings():
     rows = tool("query", {"entity": "VaultSettings"}).get("records") or []
     if rows:
         v = rows[0]["values"]
-        return v.get("embedding_model", "text-embedding-nomic-embed-text-v1.5"), int(v.get("chunk_size") or 512)
-    return "text-embedding-nomic-embed-text-v1.5", 512
+        return v.get("embedding_model", "text-embedding-bge-m3"), int(v.get("chunk_size") or 512)
+    return "text-embedding-bge-m3", 512
 
 
 def chunk(text, size):
@@ -108,13 +109,80 @@ def embed(model, texts):
     return [d["embedding"] for d in resp["data"]]
 
 
-def ensure_collection(name, dim):
+# BUG-01/02: sentinel point — a well-known UUID stored in every collection so
+# both indexer and search worker always agree on which model built the index.
+# The search worker reads this; it has no independent EMBED_MODEL config.
+_META_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "kv_collection_meta"))
+
+
+def get_collection_meta(name):
+    """Return (model, dim) from the sentinel point, or (None, None) if absent."""
+    try:
+        r = http(f"{QDRANT}/collections/{name}/points/{_META_ID}")
+        pl = (r.get("result") or {}).get("payload") or {}
+        if pl.get("_meta"):
+            return pl.get("model"), pl.get("dim")
+    except urllib.error.HTTPError:
+        pass
+    return None, None
+
+
+def upsert_collection_meta(name, model, dim):
+    """Write (or refresh) the sentinel meta point that records model+dim."""
+    http(f"{QDRANT}/collections/{name}/points?wait=true", method="PUT",
+         body={"points": [{"id": _META_ID, "vector": [0.0] * dim,
+                           "payload": {"_meta": True, "model": model, "dim": dim}}]})
+
+
+def ensure_collection(name, dim, model):
+    """Create collection if it doesn't exist; write/refresh the model sentinel.
+    Called on the first batch of every file — idempotent."""
     try:
         http(f"{QDRANT}/collections/{name}", method="PUT",
              body={"vectors": {"size": dim, "distance": "Cosine"}})
+        upsert_collection_meta(name, model, dim)
     except urllib.error.HTTPError as e:
         if e.code != 409:  # already exists
             raise
+        # Collection exists: write sentinel if it's missing (upgrade path).
+        existing_model, _ = get_collection_meta(name)
+        if existing_model is None:
+            upsert_collection_meta(name, model, dim)
+
+
+def collection_needs_rebuild(name, target_model):
+    """BUG-02: if the collection was built with a different model, delete it so
+    the next ensure_collection call creates it fresh with the right dim.
+    Returns True when a full rebuild is required."""
+    existing_model, _ = get_collection_meta(name)
+    if existing_model is None:
+        return False  # new or pre-sentinel collection — no rebuild needed
+    if existing_model != target_model:
+        try:
+            http(f"{QDRANT}/collections/{name}", method="DELETE")
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+        return True
+    return False
+
+
+def _extract_upload(url, name):
+    """BUG-03: download an uploaded document and extract its text via the same
+    extract.extract_text path used for crawled files.  Avoids raw .decode() of
+    binary formats (docx, pdf, …) which produces garbage."""
+    data = http_bytes(url)
+    ext = os.path.splitext(name)[1].lower() or ".bin"
+    fd, tmp = tempfile.mkstemp(suffix=ext)
+    try:
+        os.write(fd, data)
+        os.close(fd)
+        return extract.extract_text(tmp) or ""
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def indexed_fingerprints(collection, sid):
@@ -150,14 +218,23 @@ def drop_file(collection, sid, fname):
                                    {"key": "file", "match": {"value": fname}}]}})
 
 
-def sync_source(sid, src, basis, tid):
+def sync_source(sid, src, basis, tid, force_rebuild=False):
     """The pure incremental ingest step: skip unchanged files, re-embed changed,
     drop deleted. No workflow transitions — so it serves BOTH first-index (inside
     the Indexing->Indexed flow) and resync (the source stays Indexed). Returns
-    the human note; raises on I/O failure for the caller to translate."""
+    the human note; raises on I/O failure for the caller to translate.
+
+    force_rebuild=True ignores all cached fingerprints and re-embeds every file
+    (used when the user explicitly triggers reindex, or when the embedding model
+    changed and the collection was rebuilt from scratch)."""
     workspace = src["values"].get("workspace", "")
     collection = f"kv_{workspace}"
     model, chunk_size = settings()
+
+    # BUG-02: if the collection was built with a different model, wipe it so
+    # ensure_collection recreates it with the correct dimension.
+    if not force_rebuild:
+        force_rebuild = collection_needs_rebuild(collection, model)
 
     # an indexable unit is (relpath, fingerprint, loader): a single uploaded
     # document, or every supported file under a crawled path. The fingerprint
@@ -166,8 +243,10 @@ def sync_source(sid, src, basis, tid):
     def units():
         doc = src["values"].get("document")
         if src["values"].get("kind") == "Upload" and doc:
-            yield doc.get("name", "document"), doc.get("hash", ""), \
-                lambda: http_bytes(f"{NODE}/api/files/{doc['hash']}").decode("utf-8", "ignore")
+            # BUG-03: route through extract path, not raw .decode() of bytes
+            name = doc.get("name", "document")
+            url = f"{NODE}/api/files/{doc['hash']}"
+            yield name, doc.get("hash", ""), lambda u=url, n=name: _extract_upload(u, n)
             return
         base = src["values"].get("path", "")
         for root, dirs, files in os.walk(base):
@@ -186,12 +265,13 @@ def sync_source(sid, src, basis, tid):
                 rel = os.path.relpath(full, base).replace("\\", "/")  # "where is it?"
                 yield rel, fp, (lambda p=full: extract.extract_text(p))
 
-    # what's already in the index: skip unchanged, re-embed changed, drop gone
-    prior = indexed_fingerprints(collection, sid)
+    # what's already in the index: skip unchanged, re-embed changed, drop gone.
+    # force_rebuild=True: prior={} → every file is treated as new.
+    prior = {} if force_rebuild else indexed_fingerprints(collection, sid)
     seen, changed = set(), 0
     for fname, fp, load in units():
         seen.add(fname)
-        if prior.get(fname) == fp:
+        if not force_rebuild and prior.get(fname) == fp:
             continue  # unchanged since last index — leave it
         text = load()
         if not text or not text.strip():
@@ -205,7 +285,8 @@ def sync_source(sid, src, basis, tid):
         for off in range(0, len(pieces), 32):
             batch = pieces[off:off + 32]
             vectors = embed(model, batch)
-            ensure_collection(collection, len(vectors[0]))
+            # BUG-01/02: pass model so sentinel is written on first creation
+            ensure_collection(collection, len(vectors[0]), model)
             points = [{
                 "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}|{fname}|{off + i}")),
                 "vector": vec,
@@ -230,12 +311,22 @@ def sync_source(sid, src, basis, tid):
 
 
 def index_source(task):
-    """First index / retry: drive New|Failed -> Indexing -> Indexed around the
-    incremental sync."""
+    """First index / retry / explicit rebuild: drive New|Failed -> Indexing ->
+    Indexed around the incremental sync.
+
+    BUG-02 rebuild path: the DSL workflow exposes `reindex` (Indexed -> New),
+    which the user triggers from the UI.  When we see status=New AND last_indexed
+    is already set, the source was previously Indexed — the user explicitly asked
+    for a full rebuild, so we skip fingerprints entirely.  A Failed->retry still
+    uses incremental logic (it failed mid-index, partial data may be valid)."""
     tid, sid = task["id"], task["record_id"]
     basis = {"type": "task", "id": tid}
     src = tool("get_record", {"entity": "Source", "id": sid})
     status = src["values"].get("status")
+
+    # Explicit rebuild: previously-indexed source moved back to New via `reindex`.
+    force_rebuild = (status == "New" and bool(src["values"].get("last_indexed")))
+
     if status in ("New", "Failed"):
         tool("act", {"entity": "Source", "id": sid,
                      "action": "start_index" if status == "New" else "retry_index", "basis": basis})
@@ -244,7 +335,7 @@ def index_source(task):
         tool("complete_task", {"task_id": tid, "result": f"stale: source is {status}"})
         return
     try:
-        note = sync_source(sid, src, basis, tid)
+        note = sync_source(sid, src, basis, tid, force_rebuild=force_rebuild)
         tool("act", {"entity": "Source", "id": sid, "action": "finish_index", "basis": basis})
         tool("complete_task", {"task_id": tid, "result": note})
         print(f"[ok] {sid[:8]}: {note}")
