@@ -42,7 +42,7 @@ services:
       - --data-dir=/data/keys
       - --search-backend=http://search:8200
     volumes: [files:/data/files, keys:/data/keys]
-    ports: ["8080:8080"]
+    ports: ["${KV_NODE_PORT:-8080}:8080"]
 
   indexer:
     build: { context: ../../workers, dockerfile: Dockerfile }

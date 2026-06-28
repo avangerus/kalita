@@ -17,3 +17,6 @@ internal/webui/embedded/
 __pycache__/
 *.pyc
 tmp/
+
+# Native dev run state (node key, logs, indexed files)
+/.native/

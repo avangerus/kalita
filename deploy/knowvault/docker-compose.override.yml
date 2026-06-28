@@ -1,0 +1,25 @@
+services:
+  node:
+    user: "0:0"                       # dev: write node.key to root-owned /data/keys volume
+  ollama:
+    image: ollama/ollama
+    volumes:
+      - "D:/work/lmstudiomodels:/gguf:ro"   # existing GGUF, mounted read-only (no re-download)
+      - ollama:/root/.ollama                # persistent ollama store (import once)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  indexer:
+    environment:
+      KV_LM: http://ollama:11434
+    depends_on: [node, qdrant, ollama]
+  search:
+    environment:
+      KV_LM: http://ollama:11434
+    depends_on: [qdrant, ollama]
+volumes:
+  ollama:
