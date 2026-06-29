@@ -86,21 +86,142 @@ def settings():
     return "text-embedding-bge-m3", 512
 
 
+def _has_alnum(s):
+    """True if *s* carries any real content (letters/digits, Unicode-aware)."""
+    return any(c.isalnum() for c in s)
+
+
+def _is_noise_line(line):
+    """A line that is pure structure/formatting — empty, or only table-drawing
+    glyphs and punctuation (`+---+`, `|---|---|`, `=====`, `| | |`, rules).
+    Such a line must NEVER become a chunk on its own (BUG-04 regression)."""
+    return not _has_alnum(line)
+
+
+def _looks_like_table(para):
+    """Heuristic: a multi-line block that is mostly pipe-delimited rows and/or
+    ruler/separator lines is a table — chunk it as a coherent unit, not row-by-row."""
+    lines = [ln for ln in para.split("\n") if ln.strip()]
+    if len(lines) < 2:
+        return False
+    tableish = sum(1 for ln in lines if ("|" in ln) or _is_noise_line(ln))
+    return tableish >= max(2, (len(lines) * 3 + 4) // 5)  # ~60% of lines
+
+
 def chunk(text, size):
-    """Paragraph-aware chunking with a hard size cap."""
-    out, cur = [], ""
+    """BUG-04: structure-aware chunking that keeps tables coherent.
+
+    Strategy:
+      * Primary split is by paragraph (\\n\\n); paragraphs are coalesced up to
+        *size* so a small table stays whole and keeps any adjacent caption.
+      * A paragraph that LOOKS LIKE A TABLE and exceeds *size* is split by
+        ROW GROUPS, never by single row and never by formatting: its header
+        (first content row + the separator that follows) is repeated on each
+        group so every chunk is a self-describing, coherent table fragment.
+      * A non-table paragraph that exceeds *size* is split on line boundaries,
+        and an over-long line on the last word boundary (only a single
+        space-less token is ever hard-cut — prevents an infinite loop).
+
+    Invariants (the contract):
+      * No chunk is cut in the middle of a word or a line by a raw char index.
+      * No chunk consists solely of table markup / punctuation / whitespace —
+        a formatting-only line is always carried with real content or dropped,
+        never emitted alone.
+    """
+    out = []
+    cur = ""
+
+    def _emit(s):
+        s = s.strip()
+        if s and _has_alnum(s):
+            out.append(s)
+
+    def _flush():
+        nonlocal cur
+        _emit(cur)
+        cur = ""
+
+    def _split_table(para):
+        """Row-group split for an oversized table, header repeated per group."""
+        lines = para.split("\n")
+        # Header = the first line plus any immediately-following separator lines
+        # (e.g. a markdown `|---|` ruler), so each group is self-describing.
+        hdr_end = 1
+        while hdr_end < len(lines) and _is_noise_line(lines[hdr_end]):
+            hdr_end += 1
+        header_txt = "\n".join(lines[:hdr_end]).rstrip()
+        body = lines[hdr_end:]
+        if not body:
+            _emit(para)
+            return
+        base = len(header_txt)
+        group, glen = [], base
+
+        def _emit_group():
+            nonlocal group, glen
+            if group:
+                _emit(header_txt + "\n" + "\n".join(group))
+                group, glen = [], base
+
+        for line in body:
+            add = 1 + len(line)
+            group_has_content = any(_has_alnum(g) for g in group)
+            # Flush only when the current group already holds real content AND
+            # the incoming line is content too — so a separator/blank row is
+            # always carried alongside the data rows, never isolated.
+            if group and glen + add > size and group_has_content and _has_alnum(line):
+                _emit_group()
+                add = 1 + len(line)
+            group.append(line)
+            glen += add
+        _emit_group()
+
+    def _split_prose(para):
+        """Line/word split for an oversized non-table paragraph."""
+        nonlocal cur
+        for line in para.split("\n"):
+            if _is_noise_line(line):
+                # Carry a stray rule line with the current text if it fits;
+                # otherwise drop it — it must never stand alone.
+                if cur and len(cur) + 1 + len(line) <= size:
+                    cur = cur + "\n" + line
+                continue
+            while len(line) > size:
+                cut = line.rfind(" ", 0, size)
+                if cut <= 0:
+                    cut = size  # space-less token — forced hard cut
+                seg = line[:cut].rstrip()
+                if seg:
+                    if cur:
+                        _flush()
+                    _emit(seg)
+                line = line[cut:].lstrip()
+            if not line:
+                continue
+            if cur and len(cur) + 1 + len(line) > size:
+                _flush()
+            cur = (cur + "\n" + line) if cur else line
+
     for para in text.split("\n\n"):
-        if len(cur) + len(para) + 2 <= size:
-            cur = (cur + "\n\n" + para).strip()
+        if not para.strip():
             continue
-        if cur:
-            out.append(cur)
-        while len(para) > size:
-            out.append(para[:size])
-            para = para[size:]
-        cur = para
-    if cur.strip():
-        out.append(cur.strip())
+        # Happy path: paragraph fits alongside the current accumulator.
+        if len(cur) + (2 if cur else 0) + len(para) <= size:
+            cur = (cur + "\n\n" + para).strip() if cur else para.strip()
+            continue
+        # Fits on its own — flush and start fresh (keeps a small table whole).
+        if len(para) <= size:
+            _flush()
+            cur = para.strip()
+            continue
+        # Oversized paragraph: route table vs prose.
+        _flush()
+        if _looks_like_table(para):
+            _split_table(para)
+        else:
+            _split_prose(para)
+
+    _flush()
     return out
 
 

@@ -473,7 +473,10 @@ function SearchView() {
   const [res, setRes] = useState(null); const [err, setErr] = useState(null);
   const [projects, setProjects] = useState([]); const [project, setProject] = useState('');
   // the projects (Workspaces) to scope a search to one of
-  useEffect(() => { api('/api/records/Workspace?limit=200').then(r => setProjects(r.records || [])).catch(() => {}); }, []);
+  // BUG-06: after loading workspaces, default to the last (most recent) one so
+  // the user searches a real scope, not the broad "All" catch-all.  "All" is
+  // still reachable as an explicit choice in the dropdown.
+  useEffect(() => { api('/api/records/Workspace?limit=200').then(r => { const ws = r.records || []; setProjects(ws); if (ws.length > 0) setProject(ws[ws.length - 1].id); }).catch(() => {}); }, []);
   const ask = async () => {
     if (!q.trim()) return;
     setBusy(true); setErr(null); setRes(null);
