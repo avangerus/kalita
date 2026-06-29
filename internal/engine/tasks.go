@@ -48,6 +48,8 @@ type Task struct {
 	Status     TaskStatus `json:"status"`
 	TakenBy    string     `json:"taken_by,omitempty"`
 	LeaseUntil time.Time  `json:"lease_until,omitempty"`
+	Note       string     `json:"note,omitempty"`    // last progress note from the agent
+	NoteAt     *time.Time `json:"note_at,omitempty"` // timestamp of that note
 }
 
 type taskPayload struct {
@@ -207,13 +209,18 @@ func (e *Engine) ReportProgress(ctx context.Context, actor eventstore.Actor, tas
 	}
 	facts := e.countActorEvents(ctx, actor.ID, t.Entity, t.RecordID)
 	payload, _ := json.Marshal(taskPayload{Note: note, Facts: facts})
-	_, err := e.store.Append(ctx, eventstore.AppendInput{
+	if _, err := e.store.Append(ctx, eventstore.AppendInput{
 		Actor: actor, Kind: eventstore.TaskProgress,
 		Subject: eventstore.Subject{TaskID: taskID},
 		Payload: payload, DefVersion: e.defVersion,
 		Basis: &eventstore.Basis{Type: "task", ID: taskID},
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+	// live projection update (like finishTask) — applyEvent only covers replay
+	now := time.Now().UTC()
+	t.Note, t.NoteAt = note, &now
+	return nil
 }
 
 // CompleteTask finishes a task with a result.

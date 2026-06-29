@@ -203,6 +203,16 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		if t, ok := e.tasks[ev.Subject.TaskID]; ok {
 			t.Status, t.TakenBy = TaskOpen, ""
 		}
+	case eventstore.TaskProgress:
+		var p taskPayload
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			return
+		}
+		if t, ok := e.tasks[ev.Subject.TaskID]; ok {
+			t.Note = p.Note
+			ts := ev.TS
+			t.NoteAt = &ts
+		}
 	case eventstore.DefinitionProposed:
 		var p proposalPayload
 		if json.Unmarshal(ev.Payload, &p) != nil {

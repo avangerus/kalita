@@ -428,17 +428,21 @@ def sync_source(sid, src, basis, tid, force_rebuild=False):
     collection = f"kv_{workspace}"
     model, chunk_size = settings()
 
-    # BUG-02: reconcile the collection with the TARGET model+dim BEFORE reading
-    # fingerprints or writing any vector — UNCONDITIONALLY (force_rebuild does not
-    # skip this; that was the live-acceptance defect). We learn the target dim by
-    # probing the model once: a model swap changes the dim, and a dim mismatch on
-    # upsert must be impossible. If the existing collection's model OR dim differs
-    # (including pre-sentinel collections with unknown model), it is dropped here
-    # and recreated fresh by ensure_collection at the correct dimension.
-    target_dim = len(embed(model, ["probe"])[0])
-    rebuilt = reconcile_collection(collection, model, target_dim)
-    if rebuilt:
-        force_rebuild = True  # collection was wiped — every file is new
+    # BUG-12 overhead: read the sentinel first — probe LM Studio ONLY when the
+    # stored model differs from the current target (or sentinel/collection absent).
+    # On a routine resync where model hasn't changed, sentinel_model == model and
+    # the entire probe+reconcile is skipped; no request reaches LM Studio.
+    # When model changed (or collection is new / pre-sentinel), probe once to learn
+    # target_dim, then reconcile (BUG-02: drops the collection on mismatch so that
+    # a dim-mismatch upsert can never happen — the P3 rebuild contract is intact).
+    _sentinel_model, _sentinel_dim = get_collection_meta(collection)
+    if _sentinel_model == model:
+        rebuilt = False  # collection already consistent — skip probe + reconcile
+    else:
+        target_dim = len(embed(model, ["probe"])[0])
+        rebuilt = reconcile_collection(collection, model, target_dim)
+        if rebuilt:
+            force_rebuild = True  # collection was wiped — every file is new
 
     # BUG-09: per-source fingerprint strategy.
     # Default (use_content_hash=False): mtime:size — fast, zero I/O.
@@ -479,7 +483,13 @@ def sync_source(sid, src, basis, tid, force_rebuild=False):
     # force_rebuild=True: prior={} → every file is treated as new.
     prior = {} if force_rebuild else indexed_fingerprints(collection, sid)
     seen, changed = set(), 0
-    for fname, fp, load in units():
+    # Materialise the unit list once so we can count how many files need
+    # embedding before the loop — used for per-file progress notes.
+    all_units = list(units())
+    to_embed = sum(1 for _fn, _fp, _ in all_units
+                   if force_rebuild or prior.get(_fn) != _fp)
+    n_embedded = 0
+    for fname, fp, load in all_units:
         seen.add(fname)
         if not force_rebuild and prior.get(fname) == fp:
             continue  # unchanged since last index — leave it
@@ -491,7 +501,10 @@ def sync_source(sid, src, basis, tid, force_rebuild=False):
             continue
         if fname in prior:
             drop_file(collection, sid, fname)  # changed — replace its chunks
+        n_embedded += 1
         print(f"  {fname}: {len(pieces)} chunks — embedding…", flush=True)
+        tool("report_progress", {"task_id": tid,
+                                 "note": f"{n_embedded}/{to_embed}: {fname} — {len(pieces)} chunks"})
         for off in range(0, len(pieces), 32):
             batch = pieces[off:off + 32]
             # BUG-13: apply passage prefix for asymmetric models (no-op for bge-m3)

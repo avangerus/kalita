@@ -35,6 +35,11 @@ SEARCH_K = int(os.environ.get("KV_SEARCH_K", "20"))        # candidates per work
 RERANK_TOP_N = int(os.environ.get("KV_RERANK_TOP_N", "5")) # hits sent to LLM
 RERANKER_MODEL = os.environ.get("KV_RERANKER_MODEL", "qwen3-reranker-0.6b")
 
+# BUG-07 degraded: LM Studio does not expose /v1/rerank — flag it once on first
+# failure and skip all subsequent attempts. Avoids ERROR spam on every search.
+# Reset requires a worker restart (acceptable — endpoint appears via new LM Studio).
+_rerank_unavailable = False
+
 # Sentinel UUID shared with the indexer — must stay in sync with _META_ID there.
 _META_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "kv_collection_meta"))
 
@@ -88,16 +93,16 @@ def rerank(question, candidates):
     qwen3-reranker-0.6b model is downloaded but not served via any
     embeddings or chat endpoint either.
 
-    This function always tries the endpoint first so it will work transparently
-    if a future LM Studio version adds support.  On any failure it falls back
-    to the original Qdrant cosine scores (no reranking, but the wide pool still
-    provides better recall than the old hard limit of 4).
+    On the first failure _rerank_unavailable is set to True and all subsequent
+    calls return immediately without touching the network — no ERROR spam.
+    If a future LM Studio version adds /v1/rerank, restart the worker to try again.
 
     Returns: (reranked_candidates, used_reranker: bool)
       reranked_candidates — list of (score, payload) sorted by relevance desc
       used_reranker       — True if the reranker endpoint actually scored them
     """
-    if not candidates:
+    global _rerank_unavailable
+    if not candidates or _rerank_unavailable:
         return candidates, False
     docs = [p["text"] for _s, p in candidates]
     try:
@@ -116,7 +121,8 @@ def rerank(question, candidates):
         reranked = [(r["relevance_score"], candidates[r["index"]][1]) for r in ranked]
         return reranked, True
     except Exception:
-        # Degrade: keep original Qdrant scores, sorted desc (already are).
+        # Endpoint absent — flag once; degrade to cosine order permanently.
+        _rerank_unavailable = True
         return candidates, False
 
 

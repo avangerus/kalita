@@ -1066,6 +1066,7 @@ function AgentBoard() {
       onClick=${() => t.entity && t.record_id && nav(`/e/${t.entity}/${t.record_id}`)}>
     <div><b>${humanize(t.action || t.kind)}</b>${t.entity ? html` <span class="muted">· ${t.entity}</span>` : ''}</div>
     <div class="muted" style="font-size:12px">role ${t.role}${t.taken_by ? html` · taken by ${t.taken_by}` : ''}</div>
+    ${t.note ? html`<div class="muted" style="font-size:11px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title=${t.note}>${t.note}${t.note_at ? html` <span style="opacity:0.55">${new Date(t.note_at).toLocaleTimeString()}</span>` : ''}</div>` : ''}
   </div>`;
   return html`<div>
     <h2>Agent board <span class="muted" style="font-size:13px">live · ${tasks.length} tasks</span></h2>
