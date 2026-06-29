@@ -84,6 +84,19 @@ func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("GET /api/brand", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, s.brand)
 	})
+	// public: liveness/readiness for orchestrators (k8s probes, docker healthcheck,
+	// load balancers). No auth. /healthz is pure liveness; /readyz confirms a pack
+	// is loaded (the node can actually serve).
+	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	s.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if s.eng == nil || s.eng.Model() == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "starting"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	})
 	s.mux.HandleFunc("GET /api/system", s.describe)
 	s.mux.HandleFunc("GET /api/meta", s.meta)
 	s.mux.HandleFunc("GET /api/records/{entity}", s.query)
