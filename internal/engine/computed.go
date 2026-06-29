@@ -29,12 +29,32 @@ func (e *Engine) withComputed(decl *dsl.EntityDecl, selfID string, values map[st
 	for k, v := range values {
 		out[k] = v
 	}
+	// K-BUG-02: a computed field may reference another computed field declared
+	// LATER (`b computed = a + 1` above `a computed = …`). A single declaration-
+	// order pass left `b` silently absent. Evaluate to a FIXPOINT instead: repeat
+	// until a pass resolves nothing new. Bounded by the count of computed fields —
+	// the longest acyclic dependency chain. Order of declaration no longer matters;
+	// a field still unresolved after the cap is part of a dependency cycle (left
+	// absent, as before — cycle-as-compile-error is a separate, stricter follow-up).
+	var computed []*dsl.FieldDecl
 	for _, f := range decl.Fields {
-		if f.Computed == "" {
-			continue
+		if f.Computed != "" {
+			computed = append(computed, f)
 		}
-		if v, ok := e.evalComputed(f.Computed, selfID, out); ok {
-			out[f.Name] = v
+	}
+	for pass := 0; pass < len(computed); pass++ {
+		progress := false
+		for _, f := range computed {
+			if _, done := out[f.Name]; done {
+				continue // already resolved in an earlier pass
+			}
+			if v, ok := e.evalComputed(f.Computed, selfID, out); ok {
+				out[f.Name] = v
+				progress = true
+			}
+		}
+		if !progress {
+			break
 		}
 	}
 	return out
