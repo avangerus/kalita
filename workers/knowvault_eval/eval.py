@@ -49,9 +49,18 @@ N_CORPUS          = 30    # questions generated from corpus chunks
 N_TRAPS           = 10    # off-domain trap questions
 DEFAULT_K         = 5     # recall@K
 
-# A chunk is "noise" when fewer than this fraction of its characters are alphanumeric.
-# Catches rows that are purely table delimiters, dashes, pipe chars, whitespace, etc.
-NOISE_ALPHA_RATIO = 0.25
+# Noise = a chunk carrying NO retrievable meaning: only table-drawing / separator
+# glyphs and whitespace (borders, rule lines, empty cells), or a sub-threshold
+# scattering of word characters. We measure WORD content, not raw alnum ratio, so a
+# real table row ("Статус | Открыт | 12.05") is NOT punished — its cells are words.
+# A chunk is noise iff it has fewer than this many "word tokens" of real content.
+NOISE_MIN_WORD_TOKENS = 2
+# Characters that are pure layout/formatting (never carry meaning on their own).
+NOISE_FORMAT_CHARS = set("+-=|_~*#·•—–…:.,;!?/\\()[]{}<>\"'`“”«»\t \xa0")
+# A "word token" for noise purposes: a run of 2+ letters/digits.
+_WORD_TOKEN_RE = re.compile(r"[^\W_]{2,}", re.UNICODE)
+# Degenerate generated questions (too short to be a real question) are rejected.
+MIN_QUESTION_LEN = 12
 
 _NOT_FOUND_RE = re.compile(
     r"(not (found|available|in (the )?context|mentioned|present)|"
@@ -136,15 +145,70 @@ def judge(messages, max_tokens=300):
     return r["choices"][0]["message"]["content"].strip()
 
 
+def detect_lang(text):
+    """Coarse script detector: 'ru' if Cyrillic dominates the letters, else 'en'.
+    Question language must follow the source chunk's language."""
+    cyr = sum(1 for c in text if "Ѐ" <= c <= "ӿ")
+    lat = sum(1 for c in text if ("a" <= c.lower() <= "z"))
+    return "ru" if cyr > lat else "en"
+
+
+# Patterns that mark a question as META / self-referential — it asks about THIS
+# fragment's structure ("in this excerpt", "tables listed", "column names",
+# "данные в списке") instead of the document's content. Such questions break under
+# re-chunking and are rejected.
+_META_QUESTION_RE = re.compile(
+    r"(this (excerpt|chunk|passage|fragment|text|table|list|snippet)|"
+    r"the (excerpt|passage|fragment) (above|below)|"
+    r"(column|field|table|row) names?|"
+    r"data types?|"
+    r"listed (in|here|above|below)|"
+    r"в (этом|данном|приведённом|приведенном) (фрагменте|отрывке|тексте|списке|примере)|"
+    r"в (списке|таблице|фрагменте|отрывке) (выше|ниже|указан|перечислен)|"
+    r"какие (данные|поля|столбцы|колонки|таблицы) (указан|перечислен|приведен|есть))",
+    re.IGNORECASE,
+)
+
+
+def is_degenerate_question(q):
+    """Reject empty/too-short/meta questions so the held-out set stays clean."""
+    if not q or len(q.strip()) < MIN_QUESTION_LEN:
+        return True
+    if "?" not in q:
+        return True
+    if _META_QUESTION_RE.search(q):
+        return True
+    return False
+
+
 def make_corpus_question(chunk_text):
-    """One natural question whose answer is contained in this chunk."""
+    """One natural question about the DOCUMENT's content (not this fragment's
+    structure), phrased in the same language as the source chunk."""
+    lang = detect_lang(chunk_text)
+    lang_rule = (
+        "Write the question in RUSSIAN." if lang == "ru"
+        else "Write the question in ENGLISH."
+    )
     return judge([{
         "role": "user",
         "content": (
-            "You are building a retrieval evaluation dataset.\n"
-            "Read the excerpt below and write EXACTLY ONE natural question "
-            "a user might ask, where the answer is clearly in this excerpt.\n"
-            "Output only the question text — no preamble, no quotes, no numbering.\n\n"
+            "You are building a retrieval evaluation dataset for document search.\n"
+            "Read the excerpt and write EXACTLY ONE natural question a real user "
+            "would ask the knowledge base, whose answer is found in this excerpt.\n"
+            "\n"
+            "HARD RULES:\n"
+            "- The question must be about the DOCUMENT'S CONTENT (facts, procedures, "
+            "definitions, values, responsibilities) — answerable from the source "
+            "FILE regardless of how the text was split.\n"
+            "- FORBIDDEN: questions about the fragment itself or its layout, e.g. "
+            "\"what tables/columns are listed in this excerpt\", \"what data types "
+            "are shown\", \"какие данные указаны в списке\", \"что перечислено в "
+            "этом фрагменте\". Never reference \"this excerpt/list/table\".\n"
+            "- Make it self-contained: a person who never saw this fragment should "
+            "understand what is being asked.\n"
+            f"- {lang_rule}\n"
+            "\n"
+            "Output ONLY the question text — no preamble, no quotes, no numbering.\n\n"
             f"Excerpt:\n{chunk_text[:1400]}"
         ),
     }])
@@ -193,11 +257,24 @@ def make_trap_questions(sample_texts, n):
 
 # ── Noise detection ────────────────────────────────────────────────────────────
 def is_noise(text):
-    """True if the chunk is predominantly non-alphanumeric (table markup etc.)."""
+    """A chunk is noise when it carries no retrievable meaning — i.e. it is ONLY
+    table-drawing/separator glyphs and whitespace, or has too few real word tokens
+    to embed meaningfully.
+
+    This deliberately does NOT punish legitimate table content: a row whose cells
+    hold words/values ("Статус | Открыт | 12.05.2024") has word tokens and passes.
+    What it flags is pure formatting — border rows ("+----+----+"), rule lines
+    ("======="), pipe-and-dash skeletons, bullet-only lines, and empty/whitespace
+    chunks. The measure is word-token count, so re-chunking that merges a table
+    into one coherent block makes that block PASS, not fail."""
     if not text or not text.strip():
         return True
-    alpha = sum(1 for c in text if c.isalnum())
-    return alpha / len(text) < NOISE_ALPHA_RATIO
+    # Strip everything that is pure layout — if nothing meaningful remains, it's noise.
+    stripped = "".join(c for c in text if c not in NOISE_FORMAT_CHARS)
+    if not stripped.strip():
+        return True
+    # Otherwise require a minimum of real word tokens (runs of 2+ letters/digits).
+    return len(_WORD_TOKEN_RE.findall(text)) < NOISE_MIN_WORD_TOKENS
 
 
 # ── Retrieval helper ───────────────────────────────────────────────────────────
@@ -278,26 +355,46 @@ def phase_generate(questions_file, embed_model):
         sys.exit("[ERROR] All chunks are noise-filtered. Nothing to generate questions from.")
 
     rng = random.Random(SEED)
-    n_sample = min(N_CORPUS, len(usable))
-    sampled = rng.sample(usable, n_sample)
+    # Shuffle the whole usable pool (deterministic), then walk it: each candidate
+    # gets up to MAX_TRIES generations; degenerate (empty/short/meta) results are
+    # rejected and we move on — refilling from the pool until we reach N_CORPUS.
+    # This guarantees no empty / self-referential questions in the held-out set.
+    target = min(N_CORPUS, len(usable))
+    pool = usable[:]
+    rng.shuffle(pool)
+    MAX_TRIES = 2
 
-    print(f"[gen] Generating {n_sample} corpus questions (judge: {JUDGE_MODEL})...")
-    corpus_qs = []
-    for i, ch in enumerate(sampled):
+    print(f"[gen] Generating {target} corpus questions (judge: {JUDGE_MODEL})...")
+    corpus_qs, rejected = [], 0
+    for ch in pool:
+        if len(corpus_qs) >= target:
+            break
         tag = f"{ch['collection']}/{ch['file'][:40]}"
-        print(f"  [{i+1:>2}/{n_sample}] {tag}", end="", flush=True)
-        try:
-            q = make_corpus_question(ch["text"])
-            corpus_qs.append({
-                "id": i + 1,
-                "type": "corpus",
-                "question": q,
-                "gold_collection": ch["collection"],
-                "gold_file": ch["file"],
-            })
-            print(f"\n             -> {q[:80]}")
-        except Exception as exc:
-            print(f" -> FAIL: {exc}")
+        q = None
+        for _try in range(MAX_TRIES):
+            try:
+                cand = make_corpus_question(ch["text"])
+            except Exception as exc:
+                print(f"  [skip] {tag} -> gen error: {exc}")
+                break
+            if not is_degenerate_question(cand):
+                q = cand.strip()
+                break
+            rejected += 1  # empty / too short / meta — retry this chunk
+        if q is None:
+            continue
+        corpus_qs.append({
+            "id": len(corpus_qs) + 1,
+            "type": "corpus",
+            "question": q,
+            "lang": detect_lang(ch["text"]),
+            "gold_collection": ch["collection"],
+            "gold_file": ch["file"],
+        })
+        print(f"  [{len(corpus_qs):>2}/{target}] {tag}\n             -> {q[:80]}")
+
+    print(f"[gen] Accepted {len(corpus_qs)}/{target} corpus questions "
+          f"({rejected} degenerate generations rejected).")
 
     print(f"\n[gen] Generating {N_TRAPS} trap questions...")
     trap_texts = [c["text"] for c in rng.sample(usable, min(6, len(usable)))]

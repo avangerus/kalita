@@ -23,3 +23,6 @@ tmp/
 
 # Agent scratch: review/planning notes — must NOT enter git
 /agent/
+
+# eval run artifacts (results are reproducible from the harness)
+workers/knowvault_eval/eval_results_*.json
