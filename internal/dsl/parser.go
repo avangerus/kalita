@@ -61,10 +61,12 @@ func (p *parser) run() {
 			p.ui(ln)
 		case "dashboard":
 			p.dashboard(ln)
+		case "integration":
+			p.integration(ln)
 		default:
 			p.errs.add(EUnknownBlock, ln.File, ln.Num,
 				"unknown top-level block "+head,
-				"allowed: pack, version, requires, depends, entity, constraints, workflow, link, roles, permissions, automation, ui, dashboard")
+				"allowed: pack, version, requires, depends, entity, constraints, workflow, link, roles, permissions, automation, ui, dashboard, integration")
 			p.pos++
 			p.skipChildren(0)
 		}
@@ -330,6 +332,21 @@ func (p *parser) modifiers(toks []Tok, f *FieldDecl, ln *Line) {
 		case "unique":
 			f.Unique = true
 			i++
+		case "picker":
+			// picker = <integration>.<fn> — field is filled by a connector capability
+			if i+1 >= len(toks) || toks[i+1].Text != "=" {
+				p.errs.add(EBadModifier, ln.File, ln.Num, "picker requires =integration.fn",
+					"write e.g. `picker = files.list_dirs`")
+				return
+			}
+			rest := toks[i+2:]
+			if len(rest) < 3 || rest[0].Kind != TIdent || rest[1].Text != "." || rest[2].Kind != TIdent {
+				p.errs.add(EBadModifier, ln.File, ln.Num, "picker must be integration.fn",
+					"write e.g. `picker = files.list_dirs`")
+				return
+			}
+			f.Picker = rest[0].Text + "." + rest[2].Text
+			i += 5
 		case "default", "computed", "on_delete", "format", "label":
 			if i+2 >= len(toks)+1 || i+1 >= len(toks) || toks[i+1].Text != "=" {
 				p.errs.add(EBadModifier, ln.File, ln.Num, t.Text+" requires =value",
@@ -356,13 +373,13 @@ func (p *parser) modifiers(toks []Tok, f *FieldDecl, ln *Line) {
 			i += 2 + n
 		default:
 			p.errs.add(EBadModifier, ln.File, ln.Num, "unknown modifier "+t.Text,
-				"allowed modifiers: required, unique, default=, computed=, on_delete=, format=")
+				"allowed modifiers: required, unique, default=, computed=, on_delete=, format=, label=, picker=")
 			return
 		}
 	}
 }
 
-var modKeywords = map[string]bool{"required": true, "unique": true, "default": true, "computed": true, "on_delete": true, "format": true, "label": true}
+var modKeywords = map[string]bool{"required": true, "unique": true, "default": true, "computed": true, "on_delete": true, "format": true, "label": true, "picker": true}
 
 // exprUntilKeyword joins tokens into a raw expression until the next modifier
 // keyword. Expressions stay raw text in week 2; the expression grammar is
@@ -444,6 +461,7 @@ func (p *parser) roles(ln *Line) {
 var permVerbs = map[string]bool{
 	"read": true, "create": true, "update": true, "delete": true,
 	"act": true, "approve": true, "full": true, "deny": true,
+	"call": true,
 }
 
 func (p *parser) permissions(ln *Line) {
@@ -473,7 +491,7 @@ func (p *parser) permRule(ln *Line) *PermRule {
 	verb := ln.Toks[0].Text
 	if !permVerbs[verb] {
 		p.errs.add(EBadVerb, ln.File, ln.Num, "unknown permission verb "+verb,
-			"allowed verbs: read, create, update, delete, act, approve, full, deny")
+			"allowed verbs: read, create, update, delete, act, approve, full, deny, call")
 		return nil
 	}
 	rule := &PermRule{Verb: verb, Line: ln.Num}
@@ -546,6 +564,19 @@ func parsePermItem(toks []Tok, outerVerb string, ln *Line, errs *Errors) *PermIt
 		}
 		return item
 	}
+	if item.Verb == "call" {
+		// capability names are dotted: <integration>.<fn> (one per list group)
+		var sb strings.Builder
+		for _, t := range toks[i:] {
+			if t.Kind == TIdent || t.Text == "." || t.Text == "*" {
+				sb.WriteString(t.Text)
+			}
+		}
+		if sb.Len() > 0 {
+			item.Names = append(item.Names, sb.String())
+		}
+		return item
+	}
 	if i >= len(toks) {
 		errs.add(EBadVerb, ln.File, ln.Num, "deny item lacks a target",
 			"write e.g. `deny [update Debtor.debt]`")
@@ -579,5 +610,107 @@ func parsePermItem(toks []Tok, outerVerb string, ln *Line, errs *Errors) *PermIt
 		item.Where = expr
 	}
 	return item
+}
+
+// --- integration -------------------------------------------------------------
+//
+//	integration files:
+//	    read list_dirs(path: string = "") -> tree
+//
+// A connector contract: typed read-only functions the front-end calls and the
+// node forwards to a worker. The backend URL is runtime data (a record), never
+// declared here, so a connector is added/repointed without a rebuild.
+
+func (p *parser) integration(ln *Line) {
+	p.pos++
+	t := ln.Toks
+	if len(t) < 3 || t[1].Kind != TIdent || t[2].Text != ":" {
+		p.errs.add(EExpectedColon, ln.File, ln.Num,
+			"integration declaration must be `integration Name:`",
+			"write e.g. `integration files:`")
+		p.skipChildren(ln.Indent)
+		return
+	}
+	decl := &IntegrationDecl{Name: t[1].Text, File: ln.File, Line: ln.Num}
+	body := p.children(ln.Indent)
+	if len(body) == 0 {
+		p.errs.add(EEmptyBlock, ln.File, ln.Num, "integration "+decl.Name+" has no functions",
+			"add at least one read function, e.g. `read list_dirs(path: string) -> tree`")
+	}
+	for i := range body {
+		if fn := p.integrationFunc(&body[i]); fn != nil {
+			decl.Funcs = append(decl.Funcs, fn)
+		}
+	}
+	p.ast.Integrations = append(p.ast.Integrations, decl)
+}
+
+func (p *parser) integrationFunc(ln *Line) *IntegrationFunc {
+	t := ln.Toks
+	// read <fn> ( <params> ) -> <result>
+	if len(t) < 6 || t[0].Text != "read" || t[1].Kind != TIdent || t[2].Text != "(" {
+		p.errs.add(EBadIntegration, ln.File, ln.Num,
+			"integration function must be `read fn(params) -> type`",
+			`write e.g. `+"`read list_dirs(path: string = \"\") -> tree`")
+		return nil
+	}
+	fn := &IntegrationFunc{Name: t[1].Text, Line: ln.Num}
+	closeIdx := -1
+	for j := 3; j < len(t); j++ {
+		if t[j].Text == ")" {
+			closeIdx = j
+			break
+		}
+	}
+	if closeIdx == -1 {
+		p.errs.add(EBadIntegration, ln.File, ln.Num, "unclosed parameter list in read "+fn.Name,
+			"close the parameters with )")
+		return nil
+	}
+	params, ok := p.integrationParams(t[3:closeIdx], ln)
+	if !ok {
+		return nil
+	}
+	fn.Params = params
+	rest := t[closeIdx+1:]
+	if len(rest) < 2 || rest[0].Text != "->" || rest[1].Kind != TIdent {
+		p.errs.add(EBadIntegration, ln.File, ln.Num,
+			"read "+fn.Name+" must declare a result type with `-> tree` or `-> list`",
+			"write e.g. `read "+fn.Name+"(...) -> tree`")
+		return nil
+	}
+	fn.Result = rest[1].Text
+	return fn
+}
+
+func (p *parser) integrationParams(toks []Tok, ln *Line) ([]IntegrationParam, bool) {
+	var out []IntegrationParam
+	if len(toks) == 0 {
+		return out, true
+	}
+	for _, group := range splitTopLevel(toks) {
+		if len(group) < 3 || group[0].Kind != TIdent || group[1].Text != ":" {
+			p.errs.add(EBadIntegration, ln.File, ln.Num, "parameter must be `name: type [= default]`",
+				`write e.g. `+"`path: string = \"\"`")
+			return nil, false
+		}
+		par := IntegrationParam{Name: group[0].Text, Line: ln.Num}
+		n, okt := parseType(group[2:], &par.Type, ln, p.errs)
+		if !okt {
+			return nil, false
+		}
+		after := group[2+n:]
+		if len(after) > 0 {
+			if after[0].Text != "=" {
+				p.errs.add(EBadIntegration, ln.File, ln.Num, "unexpected "+after[0].Text+" after parameter type",
+					"a parameter is `name: type` optionally followed by `= default`")
+				return nil, false
+			}
+			val, _ := exprUntilKeyword(after[1:])
+			par.Default = val
+		}
+		out = append(out, par)
+	}
+	return out, true
 }
 

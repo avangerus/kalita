@@ -223,6 +223,7 @@ func serve(args []string) {
 	searchBackend := fs.String("search-backend", "", "RAG search worker URL — mounts /api/search (e.g. http://127.0.0.1:8200)")
 	searchScope := fs.String("search-scope", "Workspace", "entity whose visible records bound a search")
 	searchLog := fs.String("search-log", "SearchQuery", "entity to journal each query into")
+	connectorEntity := fs.String("connector-entity", "Connector", "entity holding connector records (name→backend) for the /api/call capability proxy")
 	_ = fs.Parse(args)
 
 	tls := *tlsCert != "" && *tlsKey != ""
@@ -276,6 +277,9 @@ func serve(args []string) {
 	if *searchBackend != "" {
 		apiOpts = append(apiOpts, api.WithRAGSearch(*searchBackend, *searchScope, *searchLog, "Searcher"))
 		log.Printf("RAG search enabled: /api/search -> %s (scope %s)", *searchBackend, *searchScope)
+	}
+	if *connectorEntity != "" && *connectorEntity != "Connector" {
+		apiOpts = append(apiOpts, api.WithCallProxy(*connectorEntity))
 	}
 	if b := *brand; b != "" || os.Getenv("KALITA_BRAND") != "" {
 		name := b

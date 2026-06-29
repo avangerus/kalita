@@ -25,6 +25,7 @@ type Server struct {
 	mux     *http.ServeMux
 	devAuth bool
 	rag     *ragConfig
+	call    *callConfig
 	boot    *bootstrapConfig
 	brand   brandConfig
 }
@@ -48,6 +49,15 @@ func WithRAGSearch(backend, scope, logEntity, role string) Option {
 	return func(s *Server) {
 		s.enableRAG(ragConfig{Backend: backend, Scope: scope, LogEntity: logEntity, Role: role})
 	}
+}
+
+// WithCallProxy mounts GET /api/call/{name}, the generic read-only capability
+// proxy. The connectorEntity holds the runtime records that bind an integration
+// name to a backend URL (default "Connector"). The route is always mounted (a
+// pack without integrations simply never grants `call`); this option only
+// repoints the connector entity.
+func WithCallProxy(connectorEntity string) Option {
+	return func(s *Server) { s.call = &callConfig{Entity: connectorEntity} }
 }
 
 // WithBootstrap mounts POST /api/bootstrap so workers self-register with a
@@ -105,6 +115,13 @@ func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("GET /api/records/{entity}/{id}/links", s.listLinks)
 	s.mux.HandleFunc("POST /api/records/{entity}/{id}/links", s.addLink)
 	s.mux.HandleFunc("DELETE /api/records/{entity}/{id}/links", s.removeLink)
+	// capability proxy is always available; an opt-in WithCallProxy only changes
+	// the connector entity. Defaults applied in enableCallProxy.
+	cfg := callConfig{}
+	if s.call != nil {
+		cfg = *s.call
+	}
+	s.enableCallProxy(cfg)
 	return s
 }
 

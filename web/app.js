@@ -63,6 +63,7 @@ const reclabel = (values) => {
 // (long text, json, attachments, multi-pickers) take the full row; a ref picker
 // half; short scalars a third. Keeps dense forms readable instead of a 1-wide column.
 function fieldSpan(f) {
+  if (f.picker) return 2;
   if (['text', 'json', 'array_file', 'array_ref'].includes(f.type)) return 3;
   if (['ref', 'tags', 'multiselect', 'url'].includes(f.type)) return 2;
   return 1;
@@ -179,6 +180,73 @@ function RefInput({ field, value, onChange, noBrowse }) {
   </div>`;
 }
 
+// CapabilityPicker: a field whose value comes from a connector capability
+// (meta gives field.picker = "<connector>.<fn>"). It calls
+// GET /api/call/<picker>?<args> and renders by the SHAPE the worker returns:
+//   tree → a folder/hierarchy browser (breadcrumbs + drill-in + pick a node)
+//   list → a flat async picker (the RefInput pattern over a capability source)
+// It is generic: no knowvault/files/Source knowledge — connector, capability
+// and shape all arrive from the response, exactly like RefInput drives off meta.
+function CapabilityPicker({ field, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [cur, setCur] = useState('');     // node being browsed (tree shape)
+  const [data, setData] = useState(null); // last capability response
+  const [term, setTerm] = useState('');   // filter (list shape)
+  const [err, setErr] = useState(null);
+  const load = (path) => {
+    setErr(null);
+    api(`/api/call/${field.picker}?path=${encodeURIComponent(path || '')}`)
+      .then(r => { setData(r); setCur(r.path != null ? r.path : (path || '')); })
+      .catch(e => { setErr(e.message || 'capability unavailable'); setData({ items: [] }); });
+  };
+  useEffect(() => { if (open && data === null) load(''); }, [open]);
+  const items = (data && data.items) || [];
+  const filesOf = (it) => (it.meta && it.meta.files != null) ? it.meta.files : it.files;
+  const crumbs = cur ? cur.split('/') : [];
+  const segPath = (i) => crumbs.slice(0, i + 1).join('/');
+  const shape = data && data.shape;
+  return html`<div style="margin:3px 0 10px">
+    <div style="display:flex;gap:6px;align-items:center">
+      <input readOnly value=${value || ''} placeholder="nothing chosen" style="flex:1;margin:0" />
+      <button type="button" class="btn" style="margin:0;padding:7px 10px"
+        onClick=${() => setOpen(o => !o)}>${open ? 'Close' : 'Browse…'}</button>
+    </div>
+    ${open && html`<div style="margin-top:6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);padding:8px">
+      ${err && html`<div class="err">${err}</div>`}
+      ${shape === 'list' ? html`
+        <input autofocus placeholder="search…" value=${term} onInput=${e => setTerm(e.target.value)}
+          style="margin:0 0 6px" />
+        <div style="max-height:260px;overflow:auto">
+          ${items.filter(it => !term || (it.label || '').toLowerCase().includes(term.toLowerCase()))
+            .map(it => html`<div style="padding:6px 8px;cursor:pointer;border-top:1px solid var(--line)"
+              onClick=${() => { onChange(it.id); setOpen(false); }}>${it.label}</div>`)}
+        </div>`
+      : html`
+        <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:6px;font-size:13px">
+          <span style="cursor:pointer;color:var(--accent,#4da3ff)" onClick=${() => load('')}>root</span>
+          ${crumbs.map((seg, i) => html`<span>/</span><span style="cursor:pointer;color:var(--accent,#4da3ff)"
+            onClick=${() => load(segPath(i))}>${seg}</span>`)}
+        </div>
+        <div style="max-height:260px;overflow:auto">
+          ${data === null ? html`<div class="muted" style="padding:6px 8px">loading…</div>`
+            : items.length === 0 ? html`<div class="muted" style="padding:6px 8px">no subfolders here</div>`
+            : items.map(it => html`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid var(--line)">
+                <span style="flex:1;cursor:${it.has_children ? 'pointer' : 'default'}"
+                  onClick=${() => it.has_children && load(it.id)}>📁 ${it.label}
+                  ${filesOf(it) != null && html`<span class="muted"> (${filesOf(it)} files)</span>`}
+                  ${it.has_children && html`<span class="muted"> ›</span>`}</span>
+                <button type="button" class="btn" style="margin:0;padding:4px 8px"
+                  onClick=${() => { onChange(it.id); setOpen(false); }}>Choose</button>
+              </div>`)}
+        </div>
+        <div style="margin-top:8px;text-align:right">
+          <button type="button" class="btn" style="margin:0;padding:6px 10px"
+            onClick=${() => { onChange(cur); setOpen(false); }}>Choose this folder</button>
+        </div>`}
+    </div>`}
+  </div>`;
+}
+
 // FileInput: drag-drop or pick a document, upload it, hold the returned ref.
 function FileInput({ value, onChange }) {
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(null);
@@ -266,6 +334,7 @@ function ArrayFileInput({ value, onChange }) {
 }
 
 function FieldInput({ field, value, onChange, entity }) {
+  if (field.picker) return html`<${CapabilityPicker} field=${field} value=${value} onChange=${onChange} />`;
   if (field.type === 'file') return html`<${FileInput} value=${value} onChange=${onChange} />`;
   if (field.type === 'array_file') return html`<${ArrayFileInput} value=${value} onChange=${onChange} />`;
   if (field.type === 'ref') return html`<${RefInput} field=${field} value=${value} onChange=${onChange} />`;

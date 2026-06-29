@@ -18,10 +18,25 @@ entity Workspace:
     name: string required unique
     description: text
 
+# Connectors bind an integration name to a worker URL as DATA, not code: a new
+# connector (or a repointed one) is a record edited in the UI — no rebuild. The
+# URL lives here, never in the pack; secrets stay with the worker (SECURITY #5).
+entity Connector:
+    name: string required unique
+    backend: url required
+    enabled: bool default=true
+
+# files connector contract: a read-only folder browser. The backend lives in a
+# Connector record named "files"; the worker sandboxes itself to KV_FILES_ROOT.
+integration files:
+    read list_dirs(path: string = "") -> tree
+
 entity Source:
     workspace: ref[Workspace] on_delete=restrict
     kind: enum[Files, Mail, Repo, Database, Chat, Upload]
-    path: string required
+    # path is chosen with the files.list_dirs folder picker, not typed by hand;
+    # the base type stays string (a path relative to the connector's root).
+    path: string required picker = files.list_dirs
     document: file
     status: enum[New, Indexing, Indexed, Failed, Paused] default=New
     last_indexed: datetime
@@ -53,15 +68,27 @@ workflow Source on status:
 
 roles:
     VaultAdmin
+    # a human operator who onboards sources via the folder picker, but may not
+    # touch settings or delete anything
+    VaultWorker
     Indexer agent
     Searcher agent
 
 permissions:
     VaultAdmin:
-        full    [Workspace, Source, VaultSettings]
+        full    [Workspace, Source, VaultSettings, Connector]
         read    [SearchQuery]
         act     [retry_index, reindex, pause]
         approve [pause]
+    VaultWorker:
+        # read is required for the entity (and its picker field) to appear in
+        # /api/meta — without it the operator cannot open the New Source form
+        # where the folder picker lives (DoD §13).
+        read   [Source, Workspace]
+        create [Source, Workspace]
+        update [Source, Workspace]
+        call   [files.list_dirs]
+        deny   [update VaultSettings.*, delete *]
     Indexer:
         read   [Workspace, Source, VaultSettings]
         update [Source]

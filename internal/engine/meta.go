@@ -17,6 +17,7 @@ type MetaField struct {
 	Type     string   `json:"type"`
 	Values   []string `json:"values,omitempty"`
 	Ref      string   `json:"ref,omitempty"`
+	Picker   string   `json:"picker,omitempty"` // "<connector>.<fn>" — field is filled by a capability picker
 	Required bool     `json:"required"`
 	Computed bool     `json:"computed"`
 	Readable bool     `json:"readable"`
@@ -128,7 +129,7 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 		}
 		for _, f := range decl.Fields {
 			mf := MetaField{
-				Name: f.Name, Label: f.Label, Required: f.Required, Computed: f.Computed != "",
+				Name: f.Name, Label: f.Label, Picker: f.Picker, Required: f.Required, Computed: f.Computed != "",
 				Readable: e.can(actor, "read", name, f.Name, nil).allowed ||
 					e.hasAnyRule(role, "read", name),
 				Writable: f.Computed == "" && f.Type.Scalar != "serial" &&

@@ -48,6 +48,7 @@ type FieldDecl struct {
 	OnDelete string // restrict | set_null | cascade, "" if absent
 	Format   string // serial format, e.g. "INV-{year}-{seq:5}", "" if absent
 	Label    string // human label (i18n), "" = use the field name
+	Picker   string // "<integration>.<fn>" — field is filled by a connector capability, "" if absent
 }
 
 type EntityDecl struct {
@@ -190,14 +191,47 @@ type DashboardDecl struct {
 	Line  int
 }
 
+// IntegrationParam is one typed parameter of a connector read-function. Type
+// reuses the field type grammar; Default is raw expression text ("" if absent).
+type IntegrationParam struct {
+	Name    string
+	Type    TypeRef
+	Default string
+	Line    int
+}
+
+// IntegrationFunc is one read-only capability of a connector:
+//
+//	read list_dirs(path: string = "") -> tree
+//
+// Result is the shape the worker returns (tree | list). Only `read` (no side
+// effects) is allowed in v0.
+type IntegrationFunc struct {
+	Name   string
+	Params []IntegrationParam
+	Result string // tree | list
+	Line   int
+}
+
+// IntegrationDecl is a connector contract — the typed read-functions a connector
+// exposes. The backend URL is NOT here; it lives in a runtime record so a
+// connector can be added or repointed without a rebuild.
+type IntegrationDecl struct {
+	Name  string
+	Funcs []*IntegrationFunc
+	File  string
+	Line  int
+}
+
 type AST struct {
-	Manifest    *Manifest
-	Entities    []*EntityDecl
-	Roles       []*RoleDecl
-	Permissions []*PermBlock
-	Workflows   []*WorkflowDecl
-	Automations []*AutomationRule
-	UIs         []*UIDecl
-	Links       []*LinkDecl
-	Dashboards  []*DashboardDecl
+	Manifest     *Manifest
+	Entities     []*EntityDecl
+	Roles        []*RoleDecl
+	Permissions  []*PermBlock
+	Workflows    []*WorkflowDecl
+	Automations  []*AutomationRule
+	UIs          []*UIDecl
+	Links        []*LinkDecl
+	Dashboards   []*DashboardDecl
+	Integrations []*IntegrationDecl
 }

@@ -363,6 +363,32 @@ func (e *Engine) VisibleRecordIDs(ctx context.Context, actor eventstore.Actor, e
 	return ids, nil
 }
 
+// CanCall reports whether a role may invoke a connector capability
+// ("<connector>.<fn>"). It reuses the existing name-based ABAC check (the same
+// machinery behind act/approve) — the node's permission boundary for /api/call.
+func (e *Engine) CanCall(role, capability string) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.canNamed(role, "call", capability)
+}
+
+// LookupByField returns the values of the first record of entity whose field
+// equals value, read with NODE authority (no actor ABAC). It exists for the
+// node to resolve its OWN infrastructure config — e.g. a connector's backend
+// URL — not for serving actor requests, which always go through Query. Generic
+// over entity/field so the kernel stays domain-agnostic.
+func (e *Engine) LookupByField(entity, field string, value any) (map[string]any, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for _, id := range sortedIDs(e.records[entity]) {
+		rec := e.records[entity][id]
+		if rec != nil && fmt.Sprint(rec.Values[field]) == fmt.Sprint(value) {
+			return rec.Values, true
+		}
+	}
+	return nil, false
+}
+
 // Model returns the active definition. Callers must not mutate it.
 func (e *Engine) Model() *dsl.Model {
 	e.mu.RLock()

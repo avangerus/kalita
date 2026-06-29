@@ -48,6 +48,8 @@ const (
 	EBadDashboardTile Code = "E035_BAD_DASHBOARD_TILE"
 	EDashboardEntity  Code = "E036_DASHBOARD_UNKNOWN_ENTITY"
 	EDashboardField   Code = "E037_DASHBOARD_UNKNOWN_FIELD"
+	EBadIntegration   Code = "E038_BAD_INTEGRATION"
+	EUnknownCapability Code = "E039_UNKNOWN_CAPABILITY"
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)

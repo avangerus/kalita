@@ -8,16 +8,36 @@ import (
 // Semantic model: the compiler's output, consumed by the runtime engines.
 
 type Model struct {
-	Manifest    *Manifest
-	Entities    map[string]*EntityDecl
-	Order       []string // entity declaration order
-	Roles       map[string]*RoleDecl
-	Perms       map[string]*PermBlock     // by role
-	Workflows   map[string]*WorkflowDecl  // by entity (one workflow per entity in v0)
-	Automations []*AutomationRule
-	UIs         []*UIDecl
-	Links       []*LinkDecl
-	Dashboards  []*DashboardDecl
+	Manifest     *Manifest
+	Entities     map[string]*EntityDecl
+	Order        []string // entity declaration order
+	Roles        map[string]*RoleDecl
+	Perms        map[string]*PermBlock    // by role
+	Workflows    map[string]*WorkflowDecl // by entity (one workflow per entity in v0)
+	Automations  []*AutomationRule
+	UIs          []*UIDecl
+	Links        []*LinkDecl
+	Dashboards   []*DashboardDecl
+	Integrations map[string]*IntegrationDecl // by connector name
+}
+
+// HasCapability reports whether "<connector>.<fn>" is a declared integration
+// read-function — used to validate picker= and call permissions.
+func (m *Model) HasCapability(name string) bool {
+	dot := strings.IndexByte(name, '.')
+	if dot < 0 {
+		return false
+	}
+	decl, ok := m.Integrations[name[:dot]]
+	if !ok {
+		return false
+	}
+	for _, f := range decl.Funcs {
+		if f.Name == name[dot+1:] {
+			return true
+		}
+	}
+	return false
 }
 
 // LinkByName resolves a link name (forward or inverse) for an entity, returning
@@ -46,15 +66,16 @@ var coreEntities = coreEntityNames()
 
 func analyze(ast *AST, errs *Errors) *Model {
 	m := &Model{
-		Manifest:    ast.Manifest,
-		Entities:    map[string]*EntityDecl{},
-		Roles:       map[string]*RoleDecl{},
-		Perms:       map[string]*PermBlock{},
-		Workflows:   map[string]*WorkflowDecl{},
-		Automations: ast.Automations,
-		UIs:         ast.UIs,
-		Links:       ast.Links,
-		Dashboards:  ast.Dashboards,
+		Manifest:     ast.Manifest,
+		Entities:     map[string]*EntityDecl{},
+		Roles:        map[string]*RoleDecl{},
+		Perms:        map[string]*PermBlock{},
+		Workflows:    map[string]*WorkflowDecl{},
+		Automations:  ast.Automations,
+		UIs:          ast.UIs,
+		Links:        ast.Links,
+		Dashboards:   ast.Dashboards,
+		Integrations: map[string]*IntegrationDecl{},
 	}
 
 	// entities, duplicate detection
@@ -195,7 +216,67 @@ func analyze(ast *AST, errs *Errors) *Model {
 
 	analyzeBlocks(ast, m, errs)
 	analyzeLinks(ast, m, errs)
+	analyzeIntegrations(ast, m, errs)
 	return m
+}
+
+// integrationResults is the closed set of result shapes a read-function may
+// declare. The renderer maps each to a widget (tree = browser, list = picker).
+var integrationResults = map[string]bool{"tree": true, "list": true}
+
+func analyzeIntegrations(ast *AST, m *Model, errs *Errors) {
+	for _, decl := range ast.Integrations {
+		if _, dup := m.Integrations[decl.Name]; dup {
+			errs.add(EBadIntegration, decl.File, decl.Line, "integration "+decl.Name+" is declared twice",
+				"merge the declarations or rename one integration")
+			continue
+		}
+		seen := map[string]int{}
+		for _, fn := range decl.Funcs {
+			if prev, dup := seen[fn.Name]; dup {
+				errs.add(EBadIntegration, decl.File, fn.Line,
+					fmt.Sprintf("read %s already declared at line %d", fn.Name, prev),
+					"function names are unique within an integration")
+				continue
+			}
+			seen[fn.Name] = fn.Line
+			if !integrationResults[fn.Result] {
+				errs.add(EBadIntegration, decl.File, fn.Line,
+					"read "+fn.Name+" has unknown result type "+fn.Result,
+					"a read function returns `tree` or `list`")
+			}
+		}
+		m.Integrations[decl.Name] = decl
+	}
+
+	// picker= must reference a declared capability
+	for _, name := range m.Order {
+		for _, f := range m.Entities[name].Fields {
+			if f.Picker != "" && !m.HasCapability(f.Picker) {
+				errs.add(EUnknownCapability, m.Entities[name].File, f.Line,
+					fmt.Sprintf("%s.%s picker references unknown capability %s", name, f.Name, f.Picker),
+					"declare it as `read <fn>(...)` inside an `integration` block")
+			}
+		}
+	}
+
+	// call permissions must reference a declared capability
+	for role, pb := range m.Perms {
+		for _, rule := range pb.Rules {
+			for _, item := range rule.Items {
+				if item.Verb != "call" {
+					continue
+				}
+				for _, cap := range item.Names {
+					if !m.HasCapability(cap) {
+						errs.add(EUnknownCapability, "", item.Line,
+							fmt.Sprintf("permissions of %s reference unknown capability %s", role, cap),
+							"capabilities are integration read-functions, e.g. `call [files.list_dirs]`")
+					}
+				}
+			}
+		}
+	}
 }
 
 func analyzeLinks(ast *AST, m *Model, errs *Errors) {
