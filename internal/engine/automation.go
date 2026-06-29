@@ -12,10 +12,12 @@ import (
 )
 
 // Automation engine. Event triggers (create/update) fire inline after the
-// mutation; schedule and stuck rules fire on Tick, which the node calls
-// periodically. v0 honesty: the schedule TEXT (daily at 09:00) is carried but
-// not parsed — every Tick evaluates every schedule rule, deduplicated per
-// rule+record+day by idempotency keys. Cron parsing is a node concern (v1).
+// mutation; schedule and stuck rules fire on Tick, which the node calls every
+// minute. Schedule dedup is per rule (and record), keyed by an idempotency
+// bucket: interval forms ("every 5m") ARE parsed (scheduleInterval) and fire
+// once per interval window; wall-clock forms ("daily at 09:00") fire once per
+// day — the time-of-day is not yet parsed, so they trigger on the first Tick of
+// the day. A full cron / time-of-day parser is a v1 concern.
 
 // Tick evaluates schedule and stuck rules and sweeps expired leases.
 func (e *Engine) Tick(ctx context.Context) error {
