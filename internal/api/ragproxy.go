@@ -95,6 +95,23 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	var answer map[string]any
 	_ = json.Unmarshal(raw, &answer)
 
+	// BUG-10: worker signals failure with a non-200 status (HTTP 500 + "error": true).
+	// A search error must be logged DISTINCTLY from a valid empty result (results=0).
+	// Previously the worker returned HTTP 200 for errors, so node logs were ambiguous.
+	if resp.StatusCode != http.StatusOK {
+		errMsg := "search worker error"
+		if m, ok := answer["message"].(string); ok && m != "" {
+			errMsg = m
+		}
+		// Do NOT create a SearchQuery journal record — this is not a valid query result.
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"code":     "SEARCH_WORKER_ERROR",
+			"message":  errMsg,
+			"fix_hint": "check the search service logs for details",
+		})
+		return
+	}
+
 	// journal the query as a record (provenance: who asked what)
 	if s.rag.LogEntity != "" {
 		nResults := 0

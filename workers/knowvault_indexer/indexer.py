@@ -14,6 +14,7 @@ Env (worker-level config, the secrets tier):
 
 Zero dependencies: stdlib only.
 """
+import hashlib
 import json
 import os
 import sys
@@ -235,6 +236,56 @@ def embed(model, texts):
 # The search worker reads this; it has no independent EMBED_MODEL config.
 _META_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "kv_collection_meta"))
 
+# BUG-13: per-model embedding format table.
+# Tuple: (query_prefix, passage_prefix).
+# Symmetric models (bge family) are used the same way for both query and passage —
+# no prefix needed; adding one degrades quality.
+# Asymmetric e5 models require distinct "query: " / "passage: " prefixes to separate
+# the roles of query and document; omitting them measurably reduces retrieval quality.
+# Source of truth for the active model: sentinel point / VaultSettings (BUG-01).
+_EMBED_PREFIX = {
+    # symmetric — no prefix for either role
+    "text-embedding-bge-m3":                         ("", ""),
+    # asymmetric e5 — query/passage prefixes required
+    "text-embedding-e5-small":                       ("query: ", "passage: "),
+    "text-embedding-e5-base":                        ("query: ", "passage: "),
+    "text-embedding-e5-large":                       ("query: ", "passage: "),
+    "text-embedding-multilingual-e5-large-instruct": ("query: ", "passage: "),
+    "text-embedding-e5-mistral-7b-instruct":         ("Instruct: Retrieve relevant documents\nQuery: ", "passage: "),
+}
+
+
+def _fmt_passage(model, text):
+    """Apply passage prefix for the given model; no-op for symmetric models (e.g. bge-m3)."""
+    prefix = _EMBED_PREFIX.get(model, ("", ""))[1]
+    return (prefix + text) if prefix else text
+
+
+def _fmt_query(model, text):
+    """Apply query prefix for the given model; no-op for symmetric models (e.g. bge-m3)."""
+    prefix = _EMBED_PREFIX.get(model, ("", ""))[0]
+    return (prefix + text) if prefix else text
+
+
+def _file_fp(path, use_content_hash=False):
+    """Compute a fingerprint for *path*.
+
+    Default (use_content_hash=False): mtime:size — O(1), zero I/O, sufficient
+    for the common case where filesystem timestamps are reliable.
+
+    With use_content_hash=True: SHA-256 of the file contents — detects edits
+    that produce the same file size on the same second (e.g. in-place patching,
+    test fixtures, or mounted filesystems with coarse timestamp resolution).
+    Enable per-Source via ``use_content_hash=true`` in the Source record.
+    """
+    if use_content_hash:
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            for blk in iter(lambda: fh.read(65536), b""):
+                h.update(blk)
+        return f"sha256:{h.hexdigest()}"
+    return f"{int(os.path.getmtime(path))}:{os.path.getsize(path)}"
+
 
 def get_collection_meta(name):
     """Return (model, dim) from the sentinel point, or (None, None) if absent."""
@@ -389,9 +440,14 @@ def sync_source(sid, src, basis, tid, force_rebuild=False):
     if rebuilt:
         force_rebuild = True  # collection was wiped — every file is new
 
+    # BUG-09: per-source fingerprint strategy.
+    # Default (use_content_hash=False): mtime:size — fast, zero I/O.
+    # Optional (use_content_hash=True): SHA-256 — catches same-size/same-mtime edits.
+    use_content_hash = bool(src["values"].get("use_content_hash", False))
+
     # an indexable unit is (relpath, fingerprint, loader): a single uploaded
     # document, or every supported file under a crawled path. The fingerprint
-    # (mtime:size) is read WITHOUT opening the file, so unchanged files are
+    # is read WITHOUT opening the file (for mtime:size), so unchanged files are
     # skipped cheaply; the loader pulls the text only when we actually re-index.
     def units():
         doc = src["values"].get("document")
@@ -412,7 +468,8 @@ def sync_source(sid, src, basis, tid, force_rebuild=False):
                     size = os.path.getsize(full)
                     if size > MAX_FILE_BYTES:
                         continue
-                    fp = f"{int(os.path.getmtime(full))}:{size}"
+                    # BUG-09: use content hash when enabled, mtime:size otherwise
+                    fp = _file_fp(full, use_content_hash)
                 except OSError:
                     continue
                 rel = os.path.relpath(full, base).replace("\\", "/")  # "where is it?"
@@ -437,7 +494,8 @@ def sync_source(sid, src, basis, tid, force_rebuild=False):
         print(f"  {fname}: {len(pieces)} chunks — embedding…", flush=True)
         for off in range(0, len(pieces), 32):
             batch = pieces[off:off + 32]
-            vectors = embed(model, batch)
+            # BUG-13: apply passage prefix for asymmetric models (no-op for bge-m3)
+            vectors = embed(model, [_fmt_passage(model, t) for t in batch])
             # BUG-01/02: pass model so sentinel is written on first creation
             ensure_collection(collection, len(vectors[0]), model)
             points = [{
@@ -456,10 +514,13 @@ def sync_source(sid, src, basis, tid, force_rebuild=False):
 
     note = f"{len(seen)} files ({changed} re-embedded, {removed} removed) -> {collection}"
     tool("report_progress", {"task_id": tid, "note": note})
-    tool("update_record", {"entity": "Source", "id": sid, "basis": basis, "values": {
-        "documents": len(seen),
-        "last_indexed": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }})
+    # BUG-08: write update_record (journal event) only when something actually changed.
+    # A no-op resync (0 changed, 0 removed) must not produce a journal entry every 2 min.
+    if changed or removed:
+        tool("update_record", {"entity": "Source", "id": sid, "basis": basis, "values": {
+            "documents": len(seen),
+            "last_indexed": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }})
     return note
 
 
@@ -481,6 +542,18 @@ def index_source(task):
     force_rebuild = (status == "New" and bool(src["values"].get("last_indexed")))
 
     if status in ("New", "Failed"):
+        # BUG-12: validate the embedding model BEFORE transitioning Source to Indexing.
+        # Real model IDs are dynamic LM Studio identifiers ("text-embedding-bge-m3", etc.),
+        # not a fixed enum — a probe-embed is the only reliable check.
+        # On failure: fail the task without touching Source state; the source stays in
+        # New/Failed (no workflow transition), giving the user a clear task-level error.
+        model_probe, _ = settings()
+        try:
+            embed(model_probe, ["probe"])
+        except (OSError, urllib.error.URLError, urllib.error.HTTPError) as probe_err:
+            tool("fail_task", {"task_id": tid,
+                               "reason": f"embedding_model '{model_probe}' rejected by LM Studio: {probe_err}"})
+            return
         tool("act", {"entity": "Source", "id": sid,
                      "action": "start_index" if status == "New" else "retry_index", "basis": basis})
         status = "Indexing"

@@ -38,6 +38,25 @@ RERANKER_MODEL = os.environ.get("KV_RERANKER_MODEL", "qwen3-reranker-0.6b")
 # Sentinel UUID shared with the indexer — must stay in sync with _META_ID there.
 _META_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "kv_collection_meta"))
 
+# BUG-13: per-model embedding format table (mirrored from indexer.py).
+# Source of truth for the active model: sentinel point in the collection (BUG-01).
+# Symmetric models (bge family): same representation for query and passage — no prefix.
+# Asymmetric e5 models: "query: " prefix on the question improves retrieval accuracy.
+_EMBED_PREFIX = {
+    "text-embedding-bge-m3":                         ("", ""),
+    "text-embedding-e5-small":                       ("query: ", "passage: "),
+    "text-embedding-e5-base":                        ("query: ", "passage: "),
+    "text-embedding-e5-large":                       ("query: ", "passage: "),
+    "text-embedding-multilingual-e5-large-instruct": ("query: ", "passage: "),
+    "text-embedding-e5-mistral-7b-instruct":         ("Instruct: Retrieve relevant documents\nQuery: ", "passage: "),
+}
+
+
+def _fmt_query(model, text):
+    """Apply query prefix for the given model; no-op for symmetric models (e.g. bge-m3)."""
+    prefix = _EMBED_PREFIX.get(model, ("", ""))[0]
+    return (prefix + text) if prefix else text
+
 
 def http(url, body=None, method=None):
     data = json.dumps(body).encode() if body is not None else None
@@ -113,7 +132,9 @@ def answer_question(question, scope_ids):
     if not embed_model:
         return {"answer": "No indexed content found — run an index first.", "sources": []}
 
-    qvec = http(LM + "/v1/embeddings", {"model": embed_model, "input": [question]})["data"][0]["embedding"]
+    # BUG-13: apply query prefix for asymmetric models (no-op for bge-m3 and unknown models)
+    qvec = http(LM + "/v1/embeddings", {"model": embed_model,
+                                         "input": [_fmt_query(embed_model, question)]})["data"][0]["embedding"]
 
     # BUG-07: wider candidate pool (SEARCH_K per workspace, was hardcoded 4).
     hits = []
@@ -176,9 +197,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(body)
-        except Exception as e:  # noqa: BLE001 — return the error to the node
-            body = json.dumps({"answer": f"Search error: {e}", "sources": []}).encode()
-            self.send_response(200)
+        except Exception as e:  # noqa: BLE001
+            # BUG-10: return HTTP 500 with a distinct error flag so the node can tell
+            # a search failure apart from a valid empty result (results: 0, sources: []).
+            # HTTP 200 + "Search error: …" in the answer body was indistinguishable
+            # from an honest "nothing found" response in node logs.
+            body = json.dumps({"error": True, "message": f"Search error: {e}",
+                               "sources": []}).encode()
+            self.send_response(500)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(body)

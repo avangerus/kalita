@@ -26,6 +26,11 @@ entity Source:
     status: enum[New, Indexing, Indexed, Failed, Paused] default=New
     last_indexed: datetime
     documents: int
+    # BUG-09: optional content-hash fingerprinting (SHA-256) instead of mtime:size.
+    # Enable for sources where files may be patched in-place without touching mtime
+    # (e.g. mounted network shares, test fixtures, or coarse-resolution filesystems).
+    # Default false (mtime:size) keeps the common case O(1) with no I/O overhead.
+    use_content_hash: bool default=false
 
 constraints:
     unique(workspace, path)
@@ -65,7 +70,11 @@ permissions:
     Searcher:
         read   [Workspace]
         create [SearchQuery]
-        deny   [delete *, update Source.*, update Workspace.*, read Source where kind = Database]
+        # BUG-11: a deny on "read Source (where kind=Database)" was present here without
+        # a base "read Source" grant — denying a permission you don't have is vacuously
+        # true and enforces nothing (false security guarantee).  Searcher has no need to
+        # access Source records at all; the correct enforcement is the absence of the grant.
+        deny   [delete *, update Source.*, update Workspace.*]
 
 automation:
     # Keep the index fresh without anyone clicking reindex: every couple of
