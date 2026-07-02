@@ -12,7 +12,10 @@ workflow Problem on status:
 # --- knowledge base (FTS native in kalita — search on text/string) --------
 
 workflow KBArticle on status:
-    Draft     -> Published: publish_article requires approval(KbEditor) label="Publish"
+    # BUG-01 fix (HITL hole): the author of the article cannot request their own
+    # publish approval — a different KbEditor must review it (see servicedesk
+    # BUGS.md). Guard checked against the actor requesting the transition.
+    Draft     -> Published: publish_article requires approval(KbEditor) when author != $me label="Publish"
     Published -> Archived:  archive_article label="Archive"
     Archived  -> Draft:     revise_article label="Return to draft"
 

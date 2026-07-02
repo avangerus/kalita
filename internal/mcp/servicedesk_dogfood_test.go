@@ -210,3 +210,87 @@ func TestDogfoodServiceDeskPack(t *testing.T) {
 		t.Errorf("attachment without a hash must be rejected, got %v", bad)
 	}
 }
+
+// TestDogfoodServiceDeskKbEditorCannotSelfPublish is the regression test for
+// BUGS.md BUG-01 (P1, HITL hole): KbEditor held both `act [publish_article]`
+// and `approve [publish_article]`, so the author of an article could publish
+// it without any other reviewer ever looking at it — the "publication is
+// HITL" comment in security.dsl was not actually enforced. The fix adds a
+// `when author != $me` guard on the Draft -> Published transition
+// (workflows.dsl), checked against the actor who REQUESTS the transition —
+// before any approval is ever parked. This proves both halves of the blind
+// check in the bug card: the author is blocked outright, and a different
+// KbEditor can still request and grant the publish (the happy path survives).
+func TestDogfoodServiceDeskKbEditorCannotSelfPublish(t *testing.T) {
+	ctx := context.Background()
+	model, errs := dsl.Compile(packFiles(t, "../../packs/servicedesk"))
+	if len(errs) > 0 {
+		t.Fatalf("servicedesk pack must compile: %v", errs[0])
+	}
+	store := eventstore.NewMemStore(nil)
+	reg := identity.NewRegistry(store)
+	root := eventstore.Actor{Type: eventstore.ActorHuman, ID: "root", Role: "Owner"}
+	tok := func(id, role string) string {
+		tk, err := reg.RegisterWithToken(ctx, root, id, eventstore.ActorHuman, role, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("register %s: %v", id, err)
+		}
+		return tk
+	}
+	author := tok("kbe-author", "KbEditor")
+	reviewer := tok("kbe-reviewer", "KbEditor")
+
+	eng, err := engine.New(ctx, model, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(New(eng, reg))
+	defer srv.Close()
+	authorBasis := map[string]any{"type": "human", "id": "kbe-author"}
+
+	// the author writes an article — `author` defaults to $me
+	art, e := call(t, srv.URL, author, "create_record", map[string]any{
+		"entity": "KBArticle", "basis": authorBasis,
+		"values": map[string]any{"title": "Сброс пароля", "body": "Инструкция по сбросу пароля."}})
+	if e {
+		t.Fatalf("create KBArticle: %v", art)
+	}
+	artID := art["id"].(string)
+	if got := art["values"].(map[string]any)["author"]; got != "kbe-author" {
+		t.Fatalf("author must default to $me, got %v", got)
+	}
+
+	// BUG-01 regression: the SAME KbEditor must not even be able to REQUEST
+	// publishing their own article — the guard fails before an approval parks.
+	self, isErr := call(t, srv.URL, author, "act", map[string]any{
+		"entity": "KBArticle", "id": artID, "action": "publish_article", "basis": authorBasis})
+	if !isErr || self["code"] != "GUARD_FAILED" {
+		t.Fatalf("author must not be able to request publish of their own article, got %v (isErr=%v)", self, isErr)
+	}
+	// the article must still be in Draft — the blocked attempt had no side effect
+	stillDraft, _ := call(t, srv.URL, author, "get_record", map[string]any{"entity": "KBArticle", "id": artID})
+	if stillDraft["values"].(map[string]any)["status"] != "Draft" {
+		t.Fatalf("a blocked self-publish must not move the record, got %v", stillDraft["values"])
+	}
+
+	// the happy path survives: a DIFFERENT KbEditor requests publish -> parks
+	// for a human signature (still HITL, not auto-applied)
+	reviewerBasis := map[string]any{"type": "human", "id": "kbe-reviewer"}
+	pend, isErr := call(t, srv.URL, reviewer, "act", map[string]any{
+		"entity": "KBArticle", "id": artID, "action": "publish_article", "basis": reviewerBasis})
+	if isErr || pend["status"] != "pending_approval" {
+		t.Fatalf("a different KbEditor must be able to request publish, got %v (isErr=%v)", pend, isErr)
+	}
+	appr := eng.PendingApprovals("KbEditor")
+	if len(appr) != 1 {
+		t.Fatalf("one publish approval should be pending, got %d", len(appr))
+	}
+	reviewerActor := eventstore.Actor{Type: eventstore.ActorHuman, ID: "kbe-reviewer", Role: "KbEditor"}
+	if _, err := eng.Decide(ctx, reviewerActor, appr[0].ID, true, nil, &eventstore.Basis{Type: "human", ID: "kbe-reviewer"}); err != nil {
+		t.Fatalf("reviewer decision: %v", err)
+	}
+	got, _ := call(t, srv.URL, reviewer, "get_record", map[string]any{"entity": "KBArticle", "id": artID})
+	if got["values"].(map[string]any)["status"] != "Published" {
+		t.Errorf("article reviewed by a different editor = %v, want Published", got["values"])
+	}
+}

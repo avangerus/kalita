@@ -65,9 +65,12 @@ permissions:
         full [Product, Customer, Order, OrderLine]
         act  [place, pay, pack, ship, deliver, cancel]
     # a customer sees only their own orders (ABAC ref-path through the portal login)
+    # BUG-02 fix: OrderLine must carry the same scope as Order — otherwise a
+    # customer can read every order line in the store (see eshop BUGS.md).
     Customer:
         read Order where customer.user = $me
-        read [Product, OrderLine]
+        read [Product]
+        read OrderLine where order.customer.user = $me
 
 # --- automation --------------------------------------------------------------
 

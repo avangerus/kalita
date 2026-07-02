@@ -31,8 +31,11 @@ entity SickLeave:
 
 workflow LeaveRequest on status:
     Draft     -> Submitted: submit
-    Submitted -> Approved:  approve requires approval(Manager)
-    Submitted -> Rejected:  reject requires approval(Manager)
+    # BUG-02 fix (SoD): a Manager who is also the Employee on this request cannot
+    # request their own approve/reject — the guard is checked against the actor
+    # who calls the transition, before any approval is parked (see hr BUGS.md).
+    Submitted -> Approved:  approve requires approval(Manager) when employee.user != $me
+    Submitted -> Rejected:  reject requires approval(Manager) when employee.user != $me
 
 workflow SickLeave on status:
     Open      -> Confirmed: confirm when certificate != null
