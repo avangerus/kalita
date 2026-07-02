@@ -194,8 +194,24 @@ func (e *Engine) fireActions(ctx context.Context, rule *dsl.AutomationRule, enti
 	ruleKey := fmt.Sprintf("%s:%d", rule.File, rule.Line)
 	ruleBasis := &eventstore.Basis{Type: "rule", ID: ruleKey}
 
+	// the eval context for create/update/emit expressions: the trigger record's
+	// computed values (LLD-01 §4b). Empty for global schedule rules.
+	var vals map[string]any
+	if entity != "" && id != "" {
+		if decl := e.model.Entities[entity]; decl != nil {
+			if rec, ok := e.records[entity][id]; ok {
+				vals = e.withComputed(decl, id, rec.Values)
+			}
+		}
+	}
+
 	opened := false
-	if len(rule.Actions) >= 2 {
+	// A cascade of >=2 events (>=2 actions), OR a single create/update/emit
+	// action that can cascade further (LLD-01 §2 as widened by §4b), is wrapped
+	// in an op-bracket. A lone notify/agent/escalate/webhook stays unbracketed
+	// (one atomic event — bracketing it is pure overhead, caught by the passport
+	// bench: tick x2).
+	if len(rule.Actions) >= 2 || ruleHasCascadingAction(rule) {
 		var err error
 		opened, err = e.beginOp(ctx, "cascade", entity, id)
 		if err != nil {
@@ -209,7 +225,7 @@ func (e *Engine) fireActions(ctx context.Context, rule *dsl.AutomationRule, enti
 		if idemPrefix != "" {
 			idem = fmt.Sprintf("%s|%d", idemPrefix, i)
 		}
-		if err := e.execAction(ctx, a, entity, id, ruleBasis, idem); err != nil {
+		if err := e.execAction(ctx, a, entity, id, ruleBasis, idem, vals); err != nil {
 			e.recordActionFailure(ctx, ruleKey, a.Kind, i, entity, id, 1, err)
 		}
 	}
@@ -221,12 +237,25 @@ func (e *Engine) fireActions(ctx context.Context, rule *dsl.AutomationRule, enti
 	}
 }
 
+// ruleHasCascadingAction reports whether a rule has a lone action that can
+// itself cascade (create/update/emit) and therefore must be op-bracketed even
+// when it is the only action (LLD-01 §2/§4b).
+func ruleHasCascadingAction(rule *dsl.AutomationRule) bool {
+	for _, a := range rule.Actions {
+		switch a.Kind {
+		case "create", "update", "emit":
+			return true
+		}
+	}
+	return false
+}
+
 // execAction runs one automation action and reports whether it succeeded.
 // Shared by fireActions (attempt 1) and retryFailedActions (attempt 2+) so
 // both paths execute the exact same logic. A role target that does not exist
 // in the model is a failure here (referential integrity, not a new permission
 // grant/deny) rather than a task silently created for no one to ever pick up.
-func (e *Engine) execAction(ctx context.Context, a dsl.AutomationAction, entity, id string, basis *eventstore.Basis, idem string) error {
+func (e *Engine) execAction(ctx context.Context, a dsl.AutomationAction, entity, id string, basis *eventstore.Basis, idem string, vals map[string]any) error {
 	if a.Role != "" {
 		if _, ok := e.model.Roles[a.Role]; !ok {
 			return fmt.Errorf("role %q does not exist", a.Role)
@@ -251,10 +280,83 @@ func (e *Engine) execAction(ctx context.Context, a dsl.AutomationAction, entity,
 		_, err = e.createTask(ctx, autoActor, Task{
 			Kind: TaskWebhook, Entity: entity, RecordID: id, Args: a.Args,
 		}, basis, idem)
+	case "create":
+		err = e.execCreate(ctx, a, id, basis, idem, vals)
+	case "update":
+		err = e.execUpdate(ctx, a, entity, id, basis, idem, vals)
+	case "emit":
+		if errr := e.execEmit(ctx, a, entity, id, basis, vals); errr != nil {
+			err = errr
+		}
 	default:
 		err = fmt.Errorf("unknown action kind %q", a.Kind)
 	}
 	return err
+}
+
+// execCreate runs a `create Entity(field=expr,...)` action (LLD-01 §4b): it
+// resolves the field expressions against the trigger context, then creates the
+// record with full validation. The target's own `on create` automation runs in
+// the same cascade (createLocked calls runEventTriggers under the open op).
+func (e *Engine) execCreate(ctx context.Context, a dsl.AutomationAction, selfID string, basis *eventstore.Basis, idem string, vals map[string]any) error {
+	values, err := e.resolveAssigns(a.Assigns, selfID, vals)
+	if err != nil {
+		return err
+	}
+	_, err = e.createLocked(ctx, a.Entity, values, basis, idem)
+	return err
+}
+
+// execUpdate runs an `update [ref] set field=expr,...` action (LLD-01 §4b). Without
+// a ref path it updates the trigger record; with one it follows a single ref
+// field of the trigger record. Expressions see the target record's fields
+// (e.g. in_stock) merged with the trigger record's fields (e.g. qty).
+func (e *Engine) execUpdate(ctx context.Context, a dsl.AutomationAction, entity, id string, basis *eventstore.Basis, idem string, vals map[string]any) error {
+	targetEntity, targetID := entity, id
+	evalVals := vals
+	selfID := id
+	if a.RefPath != "" {
+		te := e.model.Entities[entity]
+		rf := findFieldDecl(te, a.RefPath)
+		if rf == nil {
+			return fmt.Errorf("update: %s is not a field of %s", a.RefPath, entity)
+		}
+		refID, _ := vals[a.RefPath].(string)
+		if refID == "" {
+			return fmt.Errorf("update: ref field %s is empty on %s %s", a.RefPath, entity, id)
+		}
+		targetEntity, targetID, selfID = rf.Type.RefTarget, refID, refID
+		tgtDecl := e.model.Entities[targetEntity]
+		rec, ok := e.records[targetEntity][targetID]
+		if !ok {
+			return fmt.Errorf("update: %s %s not found", targetEntity, targetID)
+		}
+		merged := e.withComputed(tgtDecl, targetID, rec.Values)
+		for k, v := range vals {
+			if _, present := merged[k]; !present {
+				merged[k] = v
+			}
+		}
+		evalVals = merged
+	}
+	values, err := e.resolveAssigns(a.Assigns, selfID, evalVals)
+	if err != nil {
+		return err
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return e.updateLocked(ctx, targetEntity, targetID, values, basis, idem)
+}
+
+// execEmit runs an `emit Event(...)` automation action (LLD-01 §4).
+func (e *Engine) execEmit(ctx context.Context, a dsl.AutomationAction, entity, id string, basis *eventstore.Basis, vals map[string]any) *Err {
+	plans, errr := e.buildEmitPlans(id, vals, []dsl.EmitClause{{Event: a.Event, Args: a.Assigns}})
+	if errr != nil {
+		return errr
+	}
+	e.fireEmits(ctx, autoActor, entity, id, plans, basis)
+	return nil
 }
 
 // recordActionFailure journals automation.failed for one action's error and
@@ -357,7 +459,18 @@ func (e *Engine) retryFailedActions(ctx context.Context) {
 		nextAttempt := st.Attempt + 1
 		idem := fmt.Sprintf("%s|a%d", key, nextAttempt)
 		basis := &eventstore.Basis{Type: "rule", ID: st.RuleKey}
-		if err := e.execAction(ctx, a, st.Entity, st.RecordID, basis, idem); err != nil {
+		// recompute the eval context for create/update/emit retries from the
+		// record's current values (the original trigger/payload context is not
+		// persisted in the retry projection — see agent/kalita/QUESTIONS-LLD.md).
+		var vals map[string]any
+		if st.Entity != "" && st.RecordID != "" {
+			if decl := e.model.Entities[st.Entity]; decl != nil {
+				if rec, ok := e.records[st.Entity][st.RecordID]; ok {
+					vals = e.withComputed(decl, st.RecordID, rec.Values)
+				}
+			}
+		}
+		if err := e.execAction(ctx, a, st.Entity, st.RecordID, basis, idem, vals); err != nil {
 			e.recordActionFailure(ctx, st.RuleKey, st.ActionKind, st.ActionIndex, st.Entity, st.RecordID, nextAttempt, err)
 			continue
 		}

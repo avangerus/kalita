@@ -11,6 +11,7 @@ type Model struct {
 	Manifest     *Manifest
 	Entities     map[string]*EntityDecl
 	Order        []string // entity declaration order
+	Events       map[string]*EventDecl // by short name (own pack)
 	Roles        map[string]*RoleDecl
 	Perms        map[string]*PermBlock    // by role
 	Workflows    map[string]*WorkflowDecl // by entity (one workflow per entity in v0)
@@ -19,6 +20,33 @@ type Model struct {
 	Links        []*LinkDecl
 	Dashboards   []*DashboardDecl
 	Integrations map[string]*IntegrationDecl // by connector name
+}
+
+// PackName is this model's pack namespace (Manifest.Name), used to resolve
+// short vs qualified event names (LLD-01 §4.2).
+func (m *Model) PackName() string {
+	if m.Manifest == nil {
+		return ""
+	}
+	return m.Manifest.Name
+}
+
+// EventByRef resolves an event reference — short (`X`, own pack) or qualified
+// (`pack.X`). Returns the decl, its canonical `<pack>.<Event>` name, and
+// whether the reference names THIS pack (own). A qualified reference to a pack
+// other than this one resolves to (nil, name, false): the emitter pack is not
+// in this build.
+func (m *Model) EventByRef(ref string) (decl *EventDecl, canonical string, own bool) {
+	pack, short := m.PackName(), ref
+	if dot := strings.IndexByte(ref, '.'); dot >= 0 {
+		pack, short = ref[:dot], ref[dot+1:]
+	}
+	own = pack == m.PackName()
+	canonical = pack + "." + short
+	if own {
+		decl = m.Events[short]
+	}
+	return decl, canonical, own
 }
 
 // HasCapability reports whether "<connector>.<fn>" is a declared integration
@@ -68,6 +96,7 @@ func analyze(ast *AST, errs *Errors) *Model {
 	m := &Model{
 		Manifest:     ast.Manifest,
 		Entities:     map[string]*EntityDecl{},
+		Events:       map[string]*EventDecl{},
 		Roles:        map[string]*RoleDecl{},
 		Perms:        map[string]*PermBlock{},
 		Workflows:    map[string]*WorkflowDecl{},
@@ -214,10 +243,61 @@ func analyze(ast *AST, errs *Errors) *Model {
 		}
 	}
 
+	analyzeEvents(ast, m, errs)
 	analyzeBlocks(ast, m, errs)
 	analyzeLinks(ast, m, errs)
 	analyzeIntegrations(ast, m, errs)
 	return m
+}
+
+// analyzeEvents registers event declarations and enforces the payload-field
+// type subset (LLD-01 §4.1): scalar + ref only, NOT computed/serial/file/
+// array[file]. Ref targets are validated like entity ref fields.
+func analyzeEvents(ast *AST, m *Model, errs *Errors) {
+	for _, ev := range ast.Events {
+		if _, dup := m.Events[ev.Name]; dup {
+			errs.add(EDupEvent, ev.File, ev.Line, "event "+ev.Name+" is declared twice",
+				"merge the declarations or rename one event")
+			continue
+		}
+		seen := map[string]bool{}
+		for _, f := range ev.Fields {
+			if seen[f.Name] {
+				errs.add(EDupField, ev.File, f.Line,
+					fmt.Sprintf("event field %s.%s already declared", ev.Name, f.Name),
+					"remove or rename the duplicate field")
+				continue
+			}
+			seen[f.Name] = true
+			checkEventFieldType(m, ev, f, errs)
+		}
+		m.Events[ev.Name] = ev
+	}
+}
+
+// checkEventFieldType rejects the forbidden payload field types.
+func checkEventFieldType(m *Model, ev *EventDecl, f *FieldDecl, errs *Errors) {
+	bad := func(what string) {
+		errs.add(EEventFieldType, ev.File, f.Line,
+			fmt.Sprintf("event %s field %s may not be %s", ev.Name, f.Name, what),
+			"event payload fields must be a scalar (string/int/money/date/...) or ref[...] — not computed, serial, file or array[file]")
+	}
+	if f.Computed != "" {
+		bad("computed")
+		return
+	}
+	switch f.Type.Kind {
+	case TyArrayFile:
+		bad("array[file]")
+	case TyScalar:
+		if f.Type.Scalar == "file" {
+			bad("a file")
+		} else if f.Type.Scalar == "serial" {
+			bad("a serial")
+		}
+	case TyRef:
+		checkRefTarget(m, &EntityDecl{Name: ev.Name, File: ev.File}, f, errs)
+	}
 }
 
 // integrationResults is the closed set of result shapes a read-function may

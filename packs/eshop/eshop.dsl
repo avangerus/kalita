@@ -77,6 +77,13 @@ permissions:
 automation:
     on stuck Order in Paid for 2d:
         escalate_to StoreManager
+    # BUG-01 fix: the ledger stock must move when items are committed to an
+    # order. Each new order line decrements its product's in_stock by the line
+    # quantity via the automation `update` ref-action (LLD-01 §4b): one hop from
+    # the line to its product, arithmetic over the product's current stock and
+    # the line's qty. The dashboard "Out of stock" is now a live signal.
+    on create OrderLine:
+        update product set in_stock = in_stock - qty
 
 # --- dashboards ---------------------------------------------------------------
 

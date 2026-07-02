@@ -111,6 +111,7 @@ type TransitionDecl struct {
 	AssigneeRole  string
 	ApprovalRole  string // requires approval(Role)
 	Label         string // human button label (i18n), "" = humanized action name
+	Emits         []EmitClause // `emits Event(...)` tail(s) (LLD-01 §4)
 	Line          int
 }
 
@@ -122,19 +123,55 @@ type WorkflowDecl struct {
 	Line        int
 }
 
+// EventDecl is a domain event a pack owns (LLD-01 §4): a named payload schema
+// that transitions/automations `emit` and other rules subscribe to via
+// `on event`. Payload fields reuse FieldDecl but a closed subset of types is
+// allowed (scalar + ref; NOT computed/serial/file/array[file]).
+type EventDecl struct {
+	Name   string
+	Label  string
+	Fields []*FieldDecl
+	File   string
+	Line   int
+}
+
+// Assign is one `field = expr` pair in an emit payload / create / update
+// action. Expr stays raw text (evaluated at runtime in the record/payload
+// context, like automation args).
+type Assign struct {
+	Field string
+	Expr  string
+	Line  int
+}
+
+// EmitClause is an `emits Event(field=expr, ...)` tail on a transition line
+// (LLD-01 §4.1). Event may be short (`X`, own pack) or qualified (`pack.X`).
+type EmitClause struct {
+	Event string // possibly "pack.Event"
+	Args  []Assign
+	Line  int
+}
+
 type AutomationAction struct {
-	Kind string // agent | notify | webhook | escalate
+	Kind string // agent | notify | webhook | escalate | emit | create | update
 	Role string // agent / escalate_to target
 	Task string // agent task name
 	Args string // raw args text
 	Raw  string
 	Line int
+
+	// LLD-01 §4/§4b action payloads:
+	Event   string   // emit: event name (possibly "pack.Event")
+	Entity  string   // create: target entity
+	RefPath string   // update: one-hop ref field of the trigger record ("" = self)
+	Assigns []Assign // emit / create / update field=expr pairs
 }
 
 type AutomationRule struct {
-	Trigger    string // schedule | create | update | delete | stuck
+	Trigger    string // schedule | create | update | delete | stuck | event
 	Schedule   string // raw schedule text for schedule triggers
 	Entity     string // bound entity ("" for global schedule rules)
+	Event      string // event trigger: subscribed event ("pack.Event" or "Event")
 	StuckState string
 	StuckFor   string
 	When       string // raw condition
@@ -226,6 +263,7 @@ type IntegrationDecl struct {
 type AST struct {
 	Manifest     *Manifest
 	Entities     []*EntityDecl
+	Events       []*EventDecl
 	Roles        []*RoleDecl
 	Permissions  []*PermBlock
 	Workflows    []*WorkflowDecl

@@ -83,7 +83,7 @@ func (p *parser) transition(ln *Line) *TransitionDecl {
 	for i < len(rest) {
 		switch rest[i].Text {
 		case "when":
-			expr, n := exprUntilStop(rest[i+1:], map[string]bool{"assignee": true, "requires": true, "label": true})
+			expr, n := exprUntilStop(rest[i+1:], map[string]bool{"assignee": true, "requires": true, "label": true, "emits": true})
 			tr.When = expr
 			i += 1 + n
 		case "label":
@@ -118,6 +118,13 @@ func (p *parser) transition(ln *Line) *TransitionDecl {
 			}
 			tr.ApprovalRole = rest[i+3].Text
 			i += 5
+		case "emits":
+			name, args, n, ok := p.parseEventCall(rest[i+1:], ln)
+			if !ok {
+				return tr
+			}
+			tr.Emits = append(tr.Emits, EmitClause{Event: name, Args: args, Line: ln.Num})
+			i += 1 + n
 		default:
 			p.errs.add(EBadTransition, ln.File, ln.Num, "unexpected "+rest[i].Text+" in transition",
 				`allowed clauses: auto, when <expr>, assignee=..., requires approval(Role), label="..."`)
@@ -125,6 +132,73 @@ func (p *parser) transition(ln *Line) *TransitionDecl {
 		}
 	}
 	return tr
+}
+
+// parseEventCall parses `Name(field=expr, ...)` or `pack.Name(...)` starting at
+// toks[0], returning the (possibly qualified) name, the field=expr pairs, and
+// the number of tokens consumed. Used by `emits` and the `emit` action.
+func (p *parser) parseEventCall(toks []Tok, ln *Line) (string, []Assign, int, bool) {
+	if len(toks) == 0 || toks[0].Kind != TIdent {
+		p.errs.add(EBadAutomation, ln.File, ln.Num, "expected an event name",
+			"write e.g. `emits OrderPlaced(order = $self, qty = qty)`")
+		return "", nil, 0, false
+	}
+	name := toks[0].Text
+	i := 1
+	if i+1 < len(toks) && toks[i].Text == "." && toks[i+1].Kind == TIdent {
+		name += "." + toks[i+1].Text
+		i += 2
+	}
+	if i >= len(toks) || toks[i].Text != "(" {
+		p.errs.add(EBadAutomation, ln.File, ln.Num, "event "+name+" must be followed by (args)",
+			"write e.g. `"+name+"(field = expr, ...)` — use () for no payload")
+		return "", nil, 0, false
+	}
+	// find the matching close paren
+	depth, close := 0, -1
+	for j := i; j < len(toks); j++ {
+		switch toks[j].Text {
+		case "(":
+			depth++
+		case ")":
+			depth--
+			if depth == 0 {
+				close = j
+			}
+		}
+		if close >= 0 {
+			break
+		}
+	}
+	if close < 0 {
+		p.errs.add(EBadAutomation, ln.File, ln.Num, "unclosed ( in event "+name, "close the payload with )")
+		return "", nil, 0, false
+	}
+	args := parseAssigns(toks[i+1:close], ln, p.errs)
+	return name, args, close + 1, true
+}
+
+// parseAssigns splits `a = expr, b = expr` (at bracket depth 0) into Assign
+// pairs. Expr keeps its raw joined text (evaluated at runtime).
+func parseAssigns(toks []Tok, ln *Line, errs *Errors) []Assign {
+	var out []Assign
+	for _, group := range splitTopLevel(toks) {
+		if len(group) < 3 || group[0].Kind != TIdent || group[1].Text != "=" {
+			errs.add(EBadAutomation, ln.File, ln.Num, "payload item must be `field = expr`",
+				"write e.g. `total = amount * qty`")
+			continue
+		}
+		var parts []string
+		for _, t := range group[2:] {
+			if t.Kind == TStr {
+				parts = append(parts, `"`+t.Text+`"`)
+			} else {
+				parts = append(parts, t.Text)
+			}
+		}
+		out = append(out, Assign{Field: group[0].Text, Expr: strings.Join(parts, " "), Line: ln.Num})
+	}
+	return out
 }
 
 // exprUntilStop joins tokens into raw text until one of the stop keywords.
@@ -246,9 +320,27 @@ func (p *parser) automationTrigger(ln *Line) *AutomationRule {
 			return rule
 		}
 		rule.Entity, rule.StuckState, rule.StuckFor = rest[1].Text, rest[3].Text, rest[5].Text
+	case "event":
+		// on event [pack.]Name [when <expr>]
+		rule.Trigger = "event"
+		if len(rest) < 2 || rest[1].Kind != TIdent {
+			p.errs.add(EBadAutomation, ln.File, ln.Num, "on event requires an event name",
+				"write e.g. `on event OrderPlaced:` or `on event crm.OpportunityWon:`")
+			return rule
+		}
+		name := rest[1].Text
+		i := 2
+		if i+1 < len(rest) && rest[i].Text == "." && rest[i+1].Kind == TIdent {
+			name += "." + rest[i+1].Text
+			i += 2
+		}
+		rule.Event = name
+		if i < len(rest) && rest[i].Text == "when" {
+			rule.When, _ = exprUntilStop(rest[i+1:], nil)
+		}
 	default:
 		p.errs.add(EBadAutomation, ln.File, ln.Num, "unknown trigger "+rest[0].Text,
-			"triggers: schedule, create, update, delete, stuck")
+			"triggers: schedule, create, update, delete, stuck, event")
 	}
 	return rule
 }
@@ -285,9 +377,52 @@ func (p *parser) automationAction(ln *Line) *AutomationAction {
 			return nil
 		}
 		a.Kind, a.Role = "escalate", t[1].Text
+	case "emit":
+		// emit [pack.]Name(field = expr, ...)  — LLD-01 §4
+		name, args, _, ok := p.parseEventCall(t[1:], ln)
+		if !ok {
+			return nil
+		}
+		a.Kind, a.Event, a.Assigns = "emit", name, args
+	case "create":
+		// create Entity(field = expr, ...)  — LLD-01 §4b
+		name, args, _, ok := p.parseEventCall(t[1:], ln)
+		if !ok {
+			return nil
+		}
+		a.Kind, a.Entity, a.Assigns = "create", name, args
+	case "update":
+		// update [ref_path] set field = expr, ...  — LLD-01 §4b
+		a.Kind = "update"
+		setIdx := -1
+		for j := 1; j < len(t); j++ {
+			if t[j].Text == "set" {
+				setIdx = j
+				break
+			}
+		}
+		if setIdx == -1 {
+			p.errs.add(EBadAutomation, ln.File, ln.Num, "update action must be `update [ref] set field = expr, ...`",
+				"write e.g. `update product set in_stock = in_stock - qty`")
+			return nil
+		}
+		// tokens between `update` and `set` are the optional single ref field
+		if setIdx == 2 && t[1].Kind == TIdent {
+			a.RefPath = t[1].Text
+		} else if setIdx != 1 {
+			p.errs.add(EBadAutomation, ln.File, ln.Num, "update target must be a single ref field before `set`",
+				"write `update set ...` for the trigger record, or `update product set ...` for one ref hop")
+			return nil
+		}
+		a.Assigns = parseAssigns(t[setIdx+1:], ln, p.errs)
+		if len(a.Assigns) == 0 {
+			p.errs.add(EBadAutomation, ln.File, ln.Num, "update needs at least one `field = expr`",
+				"write e.g. `update set probability = 100`")
+			return nil
+		}
 	default:
 		p.errs.add(EBadAutomation, ln.File, ln.Num, "unknown action "+t[0].Text,
-			"actions: agent, notify, webhook out, escalate_to")
+			"actions: agent, notify, webhook out, escalate_to, emit, create, update")
 		return nil
 	}
 	return a

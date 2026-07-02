@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -104,6 +105,200 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 	// computed values immediately, not a bare echo of what it sent.
 	full := e.withComputed(decl, rec.ID, rec.Values)
 	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full), Inconsistent: rec.Inconsistent}, nil
+}
+
+// createLocked creates a record on behalf of the system (an automation `create`
+// action, LLD-01 §4b). It assumes e.mu is HELD (it runs inside a cascade) and
+// bypasses ABAC — the rule is the authority, basis is the rule — but keeps the
+// full validation pipeline and fires the target's create-cascade in the same
+// op-bracket. It is the permission-free twin of Create; the two must not diverge
+// in validation.
+func (e *Engine) createLocked(ctx context.Context, entity string, values map[string]any, basis *eventstore.Basis, idemKey string) (*Record, error) {
+	decl, errr := e.entityOrErr(entity)
+	if errr != nil {
+		return nil, errr
+	}
+	if idemKey != "" {
+		if prior, err := e.store.ByIdemKey(ctx, idemKey); err != nil {
+			return nil, err
+		} else if prior != nil {
+			if rec, ok := e.records[prior.Subject.Entity][prior.Subject.RecordID]; ok {
+				return rec, nil
+			}
+		}
+	}
+	if decl.Singleton && len(e.records[entity]) > 0 {
+		return nil, &Err{Code: CodeConflict, Message: entity + " is a singleton and already exists",
+			FixHint: "update the existing record instead of creating another"}
+	}
+	if err := e.checkWorkflowField(entity, values); err != nil {
+		return nil, err
+	}
+	vals := make(map[string]any, len(values))
+	for k, v := range values {
+		vals[k] = v
+	}
+	e.assignSerials(decl, vals)
+	if err := e.validateValues(decl, vals, false, autoActor.ID); err != nil {
+		return nil, err
+	}
+	if err := e.checkRefsExist(decl, vals); err != nil {
+		return nil, err
+	}
+	if err := e.checkUnique(decl, vals, ""); err != nil {
+		return nil, err
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+	payload, _ := json.Marshal(createdPayload{Values: vals})
+	ev, err := e.store.Append(ctx, eventstore.AppendInput{
+		Actor:          autoActor,
+		Kind:           eventstore.RecordCreated,
+		Subject:        eventstore.Subject{Entity: entity, RecordID: id.String()},
+		Payload:        payload,
+		Basis:          basis,
+		DefVersion:     e.defVersion,
+		IdempotencyKey: idemKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if existing, ok := e.records[entity][ev.Subject.RecordID]; ok {
+		return existing, nil
+	}
+	rec := &Record{ID: ev.Subject.RecordID, Entity: entity, Values: vals}
+	if e.records[entity] == nil {
+		e.records[entity] = map[string]*Record{}
+	}
+	e.records[entity][rec.ID] = rec
+	e.dropIndex(entity)
+	e.setStateSince(entity, rec.ID, ev.TS)
+	// the created record's own cascade runs in the SAME op (LLD-01 §4b):
+	e.runAutoTransitions(ctx, entity, rec.ID)
+	e.runEventTriggers(ctx, "create", entity, rec.ID)
+	return rec, nil
+}
+
+// updateLocked applies a partial change on behalf of the system (an automation
+// `update` action, LLD-01 §4b). Assumes e.mu is HELD; bypasses ABAC but keeps
+// validation and the workflow-field guard. Permission-free twin of Update.
+func (e *Engine) updateLocked(ctx context.Context, entity, id string, values map[string]any, basis *eventstore.Basis, idemKey string) error {
+	decl, errr := e.entityOrErr(entity)
+	if errr != nil {
+		return errr
+	}
+	rec, ok := e.records[entity][id]
+	if !ok {
+		return &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
+	}
+	if err := checkConsistent(rec); err != nil {
+		return err
+	}
+	if err := e.checkWorkflowField(entity, values); err != nil {
+		return err
+	}
+	if err := e.validateValues(decl, values, true, autoActor.ID); err != nil {
+		return err
+	}
+	if err := e.checkRefsExist(decl, values); err != nil {
+		return err
+	}
+	merged := make(map[string]any, len(rec.Values)+len(values))
+	for k, v := range rec.Values {
+		merged[k] = v
+	}
+	for k, v := range values {
+		merged[k] = v
+	}
+	if err := e.checkUnique(decl, merged, id); err != nil {
+		return err
+	}
+	var changes []change
+	for k, v := range values {
+		if rec.Values[k] != v {
+			changes = append(changes, change{Field: k, Old: rec.Values[k], New: v})
+		}
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	payload, _ := json.Marshal(updatedPayload{Changes: changes})
+	if _, err := e.store.Append(ctx, eventstore.AppendInput{
+		Actor:          autoActor,
+		Kind:           eventstore.RecordUpdated,
+		Subject:        eventstore.Subject{Entity: entity, RecordID: id},
+		Payload:        payload,
+		Basis:          basis,
+		DefVersion:     e.defVersion,
+		IdempotencyKey: idemKey,
+	}); err != nil {
+		return err
+	}
+	for _, ch := range changes {
+		rec.Values[ch.Field] = ch.New
+	}
+	e.dropIndex(entity)
+	e.runAutoTransitions(ctx, entity, id)
+	e.runEventTriggers(ctx, "update", entity, id)
+	return nil
+}
+
+// resolveAssigns evaluates the field=expr pairs of a create/update/emit action
+// against an eval context (the trigger record or event payload).
+func (e *Engine) resolveAssigns(assigns []dsl.Assign, selfID string, vals map[string]any) (map[string]any, error) {
+	out := make(map[string]any, len(assigns))
+	for _, a := range assigns {
+		v, ok := e.evalAssignExpr(a.Expr, selfID, vals)
+		if !ok {
+			return nil, &Err{Code: CodeValidation,
+				Message: "cannot evaluate " + a.Field + " = " + a.Expr,
+				Field:   a.Field, FixHint: "the expression must resolve against the record's fields"}
+		}
+		out[a.Field] = v
+	}
+	return out, nil
+}
+
+// evalAssignExpr evaluates one create/update/emit expression. Arithmetic
+// (in_stock - qty, amount * probability / 100) goes through the computed-field
+// evaluator; a bare field/path/literal is resolved with type preserved (so a
+// string copy stays a string, an enum value stays its bareword).
+func (e *Engine) evalAssignExpr(expr, selfID string, vals map[string]any) (any, bool) {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return nil, false
+	}
+	if len(expr) >= 2 && expr[0] == '"' && expr[len(expr)-1] == '"' {
+		return expr[1 : len(expr)-1], true
+	}
+	if f, err := strconv.ParseFloat(expr, 64); err == nil {
+		return f, true // a bare numeric literal (e.g. probability = 100)
+	}
+	if hasArithOp(expr) {
+		return e.evalComputed(expr, selfID, vals)
+	}
+	c := e.ctxFor(selfID, eventstore.Actor{}, vals)
+	kind := "path"
+	if strings.HasPrefix(expr, "$") || expr == "true" || expr == "false" || expr == "null" {
+		kind = "lit"
+	}
+	return resolveOperand(operand{kind: kind, text: expr}, c)
+}
+
+// hasArithOp reports whether an expression combines operands with +, *, / or a
+// binary minus (a leading '-' is unary; a '-' inside a word like a-b is arith).
+func hasArithOp(expr string) bool {
+	if strings.ContainsAny(expr, "+*/") {
+		return true
+	}
+	for i := 1; i < len(expr); i++ {
+		if expr[i] == '-' {
+			return true
+		}
+	}
+	return false
 }
 
 // checkWorkflowField rejects direct writes to a workflow-governed field:

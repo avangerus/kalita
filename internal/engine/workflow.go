@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 
@@ -141,7 +142,7 @@ func (e *Engine) Act(ctx context.Context, actor eventstore.Actor, entity, id, ac
 		return &ActResult{Status: "pending_approval", ApprovalID: aid.String()}, nil
 	}
 
-	if err := e.applyTransition(ctx, actor, entity, id, tr, current, basis, idemKey); err != nil {
+	if err := e.applyTransitionAndEmit(ctx, actor, entity, id, tr, current, basis, idemKey); err != nil {
 		return nil, err
 	}
 	e.runAutoTransitions(ctx, entity, id)
@@ -232,8 +233,13 @@ func (e *Engine) Decide(ctx context.Context, actor eventstore.Actor, approvalID 
 			Message: fmt.Sprintf("record moved to %s while approval was pending", current),
 			FixHint: "request the transition again from the current state"}
 	}
-	tr := &dsl.TransitionDecl{From: a.From, To: a.To, Action: a.Action}
-	if err := e.applyTransition(ctx, actor, a.Entity, a.RecordID,
+	// resolve the real transition decl so its `emits` clauses fire (the approval
+	// path reconstructs from/to/action but must carry the declared emits).
+	tr := findTransition(e.model.Workflows[a.Entity], a.Action, current)
+	if tr == nil {
+		tr = &dsl.TransitionDecl{From: a.From, To: a.To, Action: a.Action}
+	}
+	if err := e.applyTransitionAndEmit(ctx, actor, a.Entity, a.RecordID,
 		tr, current, &eventstore.Basis{Type: "approval", ID: approvalID}, ""); err != nil {
 		return nil, err
 	}
@@ -275,6 +281,55 @@ func (e *Engine) applyTransition(ctx context.Context, actor eventstore.Actor, en
 	return nil
 }
 
+// applyTransitionAndEmit applies a transition and, if it carries `emits`
+// clauses (LLD-01 §4), journals the domain event(s) and dispatches subscribers
+// inside one op-bracket. Emit payloads are evaluated and validated BEFORE the
+// transition is journaled, so a payload error aborts the WHOLE transition
+// atomically (nothing is appended) — LLD-01 §4.2.
+func (e *Engine) applyTransitionAndEmit(ctx context.Context, actor eventstore.Actor, entity, id string, tr *dsl.TransitionDecl, from string, basis *eventstore.Basis, idemKey string) error {
+	if len(tr.Emits) == 0 {
+		return e.applyTransition(ctx, actor, entity, id, tr, from, basis, idemKey)
+	}
+	decl := e.model.Entities[entity]
+	rec := e.records[entity][id]
+	// simulate the post-transition state so emit payloads read the values they
+	// would after the move, WITHOUT committing anything yet.
+	post := make(map[string]any, len(rec.Values)+1)
+	for k, v := range rec.Values {
+		post[k] = v
+	}
+	if wf, ok := e.model.Workflows[entity]; ok {
+		post[wf.Field] = tr.To
+	}
+	full := e.withComputed(decl, id, post)
+	plans, errr := e.buildEmitPlans(id, full, tr.Emits)
+	if errr != nil {
+		return errr // transition aborted: nothing journaled
+	}
+	// transition + emit(s) + subscribers is a multi-event op (LLD-01 §2).
+	opened, err := e.beginOp(ctx, "cascade", entity, id)
+	if err != nil {
+		return err
+	}
+	if err := e.applyTransition(ctx, actor, entity, id, tr, from, basis, idemKey); err != nil {
+		if opened {
+			if cerr := e.endOp(ctx); cerr != nil {
+				log.Printf("engine: could not close op-bracket after failed transition entity=%s record=%s: %v", entity, id, cerr)
+				AutomationJournalFailures.Add(1)
+			}
+		}
+		return err
+	}
+	e.fireEmits(ctx, actor, entity, id, plans, basis)
+	if opened {
+		if cerr := e.endOp(ctx); cerr != nil {
+			log.Printf("engine: could not close emit op-bracket entity=%s record=%s: %v", entity, id, cerr)
+			AutomationJournalFailures.Add(1)
+		}
+	}
+	return nil
+}
+
 var autoActor = eventstore.Actor{Type: eventstore.ActorSystem, ID: "workflow-engine"}
 
 // runAutoTransitions fires auto transitions whose guards hold, repeatedly,
@@ -301,8 +356,15 @@ func (e *Engine) runAutoTransitions(ctx context.Context, entity, id string) {
 			if tr.When != "" && !evalWhere(tr.When, e.ctxFor(rec.ID, eventstore.Actor{}, full)) {
 				continue
 			}
-			_ = e.applyTransition(ctx, autoActor, entity, id, tr, current,
-				&eventstore.Basis{Type: "rule", ID: "auto:" + tr.From + "->" + tr.To}, "")
+			// auto transitions can also carry `emits` (LLD-01 §4); route them
+			// through the emit-aware path. A failed emit payload aborts this
+			// auto move (like any transition) — we stop cascading rather than
+			// pretend it fired.
+			if err := e.applyTransitionAndEmit(ctx, autoActor, entity, id, tr, current,
+				&eventstore.Basis{Type: "rule", ID: "auto:" + tr.From + "->" + tr.To}, ""); err != nil {
+				log.Printf("engine: auto transition %s->%s on %s %s did not apply: %v", tr.From, tr.To, entity, id, err)
+				break
+			}
 			fired = true
 			break
 		}

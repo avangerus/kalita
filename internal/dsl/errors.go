@@ -50,6 +50,17 @@ const (
 	EDashboardField   Code = "E037_DASHBOARD_UNKNOWN_FIELD"
 	EBadIntegration   Code = "E038_BAD_INTEGRATION"
 	EUnknownCapability Code = "E039_UNKNOWN_CAPABILITY"
+
+	// LLD-01 §4/§4b/§4c: the `event` primitive, automation create/update
+	// actions, and permission action-name validation.
+	EUnknownEvent     Code = "E040_UNKNOWN_EVENT"       // emits/on event references a non-existent event
+	EEventFieldType   Code = "E041_EVENT_FIELD_TYPE"    // event payload field is computed/serial/file/array[file]
+	EEmitForeignPack  Code = "E042_EMIT_FOREIGN_PACK"   // emits an event owned by another pack
+	EEventPackAbsent  Code = "E043_EVENT_PACK_ABSENT"   // on event <pack>.X where <pack> is not in this build
+	EDupEvent         Code = "E044_DUPLICATE_EVENT"     // event name declared twice in a pack
+	EEventPayload     Code = "E045_EVENT_PAYLOAD"       // emit payload field unknown / type mismatch / missing required
+	EUpdateWorkflow   Code = "E046_UPDATE_WORKFLOW_FIELD" // update ... set <workflow-field> bypasses HITL
+	EBadActionExpr    Code = "E047_BAD_ACTION_TARGET"   // create/update names an unknown entity/field/ref-path
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)

@@ -44,6 +44,8 @@ func (p *parser) run() {
 			p.pos++
 		case "entity":
 			p.entity(ln)
+		case "event":
+			p.event(ln)
 		case "constraints":
 			p.constraints(ln)
 		case "roles":
@@ -66,7 +68,7 @@ func (p *parser) run() {
 		default:
 			p.errs.add(EUnknownBlock, ln.File, ln.Num,
 				"unknown top-level block "+head,
-				"allowed: pack, version, requires, depends, entity, constraints, workflow, link, roles, permissions, automation, ui, dashboard, integration")
+				"allowed: pack, version, requires, depends, entity, event, constraints, workflow, link, roles, permissions, automation, ui, dashboard, integration")
 			p.pos++
 			p.skipChildren(0)
 		}
@@ -150,6 +152,50 @@ func (p *parser) entity(ln *Line) {
 		}
 	}
 	p.ast.Entities = append(p.ast.Entities, e)
+}
+
+// --- event -------------------------------------------------------------------
+//
+//	event OrderPlaced:
+//	    order:  ref[Order]
+//	    total:  money
+//	    qty:    int
+//
+// A pack-owned domain event (LLD-01 §4). Payload fields reuse the field
+// grammar; the semantic pass enforces the allowed-type subset.
+func (p *parser) event(ln *Line) {
+	p.pos++
+	t := ln.Toks
+	// event Name ["Label"]:
+	ev := &EventDecl{File: ln.File, Line: ln.Num}
+	ok := len(t) >= 3 && t[1].Kind == TIdent
+	if ok {
+		ev.Name = t[1].Text
+		i := 2
+		if i < len(t) && t[i].Kind == TStr {
+			ev.Label = t[i].Text
+			i++
+		}
+		ok = i < len(t) && t[i].Text == ":"
+	}
+	if !ok {
+		p.errs.add(EExpectedColon, ln.File, ln.Num,
+			`event declaration must be `+"`event Name:`"+` or `+"`event Name \"Label\":`",
+			"write `event OrderPlaced:` with a PascalCase name and a trailing colon")
+		p.skipChildren(ln.Indent)
+		return
+	}
+	body := p.children(ln.Indent)
+	if len(body) == 0 {
+		p.errs.add(EEmptyBlock, ln.File, ln.Num, "event "+ev.Name+" has no fields",
+			"add at least one payload field, e.g. `order: ref[Order]`")
+	}
+	for i := range body {
+		if f := p.fieldLine(&body[i]); f != nil {
+			ev.Fields = append(ev.Fields, f)
+		}
+	}
+	p.ast.Events = append(p.ast.Events, ev)
 }
 
 func (p *parser) fieldLine(ln *Line) *FieldDecl {

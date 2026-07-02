@@ -35,11 +35,23 @@ entity Lead "Lead":
     age_days:   int computed = days_since(created_at) label="Age, days"
     status:     enum[New, Working, Qualified, Unqualified, Converted] default=New label="Status"
 
+# BUG-01 fix: converting a qualified lead must materialise the Opportunity so
+# the Lead → Opportunity → Activities pipeline actually forms. The `convert`
+# transition now emits a domain event carrying the lead's fields; a subscriber
+# (below) creates the Opportunity deterministically in the SAME cascade
+# (LLD-01 §4 + §4b). `on update Lead` cannot see a transition — a workflow move
+# is a record.action, not a field update — so the event is the correct seam.
+event LeadConverted "Lead converted":
+    name:      string
+    company:   string
+    est_value: money
+    owner:     ref[core.User]
+
 workflow Lead on status:
     New        -> Working:     start_work label="Start working"
     Working    -> Qualified:   qualify label="Qualify"
     Working    -> Unqualified: disqualify label="Disqualify"
-    Qualified  -> Converted:   convert label="Convert to opportunity"
+    Qualified  -> Converted:   convert label="Convert to opportunity" emits LeadConverted(name = name, company = company, est_value = est_value, owner = owner)
     Unqualified -> Working:    reopen label="Reopen"
 
 # --- opportunities (the pipeline) --------------------------------------------
@@ -128,6 +140,11 @@ permissions:
 automation:
     on create Lead:
         notify email(owner)
+    # BUG-01 fix: when a lead is converted, create the Opportunity from the
+    # event payload. Its own `on create Opportunity` rule (below) then triages
+    # it — all inside the one convert cascade.
+    on event LeadConverted:
+        create Opportunity(name = name, amount = est_value, owner = owner)
     # every new opportunity is triaged by the sales agent the moment it appears:
     # it drafts a qualification note, books the first follow-up, and moves the deal
     # to Qualification — a system of ACTION, not just a system of record.

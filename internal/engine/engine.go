@@ -51,6 +51,11 @@ type Engine struct {
 	// cascades reuse it). Both live under e.mu, like every other projection.
 	openOps   map[string]opInfo
 	currentOp *opContext
+
+	// emittedEvents is the folded log of event.emitted facts (LLD-01 §4). It is
+	// observability only: subscriber effects are journaled as their own events,
+	// so this never drives a record mutation and is not re-dispatched on replay.
+	emittedEvents []EmittedFact
 }
 
 // Option configures the engine.
@@ -307,7 +312,10 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 	// switch falls through to no-op for them exactly as it already does for
 	// any kind this engine does not recognize.
 	case eventstore.EventEmitted:
-		// PR-4 (LLD-01 §4): DSL `event` primitive, subscriber dispatch.
+		// LLD-01 §4: fold the domain-event fact. Subscribers' effects are their
+		// own journaled events (replayed separately), so this does NOT
+		// re-dispatch — it only records that the emit happened.
+		e.applyEventEmitted(ev)
 	case eventstore.IngestFlagged:
 		// PR-6 (LLD-01 §6): perimeter detector marks the source record.
 	}
