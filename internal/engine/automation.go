@@ -2,14 +2,99 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
+	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/eventstore"
 )
+
+// AutomationJournalFailures counts Append calls for automation.failed /
+// automation.abandoned / the abandoned-operator task that themselves errored —
+// the last-resort signal for when even "this cascade action failed" could not
+// be journaled (LLD-01 §3: never swallowed, never a panic). A metrics exporter
+// outside this package can read it; this package only guarantees it moves.
+var AutomationJournalFailures atomic.Int64
+
+// retryBackoff is the exponential backoff schedule for a failed automation
+// action (LLD-01 §3): 5 values = 5 retries after the original attempt, so an
+// action gets at most 6 tries (1 original + 5 retries) before it is abandoned.
+var retryBackoff = []time.Duration{
+	1 * time.Minute,
+	2 * time.Minute,
+	4 * time.Minute,
+	8 * time.Minute,
+	16 * time.Minute,
+}
+
+// actionFailState is the retry projection for one automation action (LLD-01
+// §3), keyed "rule|record_id|action_index". Built by folding automation.failed
+// (sets it) / automation.abandoned (clears it); a live retry that succeeds
+// also clears it directly (fold alone cannot see a success — the store's
+// idempotency dedup is what makes that safe across a restart: see
+// retryFailedActions).
+type actionFailState struct {
+	RuleKey     string
+	Entity      string
+	RecordID    string
+	ActionKind  string
+	ActionIndex int
+	Attempt     int
+	NextRetryAt time.Time
+}
+
+type automationFailedPayload struct {
+	Rule        string `json:"rule"`
+	Entity      string `json:"entity"`
+	RecordID    string `json:"record_id"`
+	ActionKind  string `json:"action_kind"`
+	ActionIndex int    `json:"action_index"`
+	Error       string `json:"error"`
+	Attempt     int    `json:"attempt"`
+}
+
+type automationAbandonedPayload struct {
+	Rule        string `json:"rule"`
+	Entity      string `json:"entity"`
+	RecordID    string `json:"record_id"`
+	ActionKind  string `json:"action_kind"`
+	ActionIndex int    `json:"action_index"`
+	Attempts    int    `json:"attempts"`
+}
+
+func failKey(ruleKey, recordID string, actionIndex int) string {
+	return ruleKey + "|" + recordID + "|" + strconv.Itoa(actionIndex)
+}
+
+// applyAutomationFailed/Abandoned fold the retry projection (LLD-01 §3).
+func (e *Engine) applyAutomationFailed(ev *eventstore.Event) {
+	var p automationFailedPayload
+	if json.Unmarshal(ev.Payload, &p) != nil {
+		return
+	}
+	st := &actionFailState{
+		RuleKey: p.Rule, Entity: p.Entity, RecordID: p.RecordID,
+		ActionKind: p.ActionKind, ActionIndex: p.ActionIndex, Attempt: p.Attempt,
+	}
+	if p.Attempt >= 1 && p.Attempt <= len(retryBackoff) {
+		st.NextRetryAt = ev.TS.Add(retryBackoff[p.Attempt-1])
+	}
+	e.failedActions[failKey(p.Rule, p.RecordID, p.ActionIndex)] = st
+}
+
+func (e *Engine) applyAutomationAbandoned(ev *eventstore.Event) {
+	var p automationAbandonedPayload
+	if json.Unmarshal(ev.Payload, &p) != nil {
+		return
+	}
+	delete(e.failedActions, failKey(p.Rule, p.RecordID, p.ActionIndex))
+}
 
 // Automation engine. Event triggers (create/update) fire inline after the
 // mutation; schedule and stuck rules fire on Tick, which the node calls every
@@ -67,6 +152,8 @@ func (e *Engine) Tick(ctx context.Context) error {
 		}
 	}
 
+	e.retryFailedActions(ctx)
+
 	for _, t := range e.tasks {
 		e.expireIfDue(ctx, t)
 	}
@@ -94,33 +181,199 @@ func (e *Engine) runEventTriggers(ctx context.Context, trigger, entity, id strin
 }
 
 // fireActions executes a rule's actions. idemPrefix dedups periodic firings.
+// A cascade producing >=2 events (a rule with >=2 actions) is one op-bracket
+// (LLD-01 §2) — a crash partway through leaves the bracket open for startup
+// recovery to catch. A single action is one event, atomic by itself:
+// bracketing it costs +2 journal events per automation firing for nothing
+// (caught by the passport bench: tick x2). PR-4b widens this — a lone
+// create/update action CAN cascade further and must be bracketed even alone.
+// Each action's error is independently journaled (automation.failed) rather
+// than aborting its siblings or vanishing (§3, I-3): a rule with a broken
+// action still runs its other actions.
 func (e *Engine) fireActions(ctx context.Context, rule *dsl.AutomationRule, entity, id, idemPrefix string) {
-	ruleBasis := &eventstore.Basis{Type: "rule", ID: fmt.Sprintf("%s:%d", rule.File, rule.Line)}
+	ruleKey := fmt.Sprintf("%s:%d", rule.File, rule.Line)
+	ruleBasis := &eventstore.Basis{Type: "rule", ID: ruleKey}
+
+	opened := false
+	if len(rule.Actions) >= 2 {
+		var err error
+		opened, err = e.beginOp(ctx, "cascade", entity, id)
+		if err != nil {
+			log.Printf("engine: automation cascade rule=%s entity=%s record=%s could not open op-bracket, action(s) NOT executed: %v", ruleKey, entity, id, err)
+			AutomationJournalFailures.Add(1)
+			return
+		}
+	}
 	for i, a := range rule.Actions {
 		idem := ""
 		if idemPrefix != "" {
 			idem = fmt.Sprintf("%s|%d", idemPrefix, i)
 		}
-		switch a.Kind {
-		case "agent":
-			_, _ = e.createTask(ctx, autoActor, Task{
-				Kind: TaskAgent, Role: a.Role, Entity: entity, RecordID: id, Action: a.Task, Args: a.Args,
-			}, ruleBasis, idem)
-		case "escalate":
-			_, _ = e.createTask(ctx, autoActor, Task{
-				Kind: TaskEscalation, Role: a.Role, Entity: entity, RecordID: id, Action: "escalation",
-			}, ruleBasis, idem)
-		case "notify":
-			_, _ = e.createTask(ctx, autoActor, Task{
-				Kind: TaskNotification, Entity: entity, RecordID: id, Args: a.Args,
-			}, ruleBasis, idem)
-		case "webhook":
-			// the engine records intent; the node's webhook runner delivers
-			_, _ = e.createTask(ctx, autoActor, Task{
-				Kind: TaskWebhook, Entity: entity, RecordID: id, Args: a.Args,
-			}, ruleBasis, idem)
+		if err := e.execAction(ctx, a, entity, id, ruleBasis, idem); err != nil {
+			e.recordActionFailure(ctx, ruleKey, a.Kind, i, entity, id, 1, err)
 		}
 	}
+	if opened {
+		if err := e.endOp(ctx); err != nil {
+			log.Printf("engine: automation cascade rule=%s entity=%s record=%s could not close op-bracket: %v", ruleKey, entity, id, err)
+			AutomationJournalFailures.Add(1)
+		}
+	}
+}
+
+// execAction runs one automation action and reports whether it succeeded.
+// Shared by fireActions (attempt 1) and retryFailedActions (attempt 2+) so
+// both paths execute the exact same logic. A role target that does not exist
+// in the model is a failure here (referential integrity, not a new permission
+// grant/deny) rather than a task silently created for no one to ever pick up.
+func (e *Engine) execAction(ctx context.Context, a dsl.AutomationAction, entity, id string, basis *eventstore.Basis, idem string) error {
+	if a.Role != "" {
+		if _, ok := e.model.Roles[a.Role]; !ok {
+			return fmt.Errorf("role %q does not exist", a.Role)
+		}
+	}
+	var err error
+	switch a.Kind {
+	case "agent":
+		_, err = e.createTask(ctx, autoActor, Task{
+			Kind: TaskAgent, Role: a.Role, Entity: entity, RecordID: id, Action: a.Task, Args: a.Args,
+		}, basis, idem)
+	case "escalate":
+		_, err = e.createTask(ctx, autoActor, Task{
+			Kind: TaskEscalation, Role: a.Role, Entity: entity, RecordID: id, Action: "escalation",
+		}, basis, idem)
+	case "notify":
+		_, err = e.createTask(ctx, autoActor, Task{
+			Kind: TaskNotification, Entity: entity, RecordID: id, Args: a.Args,
+		}, basis, idem)
+	case "webhook":
+		// the engine records intent; the node's webhook runner delivers
+		_, err = e.createTask(ctx, autoActor, Task{
+			Kind: TaskWebhook, Entity: entity, RecordID: id, Args: a.Args,
+		}, basis, idem)
+	default:
+		err = fmt.Errorf("unknown action kind %q", a.Kind)
+	}
+	return err
+}
+
+// recordActionFailure journals automation.failed for one action's error and
+// either schedules the next retry or — once the backoff schedule is exhausted
+// — abandons it. The automation.failed Append itself failing is never
+// swallowed and never panics (LLD-01 §3): it is logged and counted, and in
+// that case the retry projection is deliberately left untouched (we could not
+// even confirm the failure was recorded, so we do not pretend to schedule
+// a retry for it either).
+func (e *Engine) recordActionFailure(ctx context.Context, ruleKey, actionKind string, actionIndex int, entity, id string, attempt int, cause error) {
+	payload, _ := json.Marshal(automationFailedPayload{
+		Rule: ruleKey, Entity: entity, RecordID: id, ActionKind: actionKind, ActionIndex: actionIndex,
+		Error: cause.Error(), Attempt: attempt,
+	})
+	if _, err := e.store.Append(ctx, eventstore.AppendInput{
+		Actor:      autoActor,
+		Kind:       eventstore.AutomationFailed,
+		Subject:    eventstore.Subject{Entity: entity, RecordID: id},
+		Payload:    payload,
+		Basis:      &eventstore.Basis{Type: "rule", ID: ruleKey},
+		DefVersion: e.defVersion,
+		SchemaV:    1,
+	}); err != nil {
+		log.Printf("engine: CRITICAL could not journal automation.failed rule=%s entity=%s record=%s action=%d attempt=%d cause=%v: %v",
+			ruleKey, entity, id, actionIndex, attempt, cause, err)
+		AutomationJournalFailures.Add(1)
+		return
+	}
+	if attempt > len(retryBackoff) {
+		e.abandonAction(ctx, ruleKey, actionKind, actionIndex, entity, id, attempt)
+		return
+	}
+	e.failedActions[failKey(ruleKey, id, actionIndex)] = &actionFailState{
+		RuleKey: ruleKey, Entity: entity, RecordID: id, ActionKind: actionKind, ActionIndex: actionIndex,
+		Attempt: attempt, NextRetryAt: e.now().Add(retryBackoff[attempt-1]),
+	}
+}
+
+// abandonAction journals automation.abandoned and escalates to the node's
+// approver role once the retry cap (5 retries, LLD-01 §3) is spent.
+func (e *Engine) abandonAction(ctx context.Context, ruleKey, actionKind string, actionIndex int, entity, id string, attempts int) {
+	key := failKey(ruleKey, id, actionIndex)
+	payload, _ := json.Marshal(automationAbandonedPayload{
+		Rule: ruleKey, Entity: entity, RecordID: id, ActionKind: actionKind, ActionIndex: actionIndex, Attempts: attempts,
+	})
+	if _, err := e.store.Append(ctx, eventstore.AppendInput{
+		Actor:      autoActor,
+		Kind:       eventstore.AutomationAbandoned,
+		Subject:    eventstore.Subject{Entity: entity, RecordID: id},
+		Payload:    payload,
+		Basis:      &eventstore.Basis{Type: "rule", ID: ruleKey},
+		DefVersion: e.defVersion,
+		SchemaV:    1,
+	}); err != nil {
+		log.Printf("engine: CRITICAL could not journal automation.abandoned rule=%s entity=%s record=%s action=%d: %v",
+			ruleKey, entity, id, actionIndex, err)
+		AutomationJournalFailures.Add(1)
+	}
+	delete(e.failedActions, key)
+	if _, err := e.createTask(ctx, autoActor, Task{
+		Kind: TaskEscalation, Role: e.defApprover, Entity: entity, RecordID: id, Action: "automation_abandoned",
+	}, &eventstore.Basis{Type: "rule", ID: ruleKey}, "abandoned|"+key); err != nil {
+		log.Printf("engine: CRITICAL could not create operator task for abandoned automation rule=%s entity=%s record=%s action=%d: %v",
+			ruleKey, entity, id, actionIndex, err)
+		AutomationJournalFailures.Add(1)
+	}
+}
+
+// retryFailedActions re-attempts every action whose backoff has elapsed
+// (called from Tick, LLD-01 §3). The idempotency key embeds the attempt
+// number (<failKey>|a<attempt>) so a retry that lands after a prior attempt
+// actually succeeded (the process died before updating this projection, or a
+// concurrent path already retried it) dedups via the store's ByIdemKey instead
+// of re-executing — createTask returns the original event with a nil error,
+// which this treats as success and clears the projection either way.
+func (e *Engine) retryFailedActions(ctx context.Context) {
+	if len(e.failedActions) == 0 {
+		return
+	}
+	now := e.now()
+	keys := make([]string, 0, len(e.failedActions))
+	for k := range e.failedActions {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		st, ok := e.failedActions[key]
+		if !ok || now.Before(st.NextRetryAt) {
+			continue
+		}
+		rule := e.findAutomationRule(st.RuleKey)
+		if rule == nil || st.ActionIndex < 0 || st.ActionIndex >= len(rule.Actions) {
+			// the model changed under the rule (or it no longer exists): there
+			// is nothing left to retry — abandon defensively rather than retry
+			// forever against a rule that vanished.
+			e.abandonAction(ctx, st.RuleKey, st.ActionKind, st.ActionIndex, st.Entity, st.RecordID, st.Attempt)
+			continue
+		}
+		a := rule.Actions[st.ActionIndex]
+		nextAttempt := st.Attempt + 1
+		idem := fmt.Sprintf("%s|a%d", key, nextAttempt)
+		basis := &eventstore.Basis{Type: "rule", ID: st.RuleKey}
+		if err := e.execAction(ctx, a, st.Entity, st.RecordID, basis, idem); err != nil {
+			e.recordActionFailure(ctx, st.RuleKey, st.ActionKind, st.ActionIndex, st.Entity, st.RecordID, nextAttempt, err)
+			continue
+		}
+		delete(e.failedActions, key) // success clears the retry state
+	}
+}
+
+// findAutomationRule resolves a "file:line" rule key back to the live
+// dsl.AutomationRule — used to re-fire a specific action on retry.
+func (e *Engine) findAutomationRule(ruleKey string) *dsl.AutomationRule {
+	for _, rule := range e.model.Automations {
+		if fmt.Sprintf("%s:%d", rule.File, rule.Line) == ruleKey {
+			return rule
+		}
+	}
+	return nil
 }
 
 // scheduleInterval parses an interval schedule ("every 5m", "every 2h") into a

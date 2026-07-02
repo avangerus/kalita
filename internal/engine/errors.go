@@ -15,6 +15,10 @@ const (
 	CodeBasisRequired    = "BASIS_REQUIRED"
 	CodeGuardFailed      = "GUARD_FAILED"
 	CodeStaleBase        = "STALE_BASE"
+	// CodeRecordInconsistent rejects a mutation on a record a crashed
+	// operation left mid-flight (LLD-01 §2). Revert/RewindTo/ConfirmConsistent
+	// are the sanctioned way out; every other mutation is refused.
+	CodeRecordInconsistent = "RECORD_INCONSISTENT"
 )
 
 type Err struct {

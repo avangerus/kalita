@@ -45,8 +45,10 @@ CREATE TABLE IF NOT EXISTS events (
     idempotency_key TEXT UNIQUE,
     prev_hash       BYTEA NOT NULL,
     hash            BYTEA NOT NULL,
-    signature       BYTEA
+    signature       BYTEA,
+    schema_v        INT NOT NULL DEFAULT 0
 );
+ALTER TABLE events ADD COLUMN IF NOT EXISTS schema_v INT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS events_kind_ts ON events (kind, ts);
 CREATE INDEX IF NOT EXISTS events_subject ON events USING GIN (subject);
 CREATE INDEX IF NOT EXISTS events_actor_id ON events ((actor->>'id'), ts);
@@ -155,10 +157,10 @@ func (s *PGStore) Append(ctx context.Context, in AppendInput) (*Event, error) {
 
 	_, err = tx.Exec(ctx, `
         INSERT INTO events (seq, event_id, ts, actor, kind, subject, payload, basis,
-                            def_version, idempotency_key, prev_hash, hash, signature)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+                            def_version, idempotency_key, prev_hash, hash, signature, schema_v)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
 		e.Seq, e.EventID, e.TS, actorJSON, e.Kind, subjectJSON, payload, basisJSON,
-		e.DefVersion, idem, e.PrevHash, e.Hash, e.Signature)
+		e.DefVersion, idem, e.PrevHash, e.Hash, e.Signature, e.SchemaV)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +171,7 @@ func (s *PGStore) Append(ctx context.Context, in AppendInput) (*Event, error) {
 }
 
 const columns = `seq, event_id, ts, actor, kind, subject, payload, basis,
-                 def_version, idempotency_key, prev_hash, hash, signature`
+                 def_version, idempotency_key, prev_hash, hash, signature, schema_v`
 
 type rowScanner interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
@@ -193,7 +195,7 @@ func scanEvent(row pgx.Row) (*Event, error) {
 		idem        *string
 	)
 	err := row.Scan(&e.Seq, &e.EventID, &e.TS, &actorJSON, &e.Kind, &subjectJSON,
-		&payload, &basisJSON, &e.DefVersion, &idem, &e.PrevHash, &e.Hash, &e.Signature)
+		&payload, &basisJSON, &e.DefVersion, &idem, &e.PrevHash, &e.Hash, &e.Signature, &e.SchemaV)
 	if err != nil {
 		return nil, err
 	}

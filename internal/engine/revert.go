@@ -106,7 +106,7 @@ func (e *Engine) Revert(ctx context.Context, actor eventstore.Actor, entity, id 
 	e.dropIndex(entity)
 	decl, _ := e.entityOrErr(entity)
 	full := e.withComputed(decl, rec.ID, rec.Values)
-	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full)}, nil
+	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full), Inconsistent: rec.Inconsistent}, nil
 }
 
 // RewindTo restores a record to its state as of journal event `toSeq` — the
@@ -178,6 +178,20 @@ func (e *Engine) RewindTo(ctx context.Context, actor eventstore.Actor, entity, i
 		return e.enriched(decl, actor, rec), nil // already at that state
 	}
 
+	// LLD-01 §2: a rewind that appends BOTH compensating events is a
+	// multi-event operation — bracket it so a crash between them (fields
+	// restored, state not yet moved back, or vice versa) is caught by startup
+	// recovery instead of leaving a silent desync. A single compensation is
+	// one event; no bracket, no noise.
+	opened := false
+	if len(changes) > 0 && stateMoved {
+		var err error
+		opened, err = e.beginOp(ctx, "rewind", entity, id)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	rb := &eventstore.Basis{Type: "rewind", ID: fmt.Sprint(toSeq)}
 	if len(changes) > 0 {
 		payload, _ := json.Marshal(updatedPayload{Changes: changes})
@@ -203,6 +217,11 @@ func (e *Engine) RewindTo(ctx context.Context, actor eventstore.Actor, entity, i
 			return nil, err
 		}
 		rec.Values[wfField] = target[wfField]
+	}
+	if opened {
+		if err := e.endOp(ctx); err != nil {
+			return nil, err
+		}
 	}
 	e.dropIndex(entity)
 	return e.enriched(decl, actor, rec), nil
@@ -338,7 +357,7 @@ func (e *Engine) recordStateAsOf(events []*eventstore.Event, entity, id string, 
 // enriched returns the read-shape of a record (computed fields, masking).
 func (e *Engine) enriched(decl *dsl.EntityDecl, actor eventstore.Actor, rec *Record) *Record {
 	full := e.withComputed(decl, rec.ID, rec.Values)
-	return &Record{ID: rec.ID, Entity: rec.Entity, Values: e.maskFields(actor, rec.Entity, full)}
+	return &Record{ID: rec.ID, Entity: rec.Entity, Values: e.maskFields(actor, rec.Entity, full), Inconsistent: rec.Inconsistent}
 }
 
 // equalVals compares two stored values via their JSON-marshalled form — robust

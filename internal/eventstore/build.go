@@ -28,6 +28,7 @@ func buildEvent(in AppendInput, seq uint64, prevHash []byte, now func() time.Tim
 		IdempotencyKey: in.IdempotencyKey,
 		PrevHash:       prevHash,
 		Signature:      in.Signature,
+		SchemaV:        in.SchemaV,
 	}
 	e.Hash, err = computeHash(prevHash, e)
 	if err != nil {

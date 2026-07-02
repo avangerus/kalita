@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '0 3 * * *' # nightly — see the `passport` job below
+  workflow_dispatch:
 
 jobs:
   test:
@@ -28,6 +31,10 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go build ./...
+      # LLD-01 §3: side-effect errors in automation cascades must be journaled,
+      # never swallowed — bans blank assignments on createTask/applyTransition
+      # paths (explicit exceptions live in the allowlist file).
+      - run: bash scripts/check-automation-error-swallow.sh
       - run: go test ./... -count=1 -cover
       # bench smoke: catches order-of-magnitude regressions at compile level
       - run: go test -bench=Bench -benchtime=50x -run='^$' ./internal/engine
@@ -37,3 +44,33 @@ jobs:
       # it. Also covered by the blanket `go test ./...` above (it is ./tests/...);
       # kept as its own step so a fold regression is unmistakable in CI logs.
       - run: go test ./tests/... -run TestGoldenReplay -v
+
+  # Node performance passport (docs/HLD-V1.md §H10, docs/RELEASE-1.0.md N6/N9):
+  # P1 pilot mix, P2 bulk create, P3 journal replay, P4 auth storm — see
+  # `make passport` / internal/engine/passport_bench_test.go /
+  # internal/eventstore/replay_bench_test.go. Deliberately NOT part of the
+  # `test` job above: it never runs on push/pull_request (the `if:` below),
+  # so it cannot block or slow a PR, and `continue-on-error` keeps a bad
+  # number from red-X'ing even a manual/nightly run — this job is informational,
+  # not a gate (nothing enforces the N6 ">20% regression" threshold yet). The
+  # existing PR-gate bench smoke step above (`-bench=Bench ./internal/engine`)
+  # is unaffected: these benchmarks are compiled only under -tags=passport.
+  passport:
+    name: performance passport (informational)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet -tags=passport ./internal/engine/... ./internal/eventstore/...
+      - name: P1 pilot mix
+        run: go test -tags=passport -run='^$' -bench=BenchmarkPassportP1 -benchtime=300x -benchmem -timeout=10m ./internal/engine
+      - name: P2 bulk create 10k
+        run: go test -tags=passport -run='^$' -bench=BenchmarkPassportP2 -benchtime=20x -benchmem -timeout=10m ./internal/engine
+      - name: P3 journal replay (100k / 1M)
+        run: go test -tags=passport -run='^$' -bench=BenchmarkPassportP3 -benchtime=3x -benchmem -timeout=15m ./internal/eventstore
+      - name: P4 auth storm (100 / 1000 actors)
+        run: go test -tags=passport -run='^$' -bench=BenchmarkPassportP4 -benchtime=5000x -benchmem -timeout=10m ./internal/engine

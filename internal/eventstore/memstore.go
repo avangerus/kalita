@@ -20,6 +20,10 @@ type AppendInput struct {
 	DefVersion     uint64
 	IdempotencyKey string
 	Signature      []byte
+	// SchemaV, when 0, is omitted from the hash envelope entirely (LLD-01
+	// §1.1): existing callers that never set it keep producing byte-identical
+	// events. Callers writing an LLD-01 kind set this to 1.
+	SchemaV int
 }
 
 var ErrEmptyActorID = errors.New("eventstore: actor id must not be empty")

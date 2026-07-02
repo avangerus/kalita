@@ -71,7 +71,24 @@ const (
 	NodeStarted        Kind = "node.started"
 	ProjectionRebuilt  Kind = "projection.rebuilt"
 	CheckpointSealed   Kind = "checkpoint.sealed"
+
+	// The kinds below are the closed list introduced by docs/lld/
+	// LLD-01-journal-mechanics.md §1.2. All events of these kinds are written
+	// with SchemaV 1 (see CurrentSchemaV and hashEnvelope in chain.go).
+	OpBegin             Kind = "op.begin"             // brackets a multi-event operation (LLD-01 §2)
+	OpEnd               Kind = "op.end"               // closes the bracket
+	OpAborted           Kind = "op.aborted"            // written by startup recovery for an unclosed bracket
+	AutomationFailed    Kind = "automation.failed"    // a fireActions branch returned an error (LLD-01 §3)
+	AutomationAbandoned Kind = "automation.abandoned" // retries exhausted (LLD-01 §3)
+	EventEmitted        Kind = "event.emitted"        // DSL `event` primitive (LLD-01 §4, PR-4)
+	IngestFlagged       Kind = "ingest.flagged"        // perimeter detector (LLD-01 §6, PR-6)
 )
+
+// CurrentSchemaV is the highest envelope schema_v this binary understands.
+// New()/replay refuses to start on a journal containing a strictly greater
+// value (LLD-01 §1.1) — a hard stop, not a silent skip, until LLD-03 adds a
+// downgrade path.
+const CurrentSchemaV = 1
 
 // Subject is what the event is about. Exactly the fields relevant to the
 // subject type are set; the rest stay empty.
@@ -108,4 +125,9 @@ type Event struct {
 	PrevHash       []byte          `json:"prev_hash"`
 	Hash           []byte          `json:"hash"`
 	Signature      []byte          `json:"signature,omitempty"`
+	// SchemaV versions the envelope (LLD-01 §1.1). Absent/0 is every event
+	// that predates this field — canonicalJSON omits it in that case, so
+	// those events hash exactly as before (I-1). Events introduced by
+	// LLD-01 are written with SchemaV 1.
+	SchemaV int `json:"schema_v,omitempty"`
 }

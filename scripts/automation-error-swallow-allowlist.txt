@@ -1,0 +1,21 @@
+# Deliberate exceptions to check-automation-error-swallow.sh (LLD-01 §3 CI
+# gate). One "path:line" per entry. Both entries below predate LLD-01 PR-2 and
+# are out of its scope (fireActions/execAction error handling); flagged here
+# rather than silently rewritten, and noted in agent/kalita/QUESTIONS-LLD.md
+# for Fable to decide whether to close them in a follow-up.
+#
+# internal/engine/tasks.go — ensureWorkflowTasks: creates the workflow-
+# assignee task after a transition settles. Its idempotency key already
+# includes the state-entry timestamp, so a failed createTask here is not lost
+# forever — the next runAutoTransitions/ensureWorkflowTasks pass for the same
+# record recomputes the identical key and retries the same Append. Still a
+# swallow: a failing store would not surface here today.
+internal/engine/tasks.go:310
+
+# internal/engine/workflow.go — runAutoTransitions: applies an `auto`
+# transition inside the hops<10 anti-loop bound. A failing Append here
+# currently aborts the hop silently (the loop's `fired` flag still gets set
+# to true from the call before it, so this is closer to "stop cascading
+# quietly" than "pretend it worked" — but it is still not journaled as a
+# failure the way LLD-01 §3 now requires for fireActions).
+internal/engine/workflow.go:304

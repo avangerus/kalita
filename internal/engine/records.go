@@ -103,7 +103,7 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 	// unreadable fields masked — so a caller sees its serial number and any
 	// computed values immediately, not a bare echo of what it sent.
 	full := e.withComputed(decl, rec.ID, rec.Values)
-	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full)}, nil
+	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full), Inconsistent: rec.Inconsistent}, nil
 }
 
 // checkWorkflowField rejects direct writes to a workflow-governed field:
@@ -136,6 +136,9 @@ func (e *Engine) Update(ctx context.Context, actor eventstore.Actor, entity, id 
 	rec, ok := e.records[entity][id]
 	if !ok {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
+	}
+	if err := checkConsistent(rec); err != nil {
+		return nil, err
 	}
 	if err := e.checkWorkflowField(entity, values); err != nil {
 		return nil, err
@@ -212,7 +215,7 @@ func (e *Engine) Get(ctx context.Context, actor eventstore.Actor, entity, id str
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
 	full := e.withComputed(decl, rec.ID, rec.Values)
-	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full)}, nil
+	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full), Inconsistent: rec.Inconsistent}, nil
 }
 
 // QueryOpts are query parameters. Filter (equality map) is the simple form;
@@ -270,7 +273,7 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 		if search != "" && !matchesSearch(decl, full, search) {
 			continue
 		}
-		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full)})
+		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full), Inconsistent: rec.Inconsistent})
 	}
 
 	sortRecords(out, opts.Sort)

@@ -38,6 +38,19 @@ type Engine struct {
 	// verify checks an actor's signature (wired to identity.Registry by the
 	// node). When set, approval decisions REQUIRE a valid signature.
 	verify func(ctx context.Context, actorID string, msg, sig []byte) error
+
+	// failedActions is the retry projection for automation cascades (LLD-01
+	// §3): key = "rule|record_id|action_index", built by folding
+	// automation.failed/automation.abandoned. A successful retry clears its
+	// entry live (see fireOneAction/retryFailedActions in automation.go).
+	failedActions map[string]*actionFailState
+	// openOps and currentOp track op-brackets (LLD-01 §2): openOps is the set
+	// of op_id opened by op.begin and not yet closed by op.end/op.aborted —
+	// built by fold, consumed by startup recovery. currentOp is the ONE
+	// cascade the engine is inside right now (nesting is forbidden: secondary
+	// cascades reuse it). Both live under e.mu, like every other projection.
+	openOps   map[string]opInfo
+	currentOp *opContext
 }
 
 // Option configures the engine.
@@ -72,6 +85,11 @@ type Record struct {
 	ID     string         `json:"id"`
 	Entity string         `json:"entity"`
 	Values map[string]any `json:"values"`
+	// Inconsistent marks a record left mid-operation by a crash (LLD-01 §2):
+	// derived purely from the journal (op.aborted sets it, a confirm_consistent
+	// action clears it), never itself journaled — "состояние выводимо". While
+	// set, mutations are rejected with RECORD_INCONSISTENT.
+	Inconsistent bool `json:"inconsistent,omitempty"`
 }
 
 type createdPayload struct {
@@ -105,6 +123,8 @@ func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...
 		defApprover: "Owner",
 		now:        time.Now,
 		cal:        defaultCalendar(),
+		failedActions: map[string]*actionFailState{},
+		openOps:       map[string]opInfo{},
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -114,7 +134,18 @@ func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...
 		return nil, err
 	}
 	for _, ev := range events {
+		// LLD-01 §1.1: a binary must fold every schema_v <= its own. An
+		// unknown GREATER schema_v is a hard startup refusal, not a silent
+		// skip — running an old binary on a newer journal must not proceed
+		// until LLD-03 adds a proper downgrade path.
+		if ev.SchemaV > eventstore.CurrentSchemaV {
+			return nil, fmt.Errorf("engine: journal contains event %s (seq %d) with schema_v %d, this binary supports up to %d — refusing to start (LLD-01 §1.1)",
+				ev.EventID, ev.Seq, ev.SchemaV, eventstore.CurrentSchemaV)
+		}
 		e.applyEvent(ev)
+	}
+	if err := e.recoverUnclosedOps(ctx); err != nil {
+		return nil, err
 	}
 	return e, nil
 }
@@ -152,6 +183,12 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		if rec, ok := e.records[ev.Subject.Entity][ev.Subject.RecordID]; ok {
 			if wf, ok := e.model.Workflows[ev.Subject.Entity]; ok {
 				rec.Values[wf.Field] = p.To
+			}
+			// confirm_consistent (LLD-01 §2) is a kernel-synthesized action
+			// name, not a declared transition — the supervisor's way out of
+			// RECORD_INCONSISTENT. It never moves the workflow field (From==To).
+			if p.Action == "confirm_consistent" {
+				rec.Inconsistent = false
 			}
 		}
 		e.setStateSince(ev.Subject.Entity, ev.Subject.RecordID, ev.TS)
@@ -252,6 +289,27 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 			p.Status = ProposalApplied
 		}
 		e.defVersion++
+
+	// --- LLD-01 §1.2/§2/§3: op-brackets and automation retry projection -----
+	case eventstore.OpBegin:
+		e.applyOpBegin(ev)
+	case eventstore.OpEnd:
+		e.applyOpEnd(ev)
+	case eventstore.OpAborted:
+		e.applyOpAborted(ev)
+	case eventstore.AutomationFailed:
+		e.applyAutomationFailed(ev)
+	case eventstore.AutomationAbandoned:
+		e.applyAutomationAbandoned(ev)
+
+	// --- LLD-01 §1.2: kinds reserved for later PRs of this LLD. Kind constants
+	// and schema_v exist now (PR-1); fold logic lands with their own PR — the
+	// switch falls through to no-op for them exactly as it already does for
+	// any kind this engine does not recognize.
+	case eventstore.EventEmitted:
+		// PR-4 (LLD-01 §4): DSL `event` primitive, subscriber dispatch.
+	case eventstore.IngestFlagged:
+		// PR-6 (LLD-01 §6): perimeter detector marks the source record.
 	}
 }
 
@@ -300,7 +358,7 @@ func (e *Engine) Export(entity string) []*Record {
 		for k, v := range rec.Values {
 			vals[k] = v
 		}
-		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: vals})
+		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: vals, Inconsistent: rec.Inconsistent})
 	}
 	return out
 }

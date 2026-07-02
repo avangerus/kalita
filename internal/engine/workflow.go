@@ -90,6 +90,9 @@ func (e *Engine) Act(ctx context.Context, actor eventstore.Actor, entity, id, ac
 	if !ok {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
+	if err := checkConsistent(rec); err != nil {
+		return nil, err
+	}
 	if !e.canAct(actor.Role, action) {
 		return nil, &Err{Code: CodePermissionDenied,
 			Message: fmt.Sprintf("role %s may not act %s", actor.Role, action),
@@ -168,6 +171,13 @@ func (e *Engine) Decide(ctx context.Context, actor eventstore.Actor, approvalID 
 		return nil, &Err{Code: CodePermissionDenied,
 			Message: fmt.Sprintf("role %s may not approve %s", actor.Role, a.Action),
 			Rule:    "approve permissions list the actions a role signs"}
+	}
+	// checked before the decision is journaled (not after): a decision on an
+	// inconsistent record must not be recorded as if it could be applied.
+	if rec, ok := e.records[a.Entity][a.RecordID]; ok {
+		if err := checkConsistent(rec); err != nil {
+			return nil, err
+		}
 	}
 	decision := "granted"
 	kind := eventstore.ApprovalGranted

@@ -22,6 +22,12 @@ type hashEnvelope struct {
 	Basis          *Basis          `json:"basis,omitempty"`
 	DefVersion     uint64          `json:"def_version"`
 	IdempotencyKey string          `json:"idempotency_key,omitempty"`
+	// SchemaV (LLD-01 §1.1): omitempty on a zero int is a true omission from
+	// the marshaled object, not an explicit `0` — so every event that predates
+	// this field (SchemaV unset, defaulting to 0) marshals to the exact same
+	// bytes as before this field existed. Appended last: it cannot perturb the
+	// position of any pre-existing field in the canonical encoding.
+	SchemaV int `json:"schema_v,omitempty"`
 }
 
 // canonicalJSON returns the deterministic byte form of the event used for hashing.
@@ -37,6 +43,7 @@ func canonicalJSON(e *Event) ([]byte, error) {
 		Basis:          e.Basis,
 		DefVersion:     e.DefVersion,
 		IdempotencyKey: e.IdempotencyKey,
+		SchemaV:        e.SchemaV,
 	}
 	return json.Marshal(env)
 }
