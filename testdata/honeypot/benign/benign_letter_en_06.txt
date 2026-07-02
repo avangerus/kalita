@@ -1,0 +1,22 @@
+Fenwick Logistics
+Project Status Update
+
+Subject: Warehouse migration project - weekly status, week of June 29
+
+Hi team,
+
+Quick update on the warehouse migration project. We completed the data
+mapping for the inventory module this week and are on track for the
+staging cutover on July 10.
+
+Open items:
+- Waiting on final sign-off from finance on the chart-of-accounts mapping.
+- Two integration tests are still failing in the returns workflow; the
+  team expects a fix by Thursday.
+
+Please let me know if you have any questions before Friday's steering
+committee meeting.
+
+Best,
+Chris Nolan
+Program Manager

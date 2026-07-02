@@ -26,6 +26,7 @@ import urllib.error
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bootstrap import get_token  # noqa: E402
+import promptbox  # noqa: E402  (prompt-assembly contract, LLD-01 §6)
 
 NODE = os.environ.get("KALITA_URL", "http://127.0.0.1:8095")
 MCP_URL = NODE + "/mcp"
@@ -150,18 +151,17 @@ def handle(token, task):
         ctx = resolve_context(token, desc, rec.get("values", {}))
         me = os.environ.get("KALITA_WORKER_ID", "agent")
         role = task.get("role", os.environ.get("KALITA_WORKER_ROLE", "agent"))
-        note = llm([
-            {"role": "system", "content":
+        note = llm(promptbox.build_messages(
+            system=
                 "You are %s, the %s on the Kalita business platform. You handle one work item and "
                 "produce a complete, ready-to-deliver work product — a message to a client, a piece "
                 "of work, or a summary. Be concise and professional. Use ONLY the real values given; "
                 "never write placeholders like [Name] or [date], and never invent units or currency "
                 "symbols that are not in the data. Sign as the %s. No markdown headers."
-                % (me, role, role)},
-            {"role": "user", "content":
-                "%s record:\n%s\n\nYour assigned step is '%s'. Produce the work product."
-                % (entity, json.dumps(ctx, ensure_ascii=False, indent=2), action)},
-        ])
+                % (me, role, role),
+            task="This is a %s record. Your assigned step is '%s'. Produce the work product." % (entity, action),
+            data=[("%s/%s" % (entity, rid), json.dumps(ctx, ensure_ascii=False, indent=2))],
+        ))
         out = _output_field(desc)
         if out:  # the deliverable goes in the record's result field, journaled
             mcp(token, "update_record", {"entity": entity, "id": rid, "basis": basis,
@@ -244,17 +244,16 @@ def handle_legal(token, task):
                                     r["values"].get("severity")) for r in rules) or "(no playbook rules)"
     rule_id = {str(r["values"].get("topic", "")).lower(): r["id"] for r in rules}
 
-    out = llm([
-        {"role": "system", "content":
+    out = llm(promptbox.build_messages(
+        system=
             "You are a contract lawyer reviewing a contract AGAINST the firm's playbook. "
             "Return ONLY a JSON array; each element is "
             '{"clause": str, "risk": "Low"|"Medium"|"High", "issue": str, "redline": str, "rule_topic": str|null}. '
             "rule_topic must equal a playbook topic exactly, or be null. Raise a finding for every real "
-            "deviation or risk. No prose, no markdown — only the JSON array."},
-        {"role": "user", "content":
-            "PLAYBOOK:\n%s\n\nCONTRACT:\n%s\n\nReturn the findings as a JSON array."
-            % (rules_text, json.dumps(ctx, ensure_ascii=False, indent=2))},
-    ], max_tokens=1500)
+            "deviation or risk. No prose, no markdown — only the JSON array.",
+        task="Return the findings as a JSON array.",
+        data=[("Playbook", rules_text), ("%s/%s" % (entity, rid), json.dumps(ctx, ensure_ascii=False, indent=2))],
+    ), max_tokens=1500)
     findings = _extract_json(out)
 
     worst, made = 0, 0
@@ -320,17 +319,17 @@ def handle_sales(token, task):
     desc, _ = mcp(token, "describe_entity", {"entity": entity})
     rec, _ = mcp(token, "get_record", {"entity": entity, "id": rid})
     ctx = resolve_context(token, desc, rec.get("values", {}))
-    out = llm([
-        {"role": "system", "content":
+    out = llm(promptbox.build_messages(
+        system=
             "You are a sales development agent on the Kalita platform triaging a new opportunity. "
             "Return ONLY a JSON object: "
             '{"qualification": str, "first_activity": str}. '
             "qualification: one short paragraph — is this worth pursuing, what to confirm, the risk. "
             "first_activity: the subject line of the first follow-up CALL to book (imperative, <=80 chars). "
-            "Use only the real values given; no placeholders, no markdown."},
-        {"role": "user", "content":
-            "OPPORTUNITY:\n%s\n\nTriage it." % json.dumps(ctx, ensure_ascii=False, indent=2)},
-    ], max_tokens=500)
+            "Use only the real values given; no placeholders, no markdown.",
+        task="Triage it.",
+        data=[("%s/%s" % (entity, rid), json.dumps(ctx, ensure_ascii=False, indent=2))],
+    ), max_tokens=500)
     obj = _extract_obj(out)
     qualification = (obj.get("qualification") or "Triaged; pursue and confirm budget/authority/need.").strip()
     subject = (obj.get("first_activity") or "Intro call: confirm need, budget and timeline").strip()[:200]

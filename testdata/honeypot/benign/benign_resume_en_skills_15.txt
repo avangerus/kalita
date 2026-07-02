@@ -1,0 +1,24 @@
+Casey Nguyen
+Data Engineer
+casey.nguyen@example.com | +1 (512) 555-0199 | Austin, TX
+
+SUMMARY
+Data engineer with 5 years building analytics pipelines and internal
+tooling for e-commerce platforms.
+
+EXPERIENCE
+Data Engineer, Northgate Retail Group (2021-present)
+- Rebuilt the nightly ETL pipeline, cutting run time from 6 hours to 40
+  minutes.
+- Partnered with the platform team on system design for the new event
+  warehouse.
+
+Data Analyst, Meridian Grocers Co-op (2019-2021)
+- Owned SQL query optimization for the weekly sales dashboards.
+
+EDUCATION
+B.S. Computer Science, University of Texas at Austin, 2019
+
+SKILLS
+Proficient in SQL query optimization, system design, REST API integration,
+Airflow, dbt, and Python.

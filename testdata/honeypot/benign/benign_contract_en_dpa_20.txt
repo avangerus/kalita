@@ -1,0 +1,23 @@
+SOFTWARE LICENSE AND SUPPORT AGREEMENT
+
+This Agreement governs Client's use of the inventory management system
+licensed by Palo Robotics Inc. ("Licensor").
+
+1. License Grant. Licensor grants Client a non-exclusive, non-transferable
+license to use the system for Client's internal business operations
+during the term of this Agreement.
+
+2. Support. Licensor shall provide system updates and bug fixes at no
+additional cost during the support period, and shall respond to a
+system-down ticket within four business hours.
+
+3. Acceptable Use. Client shall not reverse-engineer, decompile, or
+attempt to derive the source code of the system, and shall not permit
+access to the system by any party outside Client's organization.
+
+4. Fees. Client shall pay an annual license fee of $36,000, invoiced at
+the start of each contract year, plus a one-time $5,000 implementation
+fee due upon signing.
+
+5. Termination. Either party may terminate this Agreement for material
+breach not cured within thirty (30) days of written notice.

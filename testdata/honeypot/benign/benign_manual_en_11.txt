@@ -1,0 +1,20 @@
+TimeSheet Pro - User Guide: Submitting a Weekly Timesheet
+
+Step 1. Log in with your company email and password. If this is your
+first time, click "Forgot password" to set one.
+
+Step 2. Click "New Timesheet" and select the week you want to report.
+Enter the hours worked for each project on each day of the week.
+
+Step 3. If you worked overtime, check the "Overtime" box next to the
+relevant entry and enter the number of overtime hours separately.
+
+Step 4. Review your entries for accuracy, then click "Submit for
+Approval." You must submit your timesheet by 5:00 PM every Friday.
+
+Step 5. Your manager will review and approve or reject the timesheet. If
+the system displays an error during submission, contact IT support with
+the error code shown on screen.
+
+Note: You cannot edit a timesheet after it has been approved. If you find
+a mistake afterward, submit a correction request through the same menu.

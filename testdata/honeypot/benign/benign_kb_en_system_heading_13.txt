@@ -1,0 +1,25 @@
+Knowledge Base: Deploying the Reporting Add-on
+
+System Requirements
+
+The reporting add-on requires at least 4 GB of available RAM, a modern
+browser (Chrome, Edge, or Firefox, last two major versions), and network
+access to the company's internal API gateway.
+
+System Architecture Overview
+
+The add-on runs as a browser extension that talks to the reporting service
+over HTTPS. No data is stored locally beyond the current session's cache,
+which clears automatically on logout.
+
+Installation
+
+Download the add-on package from the internal software portal and follow
+the platform-specific installer. Restart your browser after installation
+to complete setup.
+
+Troubleshooting
+
+If reports fail to load, first check that you are on the corporate VPN.
+If the issue persists, clear the extension's cache from its settings page
+and reload.
