@@ -30,6 +30,13 @@ severity: **P0** блокирует прод · **P1** мешает заявле
 - **P2 automation-действия create/update заявлены доками, отсутствуют в
   грамматике.** Закрыт список agent|notify|webhook|escalate_to. Блокирует
   eshop-склад, crm-convert. → LLD-01 §4b. (2026-07-02)
+- **P2 нет композиции полей (include/mixin) — блокер `core.fields`.** DSL
+  переиспользует СУЩНОСТИ через ref, но не ГРУППЫ ПОЛЕЙ. Значит «горизонтальный
+  сахар» стдлиба (`core.Auditable` created/updated·by, `core.Money` amount+
+  currency, `core.Address` вложенно) невыразим — каждый пак копипастит поля.
+  → L0-фича `entity X { include core.Auditable }` (компилятор инлайнит поля,
+  аддитивно I-1); отдельный LLD при постройке §core.fields (триггер — 2-й
+  потребитель сахара). См. DSL-CORE-LIB §4. (2026-07-02, устав core.*)
 
 ## Ядро: journal read / outbox (LLD-08)
 
