@@ -171,12 +171,15 @@ func registerActor(args []string, typ eventstore.ActorType, what string) {
 func usage() {
 	fmt.Println("kalita: an executable runtime for business systems in the agent era")
 	fmt.Println("usage:")
-	fmt.Println("  kalita serve --pack <dir> [--listen :8080]   run a node (KALITA_PG_DSN for postgres, else in-memory)")
-	fmt.Println("  kalita check --pack <dir>                    compile a pack and print diagnostics")
+	fmt.Println("  kalita serve --pack <dir>[,<dir>...] [--listen :8080]   run a node (KALITA_PG_DSN for postgres, else in-memory)")
+	fmt.Println("  kalita check --pack <dir>[,<dir>...]                    compile one or more packs together and print diagnostics")
 	fmt.Println("  kalita product scaffold <pack>                generate a deploy skeleton (compose, status page, brand manifest)")
 	fmt.Println("  kalita version")
 }
 
+// loadPack compiles a single pack directory's .dsl files into one model —
+// unchanged from before multi-pack support existed (I-1: an existing
+// `--pack <dir>` invocation folds byte-for-byte the same as always).
 func loadPack(dir string) (*dsl.Model, []*dsl.Error) {
 	files := map[string]string{}
 	entries, err := os.ReadDir(dir)
@@ -199,14 +202,41 @@ func loadPack(dir string) (*dsl.Model, []*dsl.Error) {
 	return dsl.Compile(files)
 }
 
+// loadPacks compiles one or more pack directories and, for more than one,
+// merges the resulting models into a single model the node runs (multi-pack
+// loading). Each directory is compiled on its own via loadPack — so a
+// single-directory call is IDENTICAL to the pre-multi-pack code path — and
+// dsl.MergeModels then catches any cross-pack name collision loudly instead
+// of silently overwriting one pack's symbol with another's.
+func loadPacks(dirs []string) (*dsl.Model, []*dsl.Error) {
+	if len(dirs) == 1 {
+		return loadPack(dirs[0])
+	}
+	models := make([]*dsl.Model, 0, len(dirs))
+	var allErrs []*dsl.Error
+	for _, dir := range dirs {
+		model, errs := loadPack(dir)
+		if len(errs) > 0 {
+			allErrs = append(allErrs, errs...)
+			continue
+		}
+		models = append(models, model)
+	}
+	if len(allErrs) > 0 {
+		return nil, allErrs
+	}
+	return dsl.MergeModels(models)
+}
+
 func check(args []string) {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
-	pack := fs.String("pack", "", "pack directory")
+	pack := fs.String("pack", "", "pack directory, or a comma-separated list of pack directories to load together on one node")
 	_ = fs.Parse(args)
-	if *pack == "" {
+	dirs := splitComma(*pack)
+	if len(dirs) == 0 {
 		log.Fatal("--pack is required")
 	}
-	model, errs := loadPack(*pack)
+	model, errs := loadPacks(dirs)
 	for _, e := range errs {
 		fmt.Println(e.Error())
 	}
@@ -219,7 +249,7 @@ func check(args []string) {
 
 func serve(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	pack := fs.String("pack", "", "genesis pack directory (optional: empty node accepts its first pack via propose_change)")
+	pack := fs.String("pack", "", "genesis pack directory, or a comma-separated list of pack directories to load together on this node (optional: empty node accepts its first pack via propose_change)")
 	listen := fs.String("listen", "127.0.0.1:8080", "listen address")
 	approver := fs.String("approver", "Owner", "role whose human signature applies definition changes")
 	tlsCert := fs.String("tls-cert", "", "TLS certificate file")
@@ -246,9 +276,9 @@ func serve(args []string) {
 	}
 
 	var model *dsl.Model
-	if *pack != "" {
+	if dirs := splitComma(*pack); len(dirs) > 0 {
 		var errs []*dsl.Error
-		model, errs = loadPack(*pack)
+		model, errs = loadPacks(dirs)
 		if len(errs) > 0 {
 			for _, e := range errs {
 				fmt.Println(e.Error())

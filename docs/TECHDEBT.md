@@ -221,25 +221,48 @@ LLM-вызовами agent_runner. Но пока его нет, дыры наш�
 
 ## LLD-06 (product MCP façade / KChat, реализация 2026-07-02)
 
-- **P1 (КЛАСС, унаследован, не новый) cross-pack composition — один узел
-  компилирует ОДИН каталог `--pack`, не несколько.** Уже задокументировано
-  под LLD-01 PR-4 (`agent/kalita/QUESTIONS-LLD.md` "Cross-pack — реальная
-  граница загрузчика"): `cmd/kalita/main.go`'s `loadPack` читает `.dsl` из
-  ОДНОГО каталога в ОДНУ `dsl.Model`; два `pack.dsl`-манифеста в одной
-  компиляции молча схлопываются (`internal/dsl/parser.go:118` `m.Name =
-  rest` — второй `pack` перезаписывает первый без ошибки). Следствие для
-  LLD-06: пак `assistant` (Session/Message, PR-1) и пак `contracts` (Contract/
-  Finding + `product.mcp`, PR-2) НЕ МОГУТ быть загружены в ОДИН работающий
-  узел сегодня — значит полное демо «KChat → façade legal.submit_contract →
-  Contract» на ОДНОМ узле требует ЛИБО дождаться cross-pack composition
-  (ядровая фича, уже отдельно залогирована), ЛИБО деплой-время слияние (не
-  правка `internal/`, а просто копирование/конкатенация `.dsl`-файлов обоих
-  паков в один каталог с ОДНИМ `pack.dsl`) как временный обходной путь для
-  демо-окружения. Ничего не хакалось в ядре под это — PR-1 (assistant) и
-  PR-2 (façade, generic — доказано на `packs/contracts`, live-тест
-  `workers/product_mcp/test_facade_live.py`) КАЖДЫЙ по отдельности приняты и
-  протестированы против РЕАЛЬНОГО узла; только их СОВМЕСТНАЯ загрузка на
-  одном узле упирается в этот унаследованный гэп. (2026-07-02, LLD-06 PR-1/PR-2)
+- ~~**P1 (КЛАСС, унаследован, не новый) cross-pack composition — один узел
+  компилирует ОДИН каталог `--pack`, не несколько.**~~ ЗАКРЫТО ЧАСТИЧНО
+  (loading-слой; namespace/cross-pack refs — по-прежнему НЕ реализовано, см.
+  ниже). Корень был именно тот, что описан: `internal/dsl/parser.go`'s
+  `manifestLine` пишет `pack`/`version`/`requires` в ОДИН общий
+  `p.ast.Manifest` без dup-проверки — скорми компилятору файлы ДВУХ паков в
+  одном `dsl.Compile` вызове, и второй `pack <name>` молча перезатирает
+  первый (`m.Name = rest`, без диагностики). Решение НЕ трогает
+  `internal/dsl`'s парсер/`Compile`/`Manifest` (тот корневой гэп остаётся
+  ровно там, где был — `dsl.Compile` по-прежнему рассчитан на ОДИН пак за
+  вызов). Вместо этого: каждый пак компилируется СВОИМ ОТДЕЛЬНЫМ `dsl.
+  Compile` вызовом (как и раньше, `loadPack` не тронут), затем НОВАЯ функция
+  `dsl.MergeModels` (`internal/dsl/merge.go`) сливает N готовых `*dsl.Model`
+  в один: entity/role/event/workflow/integration/link-name коллизии между
+  паками — громкая ошибка компиляции (переиспользованы существующие коды
+  E009/E014/E044/E030/E038/E034), именующая ОБА пака и файл:строку каждого;
+  `core.*`-сущности (kernel built-ins, инжектятся заново в каждый solo-
+  compile) распознаются и объединяются, а не считаются коллизией; `product{}`
+  /`product.mcp{}` — не более одного пака на узел (тоже громкая ошибка, не
+  тихий first/last-wins); синтетический `Manifest.Name` объединённой модели —
+  `"pack1+pack2"` (только для логов/`/api/meta` — идентичность каждого пака
+  жива в File-путях символов и в тексте коллизионных ошибок). CLI:
+  `--pack dir1,dir2` (идиома `splitComma`, уже использовалась для
+  `KALITA_BOOTSTRAP_ROLES`) на `serve`/`check`; `loadPacks` — новая точка
+  входа, `len(dirs)==1` — тот же код-путь что раньше (regression-safe).
+  Доказано: `packs/contracts` + `packs/assistant` компилируются и грузятся в
+  ОДИН движок вместе (`cmd/kalita/multipack_test.go`
+  `TestLoadPacksContractsAndAssistantCoexist` — обе модели entities/roles на
+  месте, `engine.New` реально стартует; вручную — `kalita serve --pack
+  packs/contracts,packs/assistant`, `/api/records/Session` и
+  `/api/records/Contract` оба живы на одном узле), искусственная коллизия →
+  явная ошибка (`TestLoadPacksEntityCollisionIsLoud`/
+  `TestLoadPacksRoleCollisionIsLoud`, `internal/dsl/merge_test.go`). НЕ
+  сделано (сознательно, вне контракта этого шага — LLD-19): namespace/
+  cross-pack `ref[OtherPack.X]`, оверлеи, разрешение `pack.Event`
+  qualified-ссылок НА ДРУГОЙ загруженный пак (короткие ref внутри пака
+  работают как раньше — `EventByRef`'s own-детекция для short refs не
+  зависит от объединённого `Manifest.Name`). Значит демо «KChat → façade
+  legal.submit_contract → Contract» на ОДНОМ узле теперь МОЖЕТ грузить оба
+  пака вместе; сама façade/compose-логика (LLD-06 PR-2, отдельная запись
+  ниже) не менялась. (2026-07-02, закрыто как часть multi-pack loading
+  задачи; исходная запись — LLD-06 PR-1/PR-2)
 - **P2 `workers/product_mcp/compose.py`'s интерпретатор closed на 3
   глаголах.** Реализованы ровно `create Entity(...) -> $x`, `act action on
   $x`, `query Entity [where ...] -> $x` — весь набор, который РЕАЛЬНО
