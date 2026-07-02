@@ -24,7 +24,13 @@ entity Contract "Contract":
     risk:         enum[Unknown, Low, Medium, High] default=Unknown label="Risk"
     # how long the deal still runs, for the desk — negative once it has expired
     days_left:    int computed = days_until(end_date) label="Days left"
-    # the structured review: how many clause-level findings still need a lawyer
+    # the structured review: how many clause-level findings still need a lawyer.
+    # BUG-01 (known, parked — see TECHDEBT "Ядро: язык / компилятор"): this
+    # counts ALL findings on the contract, including Addressed/Waived ones —
+    # a compound `where contract = $self and status = Open` is needed, but
+    # computed-aggregate `where` only parses a single `reffield = $self`
+    # condition today (core gap, blocks hr's BUG-01 too). Cosmetic (dashboard
+    # tile only), not a Demo-0 blocker — not hacked around here.
     open_findings: int computed = count(Finding where contract = $self) label="Findings"
     status:       enum[Draft, LegalReview, Reviewed, Negotiation, Approved, Signed, Active, Expired, Terminated] default=Draft label="Status"
 

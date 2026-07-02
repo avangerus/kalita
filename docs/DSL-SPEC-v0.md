@@ -52,6 +52,35 @@ bare `#RRGGBB` tokens. `home` names a renderer-side "face" template (LLD-05
 §1) — the DSL does not validate it against a known face list, since faces are
 a frontend-library concept, not a backend one.
 
+### 1.2 product.mcp — façade tool registry (optional, LLD-06 §1, PK-2)
+
+A pack may declare `product.mcp:` — the domain-facing MCP tools a generic
+façade worker exposes over the node MCP (the façade worker itself, LLD-06
+PR-2, is a separate build; this section is pure manifest DATA it reads).
+Shares the `product` leading token with §1.1 but is a distinct block —
+disambiguated by the `.mcp` that follows — and the two coexist freely.
+
+```
+product.mcp:
+    tool legal.submit_contract "Create a contract and send it to legal review":
+        in:
+            title:        string required
+            counterparty: ref[Counterparty] required
+            terms:        text required
+        compose:
+            create Contract(title: $title, counterparty: $counterparty, terms: $terms) -> $contract
+            act send_to_legal on $contract
+        out: contract
+```
+
+`in` reuses the entity field grammar (§3). `compose` is one node-call
+composition step per line, captured as raw text — this compiler does not
+interpret it; the façade worker does, executing each step as a pass-through
+call under the CALLER's own bearer token (LLD-06 §1: strict pass-through, no
+service-account writes — ABAC/HITL apply exactly as if the caller invoked
+`create_record`/`act` directly). `out` names which step's binding the tool
+returns. Absent entirely for packs with no façade tools (I-1).
+
 ## 2. Data types (closed list)
 
 | Type | Note |

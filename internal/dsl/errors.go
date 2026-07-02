@@ -70,6 +70,9 @@ const (
 
 	// LLD-05 §3 (PR-3): the `product` manifest block (PK-4 delivery wrapper).
 	EBadProduct Code = "E050_BAD_PRODUCT" // malformed product{} field or a second product block
+
+	// LLD-06 §1 (PK-2): the `product.mcp` manifest block (façade tool registry).
+	EBadProductMCP Code = "E051_BAD_PRODUCT_MCP" // malformed product.mcp block, tool or a second product.mcp block
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)

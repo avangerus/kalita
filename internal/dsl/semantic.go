@@ -9,7 +9,8 @@ import (
 
 type Model struct {
 	Manifest     *Manifest
-	Product      *ProductDecl // product{} manifest section (LLD-05 §3), nil if absent
+	Product      *ProductDecl    // product{} manifest section (LLD-05 §3), nil if absent
+	ProductMCP   *ProductMCPDecl // product.mcp{} tool registry (LLD-06 §1), nil if absent
 	Entities     map[string]*EntityDecl
 	Order        []string // entity declaration order
 	Events       map[string]*EventDecl // by short name (own pack)
@@ -97,6 +98,7 @@ func analyze(ast *AST, errs *Errors) *Model {
 	m := &Model{
 		Manifest:     ast.Manifest,
 		Product:      ast.Product,
+		ProductMCP:   ast.ProductMCP,
 		Entities:     map[string]*EntityDecl{},
 		Events:       map[string]*EventDecl{},
 		Roles:        map[string]*RoleDecl{},

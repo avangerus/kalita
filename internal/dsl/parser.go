@@ -43,7 +43,11 @@ func (p *parser) run() {
 			p.manifestLine(ln)
 			p.pos++
 		case "product":
-			p.product(ln)
+			if isProductMCPHeader(ln.Toks) {
+				p.productMCP(ln)
+			} else {
+				p.product(ln)
+			}
 		case "entity":
 			p.entity(ln)
 		case "event":
@@ -75,6 +79,13 @@ func (p *parser) run() {
 			p.skipChildren(0)
 		}
 	}
+}
+
+// isProductMCPHeader distinguishes `product.mcp:` (LLD-06 §1 tool registry)
+// from `product:` (LLD-05 §3 white-label section) — both start with the same
+// `product` token, so the dispatcher must peek past it.
+func isProductMCPHeader(t []Tok) bool {
+	return len(t) >= 3 && t[1].Text == "." && t[2].Text == "mcp"
 }
 
 // children returns subsequent lines with indent greater than parentIndent,

@@ -278,9 +278,36 @@ type IntegrationDecl struct {
 	Line  int
 }
 
+// ProductMCPTool is one domain-facing MCP tool declared for the product
+// façade worker (LLD-06 §1, PK-2 PR-2 — the façade itself is not built yet).
+// Pure manifest DATA: a dotted name, typed inputs (reusing the entity field
+// grammar via FieldDecl), and a declarative composition of node calls
+// (query/create/act/emit_event/search_perimeter) as raw, uninterpreted text.
+// This compiler does not execute or validate the composition — the façade
+// worker will, reading it as a pass-through recipe under the caller's own
+// bearer token (LLD-06 §1: strict pass-through, no service-account writes).
+type ProductMCPTool struct {
+	Name    string // dotted tool name, e.g. legal.submit_contract
+	Desc    string
+	In      []*FieldDecl // typed inputs, same grammar as entity fields
+	Compose []string     // one node-call composition step per line, raw text
+	Out     string       // raw output binding, e.g. "contract"
+	File    string
+	Line    int
+}
+
+// ProductMCPDecl is the product.mcp{} manifest section: the tool registry a
+// generic façade worker reads instead of being coded per product (LLD-06 §1).
+type ProductMCPDecl struct {
+	Tools []*ProductMCPTool
+	File  string
+	Line  int
+}
+
 type AST struct {
 	Manifest     *Manifest
 	Product      *ProductDecl
+	ProductMCP   *ProductMCPDecl
 	Entities     []*EntityDecl
 	Events       []*EventDecl
 	Roles        []*RoleDecl

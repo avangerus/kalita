@@ -25,9 +25,12 @@ import urllib.request
 import urllib.error
 import uuid
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_WORKERS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _WORKERS_DIR)
 from bootstrap import get_token  # noqa: E402
 import promptbox  # noqa: E402  (prompt-assembly contract, LLD-01 §6)
+sys.path.insert(0, os.path.join(_WORKERS_DIR, "perimeter"))
+import detector as perimeter  # noqa: E402  (H4 layer 3, ingest-detection tripwire, LLD-01 §6)
 
 NODE = os.environ.get("KALITA_URL", "http://127.0.0.1:8095")
 MCP_URL = NODE + "/mcp"
@@ -214,9 +217,19 @@ def handle(token, task):
 _RISK = {"Low": 1, "Medium": 2, "High": 3}
 
 
+class _ParseFailure(Exception):
+    """The model's reply could not be parsed into a findings JSON array — a
+    structural failure of the reply itself. NOT the same thing as a valid,
+    explicit empty list (a clean contract with zero findings): I-3 requires
+    telling those two cases apart so a parse failure never gets recorded as
+    a false "Low" risk (BUG-03)."""
+
+
 def _extract_json(text):
-    """Pull a JSON array out of a model's reply — tolerant of markdown fences and
-    stray prose. Returns a list (the findings) or [] if nothing parseable."""
+    """Pull a JSON array of findings out of a model's reply — tolerant of
+    markdown fences and stray prose. Returns the list (possibly empty, if the
+    model explicitly said "no findings"). Raises _ParseFailure if no valid
+    findings JSON can be recovered at all — garbage/prose/truncated output."""
     t = text.strip()
     if "```" in t:  # ```json ... ``` fences
         for part in t.split("```"):
@@ -230,14 +243,18 @@ def _extract_json(text):
     if i >= 0 and j > i:
         try:
             v = json.loads(t[i:j + 1])
-            return v if isinstance(v, list) else []
-        except ValueError:
-            pass
+        except ValueError as ex:
+            raise _ParseFailure("could not parse findings array: %s" % ex)
+        if isinstance(v, list):
+            return v
+        raise _ParseFailure("findings JSON is not a list: %r" % (v,))
     try:  # maybe an object {"findings": [...]}
         o = json.loads(t)
-        return o.get("findings", []) if isinstance(o, dict) else []
-    except ValueError:
-        return []
+    except ValueError as ex:
+        raise _ParseFailure("model reply is not valid JSON: %s" % ex)
+    if isinstance(o, dict) and isinstance(o.get("findings"), list):
+        return o["findings"]
+    raise _ParseFailure("no findings array in model reply: %r" % (t[:200],))
 
 
 def handle_legal(token, task):
@@ -255,7 +272,25 @@ def handle_legal(token, task):
 
     desc, _ = mcp(token, "describe_entity", {"entity": entity})
     rec, _ = mcp(token, "get_record", {"entity": entity, "id": rid})
-    ctx = resolve_context(token, desc, rec.get("values", {}))
+    values = rec.get("values", {})
+
+    # H4 layer 3 (LLD-01 §6): the contract terms are hostile-by-default data
+    # (the counterparty wrote them) -- run the perimeter tripwire BEFORE they
+    # go anywhere near the model. This never blocks (detector.py is a tripwire,
+    # not a filter -- permissions are the real backstop, proven below by the
+    # agent never being able to act outside `review`/`create Finding`), but a
+    # flag must be visible, not silent (I-3): post it as an internal comment
+    # on the record itself, so it is in the same audit trail a human already
+    # watches -- no new core event kind needed to make the signal observable.
+    terms_text = str(values.get("terms") or "")
+    p_score, p_reasons = perimeter.score(terms_text)
+    if p_score >= perimeter.THRESHOLD:
+        mcp(token, "comment", {"entity": entity, "id": rid, "basis": basis, "internal": True,
+                               "body": "perimeter: possible prompt injection in terms (score=%.2f: %s)"
+                                       % (p_score, ", ".join(p_reasons) or "unspecified"),
+                               "idempotency_key": idem_key(task["id"], "perimeter-flag")})
+
+    ctx = resolve_context(token, desc, values)
     pb, _ = mcp(token, "query", {"entity": "Playbook"})
     rules = [r for r in pb.get("records", []) if r.get("values", {}).get("active", True)]
     rules_text = "\n".join(
@@ -273,7 +308,17 @@ def handle_legal(token, task):
         task="Return the findings as a JSON array.",
         data=[("Playbook", rules_text), ("%s/%s" % (entity, rid), json.dumps(ctx, ensure_ascii=False, indent=2))],
     ), max_tokens=1500)
-    findings = _extract_json(out)
+    # I-3 (BUG-03): a parse failure is an ERROR, not a clean-contract report. Do
+    # NOT write a risk (Unknown stays Unknown), do NOT act(review) — the
+    # contract must stay parked in LegalReview, not slide forward on a lie. The
+    # honest way out is fail_task (the platform's task-pool mechanism): it
+    # journals an explicit TaskFailed event — visible in the audit trail — and
+    # leaves the review task unfinished for a human to see and re-drive.
+    try:
+        findings = _extract_json(out)
+    except _ParseFailure as ex:
+        return False, ("legal review FAILED to parse the model's reply (%s); "
+                        "contract left in %s, risk left Unknown — not touched" % (ex, entity))
 
     worst, made = 0, 0
     for i, f in enumerate(findings):
@@ -290,6 +335,13 @@ def handle_legal(token, task):
                                               "idempotency_key": idem_key(task["id"], "finding", i)})
         if not err:
             made += 1
+    # a syntactically valid array whose elements were all unusable (not a dict,
+    # or every create_record call failed) is functionally the same failure as
+    # an unparseable reply — nothing trustworthy came out of the review.
+    if findings and made == 0:
+        return False, ("legal review returned %d finding(s) but NONE could be recorded "
+                        "(malformed items or rejected writes); contract left in %s, "
+                        "risk left Unknown — not touched" % (len(findings), entity))
     overall = {0: "Low", 1: "Low", 2: "Medium", 3: "High"}[worst]
     mcp(token, "update_record", {"entity": entity, "id": rid, "basis": basis, "values": {
         "risk": overall,

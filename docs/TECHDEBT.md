@@ -24,9 +24,12 @@ severity: **P0** блокирует прод · **P1** мешает заявле
 - **P1 computed-агрегаты: `where` парсится одним `strings.Cut(cond, "=")`.**
   Принимается только `reffield = $self`; составное `and status = Approved`
   ломает разбор МОЛЧА (поле unresolved, check не ловит). Блокирует hr BUG-01
-  (квота отпусков считает Rejected/Draft). → полноценный where-парсер в
+  (квота отпусков считает Rejected/Draft) И contracts BUG-01 (`Contract.
+  open_findings` считает ВСЕ findings, включая Addressed/Waived — нужен
+  `where contract = $self and status = Open`). → полноценный where-парсер в
   evalAggregate (переиспользовать evalWhere) + ошибка компиляции на
-  нераспознанное условие. (2026-07-02, engine/computed.go:357-429)
+  нераспознанное условие. (2026-07-02, engine/computed.go:357-429;
+  packs/contracts/entities.dsl `open_findings`, DEMO-0 hardening)
 - **P2 automation-действия create/update заявлены доками, отсутствуют в
   грамматике.** Закрыт список agent|notify|webhook|escalate_to. Блокирует
   eshop-склад, crm-convert. → LLD-01 §4b. (2026-07-02)
@@ -58,7 +61,23 @@ kalita держит границу ДЕЙСТВИЯ агента (ABAC/HITL/жу
 StarGuard AI (Orion soft) — смежный слой, не конкурент: его можно поставить ПЕРЕД
 LLM-вызовами agent_runner. Но пока его нет, дыры наши:
 
-- **P1 нет анти-prompt-injection на ingest.** KnowVault индексирует «всю помойку», legal-агент читает чужой договор — отравленный документ с инструкциями для агента проходит периметр. Остаётся РИСКОМ даже на локальной модели. → фильтр/изоляция инструкций во входном контенте; пометка «данные, не команды». (2026-06-12)
+- **P1 нет анти-prompt-injection на ingest.** ЧАСТИЧНО закрыто для legal:
+  `workers/agent_runner/runner.py`'s `handle_legal` теперь зовёт
+  `workers/perimeter/detector.score()` на `Contract.terms` ДО промпта и, при
+  флаге, пишет `comment(internal=true)` на договор — видимый в аудите сигнал
+  (H4 layer 3), проверено на honeypot-корпусе (`testdata/honeypot/atk`,
+  `workers/agent_runner/test_runner.py::TestHandleLegalPerimeter`). Это
+  ТРИПВАЙР, не фильтр — ничего не блокирует; реальный бэкстоп остаётся
+  ABAC (доказано `TestDogfoodContractsPoisonedTermsCannotSelfApprove`). НЕ
+  закрыто: KnowVault по-прежнему индексирует «всю помойку» без детектора на
+  ingest, и нигде не журналируется core-событие `ingest.flagged`
+  (`eventstore.IngestFlagged` существует как Kind, но ни один MCP-тул его не
+  умеет Append — только `emit_event` для ПАКОВЫХ событий; `ingest.flagged` —
+  зарезервированный core kind, генерик-эмит не подходит). → (a) тот же паттерн
+  на KnowVault upload/ingest; (b) core MCP-тул или engine-хук, который реально
+  умеет журналировать `ingest.flagged` с source/reasons/score, чтобы сигнал
+  жил в самом journal, а не только в comment-треде одной записи. (2026-06-12,
+  расширено 2026-07-02 при DEMO-0 hardening)
 - **P2 нет egress-DLP на LLM-вызовах.** Локальная LM Studio частично снимает (данные не покидают контур), но облачная модель = утечка бизнес-данных в провайдера без маскирования. → DLP-хук перед llm(), либо обязательный шлюз. (2026-06-12)
 - **P3 нет low-friction режима вставки.** Урок StarGuard: «reverse-proxy без изменений инфраструктуры» = нулевое трение. kalita = новый рантайм. → продумать «governed-слой поверх существующего» как режим входа (коннекторы — начало). (2026-06-12)
 
@@ -79,6 +98,63 @@ LLM-вызовами agent_runner. Но пока его нет, дыры наш�
 - **P2 markdown-рендер примитивный.** Без изображений, таблиц, вложенных списков; ссылки/escape грубые. (2026-06-12, render.py `md()`)
 - **P2 нет визуального/блочного редактора страниц** для не-технаря (table stakes у Wix/Webflow/HubSpot). (2026-06-12, бенчмарк)
 - **P3 нет SEO-обвязки** (sitemap.xml, og-метатеги, canonical, robots) и адаптива/тем. (2026-06-12)
+
+## Legal пак / DEMO-0 hardening (2026-07-02, Fable review zone)
+
+- **P1 (КЛАСС) field-level update ALLOW-LIST не реализуемо в одиночку —
+  ядровой гэп в движке прав, не в грамматике.** Грамматика ПАРСИТ
+  `update [Entity.field]` (field-scoped `PermItem`) корректно. Но
+  `engine.Update` (internal/engine/records.go:341) гейтит КАЖДЫЙ update
+  ДВУМЯ проверками: (1) нескоуп-проверка `can(actor,"update",entity,"",rec)`
+  — гейт на весь рекорд, ДО (2) `checkFieldWrites` по каждому полю. Гейт (1)
+  спрашивает `field=""`; `itemMatches` (internal/engine/permissions.go:92)
+  матчит `field=""` ТОЛЬКО против правила, чьё СОБСТВЕННОЕ `item.Field` тоже
+  `""`/`"*"` — field-scoped-правило (`item.Field="assessment"`) никогда не
+  матчит `field=""`, значит гейт (1) отказывает ВСЕГДА, и до гейта (2)
+  никогда не доходит, сколько бы полей ни было явно разрешено. Значит роль
+  МОЖЕТ иметь либо (a) `update [Entity]` — тогда `itemMatches` матчит ЛЮБОЕ
+  поле через тот же `item.Field=""`, т.е. "пиши что угодно", либо
+  (b) `update [Entity.f]` — тогда `update_record` на этой entity не
+  проходит гейт (1) вообще, включая запись в `f`. Чистого «разрешено
+  писать ТОЛЬКО эти поля» сегодня НЕТ. Подтверждено запуском
+  `TestDogfoodContractsMultiSignature` с `update [Contract.assessment,
+  Contract.risk]` без нескоуп-гранта: агентский write в СВОЁ ЖЕ
+  `assessment` был отклонён на гейте (1). Минимальный репро: роль R имеет
+  ТОЛЬКО `update [X.f]`; `can(actor,"update","X","",rec)` = `false` для R
+  независимо от f, `Update()` до `checkFieldWrites` не доходит. Не хакалось
+  (задача явно запретила патчить internal/ под это). Обходной путь,
+  реализованный в `packs/contracts/security.dsl`'s роли `Legal`: нескоуп
+  `update [Contract]` (проходит гейт 1) + ИСЧЕРПЫВАЮЩИЙ `deny` на каждое
+  Contract-поле, кроме `assessment`/`risk` — закрыт против ТЕКУЩЕГО списка
+  полей `entities.dsl`. Остаточный риск ЭТОГО обхода (в отличие от
+  настоящего allow-list): новое human-поле на Contract, забытое в
+  `deny`-списке, ПЕРЕОТКРЫВАЕТ дыру — в отличие от allow-list, где забытое
+  поле только недодаёт прав. → core-фикс: гейт (1) должен требовать «есть
+  ХОТЬ КАКОЕ-ТО update-правило на entity, скоуп неважен» (checkFieldWrites
+  уже перепроверяет каждое поле — гейту (1) достаточно доказать, что update
+  вообще возможен, а не что он безусловен). До фикса — любая роль с
+  field-scoped-only update на любой пак несёт тот же остаточный риск; при
+  ревью Fable проверять КАЖДЫЙ такой `deny`-список на полноту вручную.
+  (2026-07-02, BUG-02 hardening, packs/contracts/security.dsl)
+
+- **P2 `product.mcp`'s `compose:` — сырой, неинтерпретируемый компилятором
+  текст.** Секция `product.mcp` (LLD-06 §1, `internal/dsl` — новый
+  top-level блок, парсер/AST/семантика в parser.go/parser_blocks.go/ast.go/
+  semantic.go, код ошибки `E051_BAD_PRODUCT_MCP`) парсит `tool <name>
+  "desc":` с типизированными `in:` (переиспользует грамматику полей сущности)
+  и `out: <binding>`, но КАЖДАЯ строка `compose:` — просто `Line.Raw`,
+  СТРОКА, не выражение. Компилятор НЕ проверяет: что `create Contract(...)`
+  ссылается на реальную entity/поля, что `$title` действительно объявлен в
+  `in:`, что `-> $contract` действительно используется в `out:`. Осознанно
+  — «декларация, не код» (задача явно исключила воркер-façade, LLD-06 PR-2,
+  из этой волны), но значит: ошибка в `compose:` сегодня НЕ ловится
+  компиляцией пака, проявится только когда façade-воркер (не построен)
+  попытается её исполнить. → когда PR-2 строит façade, либо (a) façade сам
+  валидирует compose при старте (fail fast, не ждать первого вызова), либо
+  (b) добавить семантическую проверку в компилятор (ref-целостность
+  `in`/`out`/entity-имён в compose) — второе предпочтительнее (ошибка видна
+  на `kalita build`, не в проде), но это отдельный кусок работы сравнимый по
+  объёму с текущим PR. (2026-07-02, LLD-06 §1 PR-1-adjacent grammar work)
 
 ## Коннекторы по краю (connector SDK)
 

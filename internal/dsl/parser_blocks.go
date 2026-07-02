@@ -642,6 +642,126 @@ func (p *parser) product(ln *Line) {
 	p.ast.Product = decl
 }
 
+// --- product.mcp ----------------------------------------------------------------
+//
+//	product.mcp:
+//	    tool legal.submit_contract "Create a contract and send it to legal review":
+//	        in:
+//	            title:        string required
+//	            counterparty: ref[Counterparty] required
+//	        compose:
+//	            create Contract {title: $title, counterparty: $counterparty} -> $contract
+//	            act send_to_legal on $contract
+//	        out: contract
+//
+// LLD-06 §1 (PK-2): the tool registry a generic façade worker reads instead
+// of being coded per product. `in` reuses the entity field grammar; `compose`
+// is raw, uninterpreted text — one node-call step per line — the façade
+// worker (LLD-06 PR-2, not built yet) is what executes it, under the
+// CALLER's own bearer token (strict pass-through, no service-account writes).
+// This compiler only captures the declaration as data.
+
+func (p *parser) productMCP(ln *Line) {
+	p.pos++
+	t := ln.Toks
+	if len(t) != 4 || t[3].Text != ":" {
+		p.errs.add(EBadProductMCP, ln.File, ln.Num,
+			"product.mcp block must be `product.mcp:`",
+			`write "product.mcp:" with tool declarations indented below`)
+		p.skipChildren(ln.Indent)
+		return
+	}
+	if p.ast.ProductMCP != nil {
+		p.errs.add(EBadProductMCP, ln.File, ln.Num,
+			"product.mcp block declared twice", "a pack has exactly one product.mcp block")
+		p.skipChildren(ln.Indent)
+		return
+	}
+	decl := &ProductMCPDecl{File: ln.File, Line: ln.Num}
+	if p.cur() == nil || p.cur().Indent <= ln.Indent {
+		p.errs.add(EEmptyBlock, ln.File, ln.Num, "product.mcp block has no tools",
+			`add at least one tool, e.g. tool legal.findings "..." :`)
+	}
+	for p.cur() != nil && p.cur().Indent > ln.Indent {
+		toolLn := p.cur()
+		if tool := p.productMCPTool(toolLn); tool != nil {
+			decl.Tools = append(decl.Tools, tool)
+		}
+	}
+	p.ast.ProductMCP = decl
+}
+
+// productMCPTool parses one `tool <dotted.name> "description":` header and
+// its indented in/compose/out children, advancing p.pos past the whole
+// subtree (mirrors the cursor-driven pattern permissions() uses for
+// RoleName: blocks — children() alone cannot express three nesting levels).
+func (p *parser) productMCPTool(ln *Line) *ProductMCPTool {
+	p.pos++
+	t := ln.Toks
+	if len(t) < 4 || t[0].Text != "tool" {
+		p.errs.add(EBadProductMCP, ln.File, ln.Num,
+			`tool declaration must be tool <name> "description":`,
+			`write e.g. tool legal.findings "Findings raised on a contract":`)
+		p.skipChildren(ln.Indent)
+		return nil
+	}
+	i := 1
+	var name strings.Builder
+	for i < len(t) && (t[i].Kind == TIdent || t[i].Text == ".") {
+		name.WriteString(t[i].Text)
+		i++
+	}
+	if name.Len() == 0 || i >= len(t) || t[i].Kind != TStr {
+		p.errs.add(EBadProductMCP, ln.File, ln.Num,
+			`tool declaration must be tool <name> "description":`,
+			`write e.g. tool legal.submit_contract "Create a contract and send it to legal review":`)
+		p.skipChildren(ln.Indent)
+		return nil
+	}
+	tool := &ProductMCPTool{Name: name.String(), Desc: t[i].Text, File: ln.File, Line: ln.Num}
+	i++
+	if i >= len(t) || t[i].Text != ":" {
+		p.errs.add(EExpectedColon, ln.File, ln.Num,
+			"tool declaration must end with `:`",
+			"write in/compose/out indented below the tool line")
+		p.skipChildren(ln.Indent)
+		return nil
+	}
+	for p.cur() != nil && p.cur().Indent > ln.Indent {
+		bodyLn := p.cur()
+		bt := bodyLn.Toks
+		switch {
+		case bt[0].Text == "in" && len(bt) >= 2 && bt[1].Text == ":":
+			p.pos++
+			for _, fln := range p.children(bodyLn.Indent) {
+				if f := p.fieldLine(&fln); f != nil {
+					tool.In = append(tool.In, f)
+				}
+			}
+		case bt[0].Text == "compose" && len(bt) >= 2 && bt[1].Text == ":":
+			p.pos++
+			for _, cln := range p.children(bodyLn.Indent) {
+				tool.Compose = append(tool.Compose, cln.Raw)
+			}
+		case bt[0].Text == "out" && len(bt) >= 2 && bt[1].Text == ":":
+			tool.Out = strings.TrimSpace(strings.TrimPrefix(bodyLn.Raw, "out:"))
+			p.pos++
+		default:
+			p.errs.add(EBadProductMCP, bodyLn.File, bodyLn.Num,
+				"unknown tool field "+bt[0].Text,
+				"allowed: in:, compose:, out: <binding>")
+			p.pos++
+			p.skipChildren(bodyLn.Indent)
+		}
+	}
+	if len(tool.Compose) == 0 {
+		p.errs.add(EBadProductMCP, ln.File, ln.Num,
+			"tool "+tool.Name+" has no compose steps",
+			"add at least one composed node call under `compose:`")
+	}
+	return tool
+}
+
 // bracketContents returns identifiers inside the first [...] of the line.
 func bracketContents(toks []Tok) []string {
 	var out []string
