@@ -396,6 +396,12 @@ func (e *Engine) canApprove(role, action string) bool { return e.canNamed(role, 
 // `emit [Name]` for that event's short name.
 func (e *Engine) canEmit(role, name string) bool { return e.canNamed(role, "emit", name) }
 
+// canTail is the Permission Engine check for the `tail` verb (LLD-08 §2): a
+// node-wide, unbounded read over the journal is a stronger surface than any
+// per-record read grant, so it is never inferred from `read` — a role must
+// explicitly hold `tail [kind]` for the kind's own eventstore.Kind name.
+func (e *Engine) canTail(role, kind string) bool { return e.canNamed(role, "tail", kind) }
+
 func (e *Engine) canNamed(role, verb, name string) bool {
 	pb, ok := e.model.Perms[role]
 	if !ok {

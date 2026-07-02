@@ -507,7 +507,7 @@ func (p *parser) roles(ln *Line) {
 var permVerbs = map[string]bool{
 	"read": true, "create": true, "update": true, "delete": true,
 	"act": true, "approve": true, "full": true, "deny": true,
-	"call": true, "emit": true,
+	"call": true, "emit": true, "tail": true,
 }
 
 func (p *parser) permissions(ln *Line) {
@@ -537,7 +537,7 @@ func (p *parser) permRule(ln *Line) *PermRule {
 	verb := ln.Toks[0].Text
 	if !permVerbs[verb] {
 		p.errs.add(EBadVerb, ln.File, ln.Num, "unknown permission verb "+verb,
-			"allowed verbs: read, create, update, delete, act, approve, full, deny, call, emit")
+			"allowed verbs: read, create, update, delete, act, approve, full, deny, call, emit, tail")
 		return nil
 	}
 	rule := &PermRule{Verb: verb, Line: ln.Num}
@@ -615,6 +615,20 @@ func parsePermItem(toks []Tok, outerVerb string, ln *Line, errs *Errors) *PermIt
 		var sb strings.Builder
 		for _, t := range toks[i:] {
 			if t.Kind == TIdent || t.Text == "." || t.Text == "*" {
+				sb.WriteString(t.Text)
+			}
+		}
+		if sb.Len() > 0 {
+			item.Names = append(item.Names, sb.String())
+		}
+		return item
+	}
+	if item.Verb == "tail" {
+		// kind names are dotted (eventstore.Kind, e.g. event.emitted) — same
+		// token-joining shape as `call`, one kind per list group (LLD-08 §2).
+		var sb strings.Builder
+		for _, t := range toks[i:] {
+			if t.Kind == TIdent || t.Text == "." {
 				sb.WriteString(t.Text)
 			}
 		}

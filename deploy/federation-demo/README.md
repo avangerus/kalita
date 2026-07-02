@@ -9,7 +9,7 @@ nodes** (HLD §8a).
 site node A                         bridge worker                     crm node B
 (packs/site)                     (workers/bridge)                   (packs/site)
   Lead --capture-->                                                   MirroredLead
-  event.emitted        --read_journal-->  cursor + map + idem  --emit_event-->  on event
+  event.emitted        --read_events-->  cursor + map + idem  --emit_event-->  on event
   site.LeadCaptured                        (pull, no callback)      LeadMirrored --> create
                                                                      origin = {A, lead-id}
 ```
@@ -25,12 +25,13 @@ The script (in-memory nodes, dev only):
 1. builds `kalita.exe` and starts node **A** on `:8101` and node **B** on `:8102`,
    both loading `packs/site`;
 2. bootstraps four least-privilege actors — an `Operator` on each node, a
-   `BridgeReader` on A (source identity: read only), a `BridgeEmitter` on B
-   (target identity: emit only);
+   `BridgeReader` on A (source identity: `tail [event.emitted]` only, node-wide,
+   no per-record read at all), a `BridgeEmitter` on B (target identity: emit
+   only);
 3. captures a `Lead` on A (`capture` transition emits `site.LeadCaptured`);
-4. runs the bridge once — it reads the source journal, maps the payload, stamps
-   `origin_node`/`origin_id`, and emits `LeadMirrored` on B, whose `on event`
-   subscriber creates a `MirroredLead`;
+4. runs the bridge once — it pulls `event.emitted` from A via `read_events`
+   (LLD-08 §1), maps the payload, stamps `origin_node`/`origin_id`, and emits
+   `LeadMirrored` on B, whose `on event` subscriber creates a `MirroredLead`;
 5. proves **exactly-once**: it drops the cursor and replays the source from
    `seq=0` — the deterministic idempotency key `bridge|<node>|<seq>` collapses
    the duplicate on B, so node B still holds exactly one mirror.
@@ -65,11 +66,15 @@ Greps `internal/` (the core) for any outbound HTTP / remote-node addressing and
 fails if found — the constitution forbids node→node sync-RPC; all cross-node
 flow goes through the bridge worker.
 
-## Known limitation (core gap, LLD-07 §8)
+## Node-wide tail (closed, LLD-08)
 
-The MCP `read_journal` tool is per-record and has no node-wide `since=seq`
-stream, so the bridge cannot pull the whole source journal in one governed call.
-It works around this with `query` + per-record `read_journal` (correct for
-transition-emitted events, but O(records) per poll). The efficient path needs a
-node-wide journal-since read — a **core** change, recorded for review in
-`agent/kalita/QUESTIONS-LLD.md`, not made here.
+Earlier revisions of this demo worked around a core gap: `read_journal` is
+per-record with no node-wide `since=seq` stream, so the bridge scanned
+`query` + per-record `read_journal` (O(records) per poll) and could not see
+free-standing `emit_event` calls (empty subject — unreachable from any
+record's own journal). LLD-08 closed this with the MCP tool `read_events
+{since, kinds}` over the existing `eventstore.Store.Since`, and a new
+permission verb `tail [kind]` scoping node-wide read access per kind. The
+bridge (`workers/bridge/bridge.py`) now pulls `event.emitted` this way —
+O(new events) per poll, and free-standing emits are visible. See
+`agent/kalita/QUESTIONS-LLD.md` for the history and design decisions.

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Federation demo (LLD-07 §6): two kalita nodes on one machine + a bridge worker
-# between them. Scenario: a lead captured on the SITE node (packs/site) appears,
-# exactly once, as a mirrored lead on the CRM node — carrying its origin.
+# Federation demo (LLD-07 §6, transport upgraded by LLD-08): two kalita nodes
+# on one machine + a bridge worker between them. Scenario: a lead captured on
+# the SITE node (packs/site) appears, exactly once, as a mirrored lead on the
+# CRM node — carrying its origin.
 #
-#   site node A  --(read_journal: event.emitted site.LeadCaptured)-->  bridge
+#   site node A  --(read_events: since=cursor kinds=[event.emitted])-->  bridge
 #   bridge       --(emit_event: LeadMirrored, origin={A, lead-id})  -->  crm node B
 #   node B       --(on event LeadMirrored: create MirroredLead)     -->  mirror row
 #

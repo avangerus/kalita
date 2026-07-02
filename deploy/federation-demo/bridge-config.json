@@ -4,7 +4,6 @@
     {
       "event": "site.LeadCaptured",
       "target_event": "LeadMirrored",
-      "source_entity": "Lead",
       "field_map": { "name": "name", "company": "company", "email": "email" }
     }
   ]

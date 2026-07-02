@@ -47,6 +47,7 @@ func TestBrokenSources(t *testing.T) {
 		{"approval by unknown role", "entity A:\n    s: enum[X, Y]\n\nworkflow A on s:\n    X -> Y: go requires approval(Ghost)", EUnknownRole},
 		{"agent assignee not agent role", "entity A:\n    s: enum[X, Y]\n\nroles:\n    Human\n\nworkflow A on s:\n    X -> Y: go assignee=agent(Human)", ENotAgentRole},
 		{"act perm unknown action", "entity A:\n    s: enum[X, Y]\n\nroles:\n    Owner\n\nworkflow A on s:\n    X -> Y: go\n\npermissions:\n    Owner:\n        act [fly]", EUnknownAction},
+		{"tail perm unknown kind", "entity A:\n    x: int\n\nroles:\n    Bridge agent\n\npermissions:\n    Bridge:\n        tail [event.exploded]\n        deny [delete *, create *, update *, act *, emit *, read *]", EUnknownTailKind},
 		{"automation unknown trigger", "automation:\n    on explode A:\n        escalate_to Owner", EBadAutomation},
 		{"schedule when without for", "entity A:\n    s: enum[X, Y]\n\nautomation:\n    on schedule daily when s = X:\n        escalate_to Owner", EBadAutomation},
 		{"stuck without workflow", "entity A:\n    s: enum[X, Y]\n\nroles:\n    Owner\n\nautomation:\n    on stuck A in X for 2d:\n        escalate_to Owner", EBadAutomation},

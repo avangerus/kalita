@@ -48,9 +48,11 @@ event LeadMirrored "Lead mirrored from another node":
     origin_id:   string
 
 # --- roles & permissions -----------------------------------------------------
-# least privilege, split per bridge identity (LLD-07 §1): the source-side actor
-# may only READ leads; the target-side actor may only EMIT the mirror event.
-# Neither can do anything else — the whole point of the exactly-once boundary.
+# least privilege, split per bridge identity (LLD-07 §1, LLD-08 §4): the
+# source-side actor may only TAIL event.emitted (node-wide, via read_events —
+# no per-record read at all); the target-side actor may only EMIT the mirror
+# event. Neither can do anything else — the whole point of the exactly-once
+# boundary.
 
 roles:
     Operator agent
@@ -65,10 +67,13 @@ permissions:
         read   [Lead, MirroredLead]
         act    [capture]
         deny   [delete *]
-    # source-side bridge identity: read the journal of leads, nothing more
+    # source-side bridge identity (LLD-08 §4): tail ONLY event.emitted, node-
+    # wide via read_events — no per-record read grant at all. This is the
+    # least-privilege surface the outbox primitive was built for: the bridge
+    # sees the fact stream, never the records themselves.
     BridgeReader:
-        read [Lead]
-        deny [delete *, create *, update *, act *, emit *]
+        tail [event.emitted]
+        deny [delete *, create *, update *, act *, emit *, read *]
     # target-side bridge identity: emit ONLY the mirror event, nothing more
     BridgeEmitter:
         emit [LeadMirrored]

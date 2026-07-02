@@ -64,6 +64,9 @@ const (
 
 	// LLD-01 §4.2/§5 (PR-5): the `emit` permission verb.
 	EUnknownEmitGrant Code = "E048_UNKNOWN_EMIT_GRANT" // emit [Name] grant names an event this pack does not declare
+
+	// LLD-08 §2 (PR-1): the `tail` permission verb (node-wide journal read).
+	EUnknownTailKind Code = "E049_UNKNOWN_TAIL_KIND" // tail [kind,...] grant names a kind outside the closed eventstore.Kind taxonomy
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)

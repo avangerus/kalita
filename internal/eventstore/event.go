@@ -84,6 +84,28 @@ const (
 	IngestFlagged       Kind = "ingest.flagged"        // perimeter detector (LLD-01 §6, PR-6)
 )
 
+// AllKinds is the closed taxonomy in declaration order — the single source of
+// truth the DSL compiler validates `tail [kind,...]` permission grants against
+// (LLD-08 §2: closed list, did-you-mean, exactly like §4c does for action
+// names). Append-only, mirroring the Kind consts above: a kind added here
+// without a matching const (or vice versa) is a compile-time-invisible bug,
+// so keep the two lists in lockstep by hand.
+var AllKinds = []Kind{
+	RecordCreated, RecordUpdated, RecordAction,
+	DefinitionProposed, DefinitionValidated, DefinitionApproved, DefinitionRejected, DefinitionApplied, DefinitionReverted,
+	ApprovalRequested, ApprovalGranted, ApprovalRejected,
+	TaskCreated, TaskTaken, TaskProgress, TaskCompleted, TaskFailed, TaskExpired,
+	ActorRegistered, ActorRoleChanged, ActorKeyRotated, ActorDisabled,
+	InviteCreated, InviteRedeemed,
+	LinkAdded, LinkRemoved,
+	CommentPosted,
+	NodeStarted, ProjectionRebuilt, CheckpointSealed,
+	OpBegin, OpEnd, OpAborted,
+	AutomationFailed, AutomationAbandoned,
+	EventEmitted,
+	IngestFlagged,
+}
+
 // CurrentSchemaV is the highest envelope schema_v this binary understands.
 // New()/replay refuses to start on a journal containing a strictly greater
 // value (LLD-01 §1.1) — a hard stop, not a silent skip, until LLD-03 adds a

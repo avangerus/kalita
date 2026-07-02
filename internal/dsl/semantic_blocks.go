@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/avangerus/kalita/internal/eventstore"
 )
 
 // Semantic analysis of workflow / automation / ui blocks (week 4 gate).
@@ -174,6 +176,19 @@ func analyzeBlocks(ast *AST, m *Model, errs *Errors) {
 	}
 	sort.Strings(eventNames)
 
+	// LLD-08 §2 (PR-1): `tail [kind,...]` grants name a kind of the closed
+	// eventstore taxonomy (eventstore.AllKinds), NOT a pack-declared name —
+	// unlike emit/act this list is fixed by the kernel, not the loaded pack.
+	// Same did-you-mean discipline: a typo'd kind is a silent "protection
+	// that isn't" exactly like an unknown act/emit name.
+	kindNames := make([]string, 0, len(eventstore.AllKinds))
+	kindSet := make(map[string]bool, len(eventstore.AllKinds))
+	for _, k := range eventstore.AllKinds {
+		kindNames = append(kindNames, string(k))
+		kindSet[string(k)] = true
+	}
+	sort.Strings(kindNames)
+
 	for _, role := range sortedKeys(m.Perms) {
 		pb := m.Perms[role]
 		scoped := scopedActions(m, pb, entityActions)
@@ -206,6 +221,19 @@ func analyzeBlocks(ast *AST, m *Model, errs *Errors) {
 						}
 						errs.add(EUnknownEmitGrant, "", item.Line,
 							fmt.Sprintf("permissions of %s reference unknown event %s", role, name),
+							hint)
+					}
+				case "tail":
+					for _, name := range item.Names {
+						if kindSet[name] {
+							continue
+						}
+						hint := "kind names are the closed eventstore taxonomy, e.g. event.emitted, checkpoint.sealed"
+						if near := nearest(name, kindNames); near != "" {
+							hint = "did you mean " + near + "? " + hint
+						}
+						errs.add(EUnknownTailKind, "", item.Line,
+							fmt.Sprintf("permissions of %s reference unknown kind %s", role, name),
 							hint)
 					}
 				}

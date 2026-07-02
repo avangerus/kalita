@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Acceptance tests for the federation bridge (LLD-07 §7, tests 1-4).
+"""Acceptance tests for the federation bridge (LLD-07 §7 tests 1-4, LLD-08 §5
+tests 2/7 for the read_events transport).
 
 No live stack (the worker-test convention): the source and target contracts are
 modelled in-process by fakes that mirror the real MCP semantics —
@@ -9,10 +10,14 @@ modelled in-process by fakes that mirror the real MCP semantics —
     real engine in internal/mcp/emit_event_test.go: TestEmitIdempotent).
   * FakeTarget enforces the least-privilege grant of the BridgeEmitter role
     (emit only) the way the Permission Engine does.
-  * FakeSource.read_since serves the read_journal-since contract the bridge
-    needs (the real per-record read_journal + node-wide-since gap is recorded in
-    agent/kalita/QUESTIONS-LLD.md; the source shape here is the contract, not a
-    workaround of it).
+  * FakeSource.read_since serves the abstract Bridge.source contract directly
+    (Bridge core logic tests 1-4 below) — it does not go through MCPSource, so
+    it is agnostic to the underlying transport (read_journal-scan before
+    LLD-08, read_events after).
+  * FakeReadEventsClient (below) models the read_events MCP tool itself, to
+    test MCPSource's pagination and free-standing-emit mapping — the part of
+    the bridge that DID change with LLD-08 (see agent/kalita/QUESTIONS-LLD.md
+    for the closed core gap this replaced).
 
 Run:  python -m pytest test_bridge.py -v
   or: python -m pytest workers/bridge/test_bridge.py
@@ -25,7 +30,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import pytest  # noqa: E402
-from bridge import Bridge, GovernedError  # noqa: E402
+from bridge import Bridge, GovernedError, MCPSource  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
@@ -208,6 +213,122 @@ def test_bridge_least_privilege():
         target.call("emit_event", {
             "name": "SomethingElse", "payload": {}, "idempotency_key": "bridge|node-a|2"})
     assert ei.value.code == "PERMISSION_DENIED"
+
+
+# --------------------------------------------------------------------------- #
+# MCPSource / read_events transport (LLD-08 §1/§4, §5 tests 2 and 7).
+# --------------------------------------------------------------------------- #
+
+class FakeReadEventsClient:
+    """Models the read_events MCP tool: paginated, since-cursor, node-wide.
+    `events` is the full ordered stream the source node would return (already
+    scoped to the actor's tail grant, exactly as the real engine does BEFORE
+    the tool ever runs — see internal/engine/read_events.go). `page_limit`
+    caps how many events one call returns, forcing MCPSource to page even
+    when it requests a larger limit, so the test proves the pagination loop
+    itself, not just a single lucky call."""
+
+    def __init__(self, events, page_limit=500):
+        self.events = events
+        self.page_limit = page_limit
+        self.calls = []
+
+    def call(self, name, arguments):
+        assert name == "read_events", f"MCPSource must call read_events, called {name}"
+        self.calls.append(dict(arguments))
+        since = arguments.get("since", 0)
+        limit = min(arguments.get("limit", 500), self.page_limit)
+        # `since` is INCLUSIVE (LLD-08 §1: next_since = seq of the last event
+        # examined + 1, and the client passes it straight back) — mirrors the
+        # real engine's read_events (internal/engine/read_events.go).
+        page = [e for e in self.events if e["seq"] >= since][:limit]
+        next_since = page[-1]["seq"] + 1 if page else since
+        return {"events": page, "next_since": next_since}
+
+
+def _fact_event(seq, name, payload, entity="Lead", record_id="lead-1"):
+    return {"seq": seq, "kind": "event.emitted",
+            "subject": {"entity": entity, "record_id": record_id},
+            "payload": {"name": name, "payload": payload}}
+
+
+# Test 7 companion: MCPSource pages through read_events using next_since until
+# the cursor stops advancing, draining the whole stream in seq order — the
+# same guarantee LLD-08 test 5 (TestReadEventsPagination) proves at the Go
+# layer, checked here at the transport the bridge actually drives.
+def test_source_reads_via_read_events_and_paginates():
+    events = [
+        _fact_event(1, "site.LeadCaptured", {"name": "Ada"}, record_id="lead-1"),
+        _fact_event(2, "site.LeadCaptured", {"name": "Grace"}, record_id="lead-2"),
+        _fact_event(3, "site.LeadCaptured", {"name": "Karen"}, record_id="lead-3"),
+    ]
+    client = FakeReadEventsClient(events, page_limit=1)  # force 3+ pages
+    source = MCPSource(client)
+
+    facts = source.read_since(0)
+
+    assert [f["seq"] for f in facts] == [1, 2, 3]
+    assert [f["payload"]["name"] for f in facts] == ["Ada", "Grace", "Karen"]
+    assert len(client.calls) >= 3, "page_limit=1 over 3 events must take multiple calls"
+    assert client.calls[0]["kinds"] == ["event.emitted"]
+    assert client.calls[0]["since"] == 1  # last_seq=0 (nothing delivered yet) -> since=1 (inclusive)
+
+
+# Test 2 (LLD-08 §5, closing the LLD-07 §8 gap): a free-standing emit_event
+# (empty subject) is passed through by MCPSource with entity/record_id == "" —
+# not dropped and not an error. Before LLD-08 this event was unreachable (the
+# old transport walked read_journal per RECORD, and a free-standing emit has
+# none); read_events makes it visible node-wide.
+def test_source_sees_freestanding_emit():
+    events = [
+        _fact_event(1, "site.LeadCaptured", {"name": "Ada"}, record_id="lead-1"),
+        _fact_event(2, "site.LeadCaptured", {"name": "Grace"}, entity="", record_id=""),
+    ]
+    source = MCPSource(FakeReadEventsClient(events))
+
+    facts = source.read_since(0)
+
+    assert len(facts) == 2
+    freestanding = facts[1]
+    assert freestanding["seq"] == 2
+    assert freestanding["entity"] == "" and freestanding["record_id"] == ""
+    assert freestanding["payload"] == {"name": "Grace"}
+
+
+# Pagination must not stop early just because one page's VISIBLE events are
+# empty — the underlying cursor can advance past a run of kinds this actor
+# does not tail (kind-filtered server-side); only a next_since that stops
+# moving means the stream is exhausted.
+# Regression: the bridge's cursor convention is "last confirmed seq"
+# (exclusive), but read_events' `since` is inclusive — read_since(last_seq)
+# must not re-return the event AT exactly last_seq (already delivered) nor
+# skip the one right after it.
+def test_source_read_since_does_not_replay_or_skip_the_boundary_event():
+    events = [
+        _fact_event(5, "site.LeadCaptured", {"name": "Ada"}, record_id="lead-5"),
+        _fact_event(6, "site.LeadCaptured", {"name": "Grace"}, record_id="lead-6"),
+    ]
+    source = MCPSource(FakeReadEventsClient(events))
+
+    facts = source.read_since(5)  # seq 5 already delivered
+
+    assert [f["seq"] for f in facts] == [6], "must return only the event AFTER last_seq, no replay, no gap"
+
+
+def test_source_pagination_continues_through_filtered_pages():
+    class SkippyClient:
+        def call(self, name, arguments):
+            since = arguments["since"]
+            if since == 1:  # read_since(0) -> first call asks since=1 (inclusive)
+                return {"events": [], "next_since": 50}  # a run of non-event.emitted kinds
+            if since == 50:
+                return {"events": [_fact_event(51, "site.LeadCaptured", {"name": "Ada"})],
+                        "next_since": 52}
+            return {"events": [], "next_since": since}  # exhausted: cursor stops advancing
+
+    facts = MCPSource(SkippyClient()).read_since(0)
+
+    assert [f["seq"] for f in facts] == [51]
 
 
 if __name__ == "__main__":

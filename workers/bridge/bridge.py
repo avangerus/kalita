@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""Federation bridge (LLD-07) — a Worker (T8), NOT core.
+"""Federation bridge (LLD-07, transport upgraded by LLD-08) — a Worker (T8),
+NOT core.
 
 A bridge has TWO identities: a least-privilege governed actor on the SOURCE
-node (read + read_journal on the subscribed entities) and a least-privilege
-governed actor on the TARGET node (`emit [Name]` only). It reads
-`event.emitted` facts from the source journal and re-emits them on the target
-via the `emit_event` MCP tool. Neither node knows the other exists — only the
-bridge does (the perimeter boundary stays explicit). No sync-RPC between nodes
-(HLD §8a): the source is pulled, the target is written; the source never waits
-for the target.
+node (`tail [event.emitted]` ONLY — no per-record read at all, LLD-08 §4) and
+a least-privilege governed actor on the TARGET node (`emit [Name]` only). It
+pulls `event.emitted` facts node-wide from the source journal via the MCP tool
+`read_events` and re-emits them on the target via `emit_event`. Neither node
+knows the other exists — only the bridge does (the perimeter boundary stays
+explicit). No sync-RPC between nodes (HLD §8a): the source is pulled, the
+target is written; the source never waits for the target.
 
 exactly-once (LLD-07 §2) = at-least-once + idempotent key. The delivery key is
-`bridge|<source_node_id>|<source_seq>` — deterministic from the source event.
-If the bridge crashes between delivering and advancing its cursor, the retry
-re-emits with the SAME key and the target's `emit_event` ByIdemKey collapses
-the duplicate (PR-5 made MCP idempotency mandatory). The cursor is therefore an
-efficiency optimisation, not a correctness dependency — losing it only replays
-from a smaller seq, and idempotency absorbs the repeats.
+`bridge|<source_node_id>|<source_seq>` — deterministic from the source event's
+`seq`, taken straight from the read_events response (LLD-08 §4). If the bridge
+crashes between delivering and advancing its cursor, the retry re-emits with
+the SAME key and the target's `emit_event` ByIdemKey collapses the duplicate
+(PR-5 made MCP idempotency mandatory). The cursor is therefore an efficiency
+optimisation, not a correctness dependency — losing it only replays from a
+smaller seq, and idempotency absorbs the repeats.
 
 origin provenance (LLD-07 §3) is a mirror WRITE, not a remote lookup: the
 target event carries `origin_node`/`origin_id` (two plain string fields — no new
@@ -28,7 +30,7 @@ Config (LLD-07 §5): env and/or a JSON file (KALITA_BRIDGE_CONFIG). Secrets
 (both node tokens) live here, in the worker — never in a pack DSL. Zero
 dependencies: stdlib only.
 
-  SOURCE_URL, SOURCE_TOKEN         source node + bearer for the read actor
+  SOURCE_URL, SOURCE_TOKEN         source node + bearer for the tail actor
   TARGET_URL, TARGET_TOKEN         target node + bearer for the emit actor
   SOURCE_NODE_ID                   stable id of the source, half of the idem key
   KALITA_BRIDGE_CURSOR             cursor state file (default bridge_cursor.json)
@@ -36,21 +38,18 @@ dependencies: stdlib only.
   subscriptions: [ {                a declarative map, not code
      "event":        "site.LeadCaptured",   source event (canonical or short)
      "target_event": "LeadMirrored",        event to emit on the target
-     "source_entity":"Lead",                entity whose journal carries it
      "field_map":    {"name":"name", ...},  source payload field -> target field
      "origin_node_field": "origin_node",    (optional) target field for node id
      "origin_id_field":   "origin_id"       (optional) target field for source id
   } ]
 
-read_journal caveat (LLD-07 §8, see agent/kalita/QUESTIONS-LLD.md): the MCP
-`read_journal` tool is per-record (entity+id) and has no node-wide `since=seq`
-stream, so a bridge cannot pull the whole journal in one governed call today.
-This worker works AROUND that with the existing governed tools — `query` the
-subscribed entity, then `read_journal` each record and keep the `event.emitted`
-entries whose global seq is past the cursor. That is correct for the demo
-(transition-emitted events carry a record subject) but O(records) per poll; the
-efficient path needs a node-wide journal-since read, which is a CORE change
-reserved for Fable review, not made blindly here.
+LLD-08 closes the LLD-07 §8 core gap (see agent/kalita/QUESTIONS-LLD.md for
+the history): `read_events {since, kinds:[event.emitted]}` is a node-wide,
+O(new events) tail over the whole journal — not the old per-record
+`query`+`read_journal` scan, which was O(records) per poll AND blind to
+free-standing `emit_event` calls (empty subject, unreachable from any record's
+per-record journal). Both limitations are gone: the bridge now sees every
+event.emitted on the node, transition-emitted or free-standing alike.
 """
 import json
 import os
@@ -119,39 +118,51 @@ class MCPClient:
 
 
 # --------------------------------------------------------------------------- #
-# Source: pull event.emitted facts since a cursor.
+# Source: pull event.emitted facts since a cursor, node-wide (LLD-08 §1).
 # --------------------------------------------------------------------------- #
 
 class MCPSource:
-    """Reads `event.emitted` facts from a source node past a cursor, using only
-    the governed read tools available today (see the read_journal caveat in the
-    module docstring). `subscribed` is the set of source entities to scan."""
+    """Reads `event.emitted` facts from a source node past a cursor via the
+    node-wide MCP tool `read_events` (LLD-08 §1) — one governed call per page,
+    O(new events), not O(records). Requires the source-side bridge actor to
+    hold `tail [event.emitted]` (LLD-08 §4, packs/site's BridgeReader role);
+    everything else on that role is denied."""
 
-    def __init__(self, client, subscribed_entities):
+    PAGE_LIMIT = 500
+
+    def __init__(self, client):
         self.client = client
-        self.entities = sorted(set(subscribed_entities))
 
     def read_since(self, last_seq):
         """Return event.emitted facts with seq > last_seq, sorted by seq asc.
-        Each fact: {seq, name (canonical), payload, entity, record_id}."""
+        Each fact: {seq, name (canonical), payload, entity, record_id}. The
+        entity/record_id come from the event's subject when the event was
+        transition-emitted; a free-standing emit_event (LLD-08 test 2) has an
+        empty subject, so both are "" — the field_map lookups never need them
+        for that case, only origin-stamping uses record_id.
+
+        `last_seq` is the bridge's cursor convention: the seq already
+        confirmed delivered (exclusive — "give me anything newer"). read_events'
+        `since` is INCLUSIVE (LLD-08 §1: next_since = last examined seq + 1),
+        so the first page asks for last_seq + 1; every following page reuses
+        next_since from the previous response, which is already in that
+        inclusive form."""
         facts = []
-        for entity in self.entities:
-            res = self.client.call("query", {"entity": entity, "limit": 10000})
-            for rec in res.get("records", []):
-                rid = rec.get("id")
-                if not rid:
-                    continue
-                jr = self.client.call("read_journal", {"entity": entity, "id": rid})
-                for ev in jr.get("events", []):
-                    if ev.get("kind") != "event.emitted":
-                        continue
-                    seq = ev.get("seq", 0)
-                    if seq <= last_seq:
-                        continue
-                    p = ev.get("payload") or {}
-                    facts.append({"seq": seq, "name": p.get("name", ""),
-                                  "payload": p.get("payload") or {},
-                                  "entity": entity, "record_id": rid})
+        cursor = last_seq + 1
+        while True:
+            res = self.client.call("read_events", {
+                "since": cursor, "kinds": ["event.emitted"], "limit": self.PAGE_LIMIT})
+            for ev in res.get("events", []):
+                p = ev.get("payload") or {}
+                subj = ev.get("subject") or {}
+                facts.append({"seq": ev.get("seq", 0), "name": p.get("name", ""),
+                              "payload": p.get("payload") or {},
+                              "entity": subj.get("entity", ""),
+                              "record_id": subj.get("record_id", "")})
+            next_since = res.get("next_since", cursor)
+            if next_since <= cursor:
+                break  # cursor stopped advancing: the stream is exhausted
+            cursor = next_since
         facts.sort(key=lambda f: f["seq"])
         return facts
 
@@ -294,8 +305,7 @@ def load_config():
 
 def build(cfg):
     subs = cfg["subscriptions"]
-    source_entities = [s.get("source_entity", "Lead") for s in subs]
-    source = MCPSource(MCPClient(cfg["source_url"], cfg["source_token"]), source_entities)
+    source = MCPSource(MCPClient(cfg["source_url"], cfg["source_token"]))
     target = MCPTarget(MCPClient(cfg["target_url"], cfg["target_token"]))
     cursor = FileCursor(cfg["cursor"])
     return Bridge(source, target, cursor, subs, cfg["source_node_id"])
