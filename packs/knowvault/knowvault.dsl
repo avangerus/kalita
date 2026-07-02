@@ -80,6 +80,7 @@ permissions:
         read    [SearchQuery]
         act     [retry_index, reindex, pause]
         approve [pause]
+        call    [files.list_dirs]
     VaultWorker:
         # read is required for the entity (and its picker field) to appear in
         # /api/meta — without it the operator cannot open the New Source form

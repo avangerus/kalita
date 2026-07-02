@@ -63,6 +63,16 @@ def _fmt_query(model, text):
     return (prefix + text) if prefix else text
 
 
+# ENH-04: snippet shown for a clickable source — collapse whitespace, cap length.
+SNIPPET_CHARS = int(os.environ.get("KV_SNIPPET_CHARS", "240"))
+
+
+def _snippet(text):
+    """A short single-paragraph preview of a chunk for the sources list."""
+    s = " ".join((text or "").split())
+    return s if len(s) <= SNIPPET_CHARS else s[:SNIPPET_CHARS].rstrip() + "…"
+
+
 def http(url, body=None, method=None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
@@ -184,7 +194,22 @@ def answer_question(question, scope_ids):
         ],
         "temperature": 0.1,
     })["choices"][0]["message"]["content"]
-    return {"answer": reply, "sources": sorted({p["file"] for p in top})}
+    # ENH-04: `sources` stays a list of file names (back-compat: node counts it, the
+    # current UI renders it as pills). `source_hits` is the richer, clickable view —
+    # one entry per retrieved chunk with a snippet and its anchor (chunk index), so
+    # the frontend can open the exact fragment. Dedup keeps the first (best) hit
+    # per (file, anchor); files with no chunk anchor (pre-ENH-04 index) get None.
+    seen, source_hits = set(), []
+    for p in top:
+        key = (p.get("file"), p.get("chunk"))
+        if key in seen:
+            continue
+        seen.add(key)
+        source_hits.append({"file": p.get("file"), "anchor": p.get("chunk"),
+                            "snippet": _snippet(p.get("text", ""))})
+    return {"answer": reply,
+            "sources": sorted({p["file"] for p in top}),
+            "source_hits": source_hits}
 
 
 class Handler(BaseHTTPRequestHandler):

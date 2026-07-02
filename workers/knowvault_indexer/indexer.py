@@ -17,6 +17,7 @@ Zero dependencies: stdlib only.
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -109,7 +110,7 @@ def _looks_like_table(para):
     return tableish >= max(2, (len(lines) * 3 + 4) // 5)  # ~60% of lines
 
 
-def chunk(text, size):
+def _chunk_body(text, size):
     """BUG-04: structure-aware chunking that keeps tables coherent.
 
     Strategy:
@@ -223,6 +224,94 @@ def chunk(text, size):
             _split_prose(para)
 
     _flush()
+    return out
+
+
+# ENH-07: markdown ATX header, e.g. "## Pricing" -> level 2, title "Pricing".
+# Requires a space after the hashes, so "#hashtag" / "#!shebang" are NOT headers.
+_HEADER_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
+# ENH-07: overlap between adjacent chunks, in characters. 0 = off (legacy behaviour;
+# tune via the eval harness and only raise it if recall@k improves).
+CHUNK_OVERLAP = int(os.environ.get("KV_CHUNK_OVERLAP", "0"))
+
+
+def _split_sections(text):
+    """ENH-07: split *text* into (header_path, body) sections by markdown headers.
+
+    header_path is the stack of enclosing titles (H1 > H2 > H3), so each chunk can
+    be tagged with the section it belongs to — retrieval then knows "from which
+    section". Text with no headers yields a single ([], text) section, i.e. exactly
+    the pre-ENH-07 behaviour. Header-only text (no body) yields nothing to index."""
+    sections, stack, buf = [], [], []
+
+    def emit():
+        if any(ln.strip() for ln in buf):
+            sections.append(([t for _lvl, t in stack], "\n".join(buf)))
+
+    for line in text.split("\n"):
+        m = _HEADER_RE.match(line)
+        if m:
+            emit()
+            buf = []
+            level = len(m.group(1))
+            while stack and stack[-1][0] >= level:   # close deeper/peer sections
+                stack.pop()
+            stack.append((level, m.group(2).strip()))
+        else:
+            buf.append(line)
+    emit()
+    return sections
+
+
+def _overlap_tail(s, overlap):
+    """Last <=overlap chars of *s*, snapped to a word boundary so no half-word is
+    carried. Returns "" if the tail would be a single space-less token."""
+    if overlap <= 0:
+        return ""
+    if len(s) <= overlap:
+        return s.strip()
+    tail = s[-overlap:]
+    sp = tail.find(" ")
+    tail = tail[sp + 1:] if sp != -1 else ""         # drop the leading half-word
+    return tail.strip()
+
+
+def _apply_overlap(chunks, overlap, size):
+    """ENH-07: prepend a small word-boundary-snapped tail of each chunk to the next,
+    for context continuity across a split. The tail is <= overlap (< size) chars, so
+    no line exceeds size and no word is cut — the BUG-04 invariants stay intact.
+    Off (identity) when overlap<=0 or there is nothing to bridge."""
+    if overlap <= 0 or len(chunks) < 2:
+        return chunks
+    out = [chunks[0]]
+    for prev, cur in zip(chunks, chunks[1:]):
+        tail = _overlap_tail(prev, min(overlap, size - 1))
+        if tail and any(c.isalnum() for c in tail):
+            out.append(tail + "\n" + cur)
+        else:
+            out.append(cur)
+    return out
+
+
+def chunk(text, size, overlap=None):
+    """ENH-07 wrapper over _chunk_body: section-aware (markdown headers) + optional
+    overlap. Each chunk is prefixed with its header path ("H1 > H2") so the embedded
+    text carries section context. overlap defaults to KV_CHUNK_OVERLAP (0 = legacy).
+    All BUG-04 invariants are enforced by _chunk_body; sections and overlap only add
+    context — they never cut a word or emit a markup-only chunk."""
+    if overlap is None:
+        overlap = CHUNK_OVERLAP
+    out = []
+    for path, body in _split_sections(text):
+        prefix = (" > ".join(path) + "\n\n") if path else ""
+        # Reserve room for the prefix so prefix+chunk stays near size. With no
+        # prefix the budget IS size (legacy-identical). If the prefix is too large
+        # for this size, index the body at full size rather than starve it.
+        budget = size - len(prefix)
+        if budget < 16:
+            budget = size
+        for bc in _apply_overlap(_chunk_body(body, budget), overlap, budget):
+            out.append(prefix + bc if prefix else bc)
     return out
 
 
@@ -514,7 +603,10 @@ def sync_source(sid, src, basis, tid, force_rebuild=False):
             points = [{
                 "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{sid}|{fname}|{off + i}")),
                 "vector": vec,
-                "payload": {"source": sid, "file": fname, "fp": fp, "text": piece},
+                # ENH-04: store the chunk index as a stable anchor so search can link
+                # a hit back to its exact position in the file (clickable sources).
+                "payload": {"source": sid, "file": fname, "fp": fp, "text": piece,
+                            "chunk": off + i},
             } for i, (piece, vec) in enumerate(zip(batch, vectors))]
             http(f"{QDRANT}/collections/{collection}/points?wait=true", method="PUT",
                  body={"points": points})
