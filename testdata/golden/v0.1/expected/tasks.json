@@ -1,0 +1,359 @@
+[
+  {
+    "action": "open",
+    "entity": "Case",
+    "id": "id#14",
+    "kind": "workflow",
+    "lease_until": "2026-01-05T09:38:00Z",
+    "record_id": "id#12",
+    "role": "Worker",
+    "status": "completed",
+    "taken_by": "worker-1"
+  },
+  {
+    "action": "triage",
+    "args": "( priority = tag )",
+    "entity": "Case",
+    "id": "id#16",
+    "kind": "agent",
+    "lease_until": "2026-01-05T09:38:00Z",
+    "note": "vendor W9 received, memo filed",
+    "note_at": "2026-01-05T09:08:00Z",
+    "record_id": "id#12",
+    "role": "Worker",
+    "status": "completed",
+    "taken_by": "worker-1"
+  },
+  {
+    "args": "email ( author )",
+    "entity": "Case",
+    "id": "id#18",
+    "kind": "notification",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#12",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "args": "https://example.invalid/hooks/case-created",
+    "entity": "Case",
+    "id": "id#20",
+    "kind": "webhook",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#12",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "action": "open",
+    "entity": "Case",
+    "id": "id#24",
+    "kind": "workflow",
+    "lease_until": "2026-01-05T09:39:00Z",
+    "record_id": "id#22",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "action": "triage",
+    "args": "( priority = tag )",
+    "entity": "Case",
+    "id": "id#26",
+    "kind": "agent",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#22",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "args": "email ( author )",
+    "entity": "Case",
+    "id": "id#28",
+    "kind": "notification",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#22",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "args": "https://example.invalid/hooks/case-created",
+    "entity": "Case",
+    "id": "id#30",
+    "kind": "webhook",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#22",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "action": "open",
+    "entity": "Case",
+    "id": "id#34",
+    "kind": "workflow",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#32",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "action": "triage",
+    "args": "( priority = tag )",
+    "entity": "Case",
+    "id": "id#36",
+    "kind": "agent",
+    "lease_until": "2026-01-05T10:20:00Z",
+    "record_id": "id#32",
+    "role": "Worker",
+    "status": "failed",
+    "taken_by": "worker-1"
+  },
+  {
+    "args": "email ( author )",
+    "entity": "Case",
+    "id": "id#38",
+    "kind": "notification",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#32",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "args": "https://example.invalid/hooks/case-created",
+    "entity": "Case",
+    "id": "id#40",
+    "kind": "webhook",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#32",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "action": "open",
+    "entity": "Case",
+    "id": "id#45",
+    "kind": "workflow",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#43",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "action": "triage",
+    "args": "( priority = tag )",
+    "entity": "Case",
+    "id": "id#47",
+    "kind": "agent",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#43",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "args": "email ( author )",
+    "entity": "Case",
+    "id": "id#49",
+    "kind": "notification",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#43",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "args": "https://example.invalid/hooks/case-created",
+    "entity": "Case",
+    "id": "id#51",
+    "kind": "webhook",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#43",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "action": "open",
+    "entity": "Case",
+    "id": "id#55",
+    "kind": "workflow",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#53",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "action": "triage",
+    "args": "( priority = tag )",
+    "entity": "Case",
+    "id": "id#57",
+    "kind": "agent",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#53",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "args": "email ( author )",
+    "entity": "Case",
+    "id": "id#59",
+    "kind": "notification",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#53",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "args": "https://example.invalid/hooks/case-created",
+    "entity": "Case",
+    "id": "id#61",
+    "kind": "webhook",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#53",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "action": "open",
+    "entity": "Case",
+    "id": "id#65",
+    "kind": "workflow",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#63",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "action": "triage",
+    "args": "( priority = tag )",
+    "entity": "Case",
+    "id": "id#67",
+    "kind": "agent",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#63",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "args": "email ( author )",
+    "entity": "Case",
+    "id": "id#69",
+    "kind": "notification",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#63",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "args": "https://example.invalid/hooks/case-created",
+    "entity": "Case",
+    "id": "id#71",
+    "kind": "webhook",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#63",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "action": "chase",
+    "args": "( )",
+    "entity": "Case",
+    "id": "id#86",
+    "kind": "agent",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#12",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "args": "email ( author )",
+    "entity": "Case",
+    "id": "id#96",
+    "kind": "notification",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#32",
+    "role": "",
+    "status": "open"
+  },
+  {
+    "action": "chase",
+    "args": "( )",
+    "entity": "Case",
+    "id": "id#102",
+    "kind": "agent",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#12",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "action": "chase",
+    "args": "( )",
+    "entity": "Case",
+    "id": "id#104",
+    "kind": "agent",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#22",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "action": "chase",
+    "args": "( )",
+    "entity": "Case",
+    "id": "id#106",
+    "kind": "agent",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#32",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "action": "chase",
+    "args": "( )",
+    "entity": "Case",
+    "id": "id#108",
+    "kind": "agent",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#43",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "action": "chase",
+    "args": "( )",
+    "entity": "Case",
+    "id": "id#110",
+    "kind": "agent",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#53",
+    "role": "Worker",
+    "status": "open"
+  },
+  {
+    "action": "escalation",
+    "entity": "Case",
+    "id": "id#135",
+    "kind": "escalation",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#22",
+    "role": "Owner",
+    "status": "open"
+  },
+  {
+    "action": "escalation",
+    "entity": "Case",
+    "id": "id#137",
+    "kind": "escalation",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#32",
+    "role": "Owner",
+    "status": "open"
+  },
+  {
+    "action": "escalation",
+    "entity": "Case",
+    "id": "id#139",
+    "kind": "escalation",
+    "lease_until": "0001-01-01T00:00:00Z",
+    "record_id": "id#53",
+    "role": "Owner",
+    "status": "open"
+  }
+]

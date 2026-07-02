@@ -1,0 +1,20 @@
+[
+  {
+    "disabled": false,
+    "id": "owner-1",
+    "role": "Owner",
+    "type": "human"
+  },
+  {
+    "disabled": false,
+    "id": "reviewer-1",
+    "role": "Reviewer",
+    "type": "human"
+  },
+  {
+    "disabled": false,
+    "id": "worker-1",
+    "role": "Worker",
+    "type": "agent"
+  }
+]

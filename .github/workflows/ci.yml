@@ -28,6 +28,12 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go build ./...
-      - run: go test ./... -count=1
+      - run: go test ./... -count=1 -cover
       # bench smoke: catches order-of-magnitude regressions at compile level
       - run: go test -bench=Bench -benchtime=50x -run='^$' ./internal/engine
+      # golden-journal fold-compatibility gate (docs/lld/LLD-03-upgrade-eras.md
+      # §3/§7, PR-0): the binary built from THIS commit must still replay every
+      # testdata/golden/*/journal.jsonl into the projections committed beside
+      # it. Also covered by the blanket `go test ./...` above (it is ./tests/...);
+      # kept as its own step so a fold regression is unmistakable in CI logs.
+      - run: go test ./tests/... -run TestGoldenReplay -v

@@ -1,0 +1,118 @@
+{
+  "Case": [
+    {
+      "entity": "Case",
+      "id": "id#12",
+      "values": {
+        "amount": 12000,
+        "attachment": {
+          "hash": "f7f4a754fa58c1035952314149db78f8188298dd982960fe047d97488ceb237f",
+          "mime": "application/pdf",
+          "name": "brief.pdf",
+          "size": 48213
+        },
+        "notes": "initial intake",
+        "opened_on": "2026-01-05",
+        "priority": "Normal",
+        "resolution": "Approved after W9 and banking details verified.",
+        "status": "Approved",
+        "title": "Q1 Vendor Onboarding"
+      }
+    },
+    {
+      "entity": "Case",
+      "id": "id#22",
+      "values": {
+        "amount": {
+          "amount": 3400.5,
+          "currency": "USD"
+        },
+        "opened_on": "2026-01-05",
+        "priority": "Normal",
+        "status": "Review",
+        "title": "Facilities Repair Request"
+      }
+    },
+    {
+      "entity": "Case",
+      "id": "id#32",
+      "values": {
+        "amount": 0,
+        "attachment": {
+          "hash": "4a23fc137dd5d783776126f43a5d9296a4d94524189108dea68346b95f84d2f5",
+          "mime": "text/plain",
+          "name": "audit-notes.txt",
+          "size": 2048
+        },
+        "opened_on": "2026-01-05",
+        "priority": "High",
+        "status": "Review",
+        "title": "Annual Audit Prep"
+      }
+    },
+    {
+      "entity": "Case",
+      "id": "id#43",
+      "values": {
+        "amount": 8600,
+        "notes": null,
+        "opened_on": "2026-01-05",
+        "priority": "Normal",
+        "status": "Closed",
+        "title": "Vendor Contract Renewal"
+      }
+    },
+    {
+      "entity": "Case",
+      "id": "id#53",
+      "values": {
+        "amount": 0,
+        "opened_on": "2026-01-05",
+        "priority": "Normal",
+        "status": "Review",
+        "title": "Office Lease Amendment"
+      }
+    },
+    {
+      "entity": "Case",
+      "id": "id#63",
+      "values": {
+        "amount": 0,
+        "notes": "n0",
+        "opened_on": "2026-01-05",
+        "priority": "Normal",
+        "status": "New",
+        "title": "Insurance Policy Review"
+      }
+    }
+  ],
+  "Memo": [
+    {
+      "entity": "Memo",
+      "id": "id#77",
+      "values": {
+        "author": "worker-1",
+        "body": "vendor W9 received",
+        "case": "id#12"
+      }
+    },
+    {
+      "entity": "Memo",
+      "id": "id#81",
+      "values": {
+        "author": "owner-1",
+        "body": "facilities vendor shortlist attached to intake checklist",
+        "case": "id#43"
+      }
+    },
+    {
+      "entity": "Memo",
+      "id": "id#83",
+      "values": {
+        "author": "owner-1",
+        "body": "lease amendment follows the standard template",
+        "case": "id#53"
+      }
+    }
+  ]
+}

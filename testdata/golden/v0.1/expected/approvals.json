@@ -1,0 +1,17 @@
+[
+  {
+    "action": "finalize",
+    "entity": "Case",
+    "from": "Review",
+    "id": "id#122",
+    "record_id": "id#53",
+    "requested_by": {
+      "id": "reviewer-1",
+      "role": "Reviewer",
+      "type": "human"
+    },
+    "role": "Owner",
+    "status": "pending",
+    "to": "Approved"
+  }
+]
