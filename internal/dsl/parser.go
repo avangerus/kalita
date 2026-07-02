@@ -507,7 +507,7 @@ func (p *parser) roles(ln *Line) {
 var permVerbs = map[string]bool{
 	"read": true, "create": true, "update": true, "delete": true,
 	"act": true, "approve": true, "full": true, "deny": true,
-	"call": true,
+	"call": true, "emit": true,
 }
 
 func (p *parser) permissions(ln *Line) {
@@ -537,7 +537,7 @@ func (p *parser) permRule(ln *Line) *PermRule {
 	verb := ln.Toks[0].Text
 	if !permVerbs[verb] {
 		p.errs.add(EBadVerb, ln.File, ln.Num, "unknown permission verb "+verb,
-			"allowed verbs: read, create, update, delete, act, approve, full, deny, call")
+			"allowed verbs: read, create, update, delete, act, approve, full, deny, call, emit")
 		return nil
 	}
 	rule := &PermRule{Verb: verb, Line: ln.Num}
@@ -602,7 +602,7 @@ func parsePermItem(toks []Tok, outerVerb string, ln *Line, errs *Errors) *PermIt
 		item.Verb = toks[0].Text
 		i = 1
 	}
-	if item.Verb == "act" || item.Verb == "approve" {
+	if item.Verb == "act" || item.Verb == "approve" || item.Verb == "emit" {
 		for _, t := range toks[i:] {
 			if t.Kind == TIdent {
 				item.Names = append(item.Names, t.Text)

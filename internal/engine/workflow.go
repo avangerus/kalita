@@ -320,7 +320,7 @@ func (e *Engine) applyTransitionAndEmit(ctx context.Context, actor eventstore.Ac
 		}
 		return err
 	}
-	e.fireEmits(ctx, actor, entity, id, plans, basis)
+	e.fireEmits(ctx, actor, entity, id, plans, basis, "")
 	if opened {
 		if cerr := e.endOp(ctx); cerr != nil {
 			log.Printf("engine: could not close emit op-bracket entity=%s record=%s: %v", entity, id, cerr)
@@ -390,6 +390,11 @@ func findTransition(wf *dsl.WorkflowDecl, action, current string) *dsl.Transitio
 // canAct / canApprove: permission checks for the act/approve verbs.
 func (e *Engine) canAct(role, action string) bool     { return e.canNamed(role, "act", action) }
 func (e *Engine) canApprove(role, action string) bool { return e.canNamed(role, "approve", action) }
+
+// canEmit is the Permission Engine check for the `emit` verb (LLD-01 §4.2,
+// HLD I-2): an actor may emit a domain event only under a grant of
+// `emit [Name]` for that event's short name.
+func (e *Engine) canEmit(role, name string) bool { return e.canNamed(role, "emit", name) }
 
 func (e *Engine) canNamed(role, verb, name string) bool {
 	pb, ok := e.model.Perms[role]

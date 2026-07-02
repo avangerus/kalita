@@ -92,7 +92,9 @@ func (s *Server) revert(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR", "message": "bad json"})
 		return
 	}
-	rec, err := s.eng.Revert(r.Context(), actor, r.PathValue("entity"), r.PathValue("id"), req.Basis)
+	// REST idempotency is soft-mode / out of scope for PR-5 (LLD-01 §5) — pass
+	// through empty, unchanged from pre-PR-5 behavior.
+	rec, err := s.eng.Revert(r.Context(), actor, r.PathValue("entity"), r.PathValue("id"), req.Basis, "")
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -112,7 +114,9 @@ func (s *Server) rewind(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR", "message": "bad json"})
 		return
 	}
-	rec, err := s.eng.RewindTo(r.Context(), actor, r.PathValue("entity"), r.PathValue("id"), req.ToSeq, req.Basis)
+	// REST idempotency is soft-mode / out of scope for PR-5 (LLD-01 §5) — pass
+	// through empty, unchanged from pre-PR-5 behavior.
+	rec, err := s.eng.RewindTo(r.Context(), actor, r.PathValue("entity"), r.PathValue("id"), req.ToSeq, req.Basis, "")
 	if err != nil {
 		writeErr(w, err)
 		return

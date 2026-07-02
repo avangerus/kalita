@@ -110,13 +110,13 @@ func TestDebtorRunsWithoutHumansUntilHITL(t *testing.T) {
 			reminder = task
 		}
 	}
-	if _, err := e.TakeTask(ctx, collector, reminder.ID); err != nil {
+	if _, err := e.TakeTask(ctx, collector, reminder.ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.ReportProgress(ctx, collector, reminder.ID, "письмо отправлено"); err != nil {
+	if err := e.ReportProgress(ctx, collector, reminder.ID, "письмо отправлено", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.CompleteTask(ctx, collector, reminder.ID, "reminder sent"); err != nil {
+	if err := e.CompleteTask(ctx, collector, reminder.ID, "reminder sent", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -127,13 +127,13 @@ func TestDebtorRunsWithoutHumansUntilHITL(t *testing.T) {
 			claimTask = task
 		}
 	}
-	if _, err := e.TakeTask(ctx, collector, claimTask.ID); err != nil {
+	if _, err := e.TakeTask(ctx, collector, claimTask.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.Act(ctx, collector, "Debtor", debtor.ID, "send_claim", basis, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.CompleteTask(ctx, collector, claimTask.ID, "claim sent"); err != nil {
+	if err := e.CompleteTask(ctx, collector, claimTask.ID, "claim sent", ""); err != nil {
 		t.Fatal(err)
 	}
 	rec, _ := e.Get(ctx, anna, "Debtor", debtor.ID)
@@ -173,27 +173,27 @@ func TestTaskLeaseSemantics(t *testing.T) {
 	task := e.Tasks("Collector", TaskOpen)[0]
 
 	// wrong role cannot take
-	if _, err := e.TakeTask(ctx, anna, task.ID); err == nil {
+	if _, err := e.TakeTask(ctx, anna, task.ID, ""); err == nil {
 		t.Fatal("task is role-bound")
 	}
-	if _, err := e.TakeTask(ctx, collector, task.ID); err != nil {
+	if _, err := e.TakeTask(ctx, collector, task.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	// second take while leased → conflict
 	other := eventstore.Actor{Type: eventstore.ActorAgent, ID: "collector-2", Role: "Collector"}
-	if _, err := e.TakeTask(ctx, other, task.ID); err == nil {
+	if _, err := e.TakeTask(ctx, other, task.ID, ""); err == nil {
 		t.Fatal("leased task must not be taken twice")
 	}
 	// lease expires → task returns to the pool, another agent picks it up
 	*e.clock = e.clock.Add(31 * time.Minute)
-	if _, err := e.TakeTask(ctx, other, task.ID); err != nil {
+	if _, err := e.TakeTask(ctx, other, task.ID, ""); err != nil {
 		t.Fatalf("expired lease must reopen the task: %v", err)
 	}
 	// the original agent can no longer complete it
-	if err := e.CompleteTask(ctx, collector, task.ID, "done"); err == nil {
+	if err := e.CompleteTask(ctx, collector, task.ID, "done", ""); err == nil {
 		t.Fatal("losing the lease means losing the task")
 	}
-	if err := e.CompleteTask(ctx, other, task.ID, "done"); err != nil {
+	if err := e.CompleteTask(ctx, other, task.ID, "done", ""); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -206,10 +206,10 @@ func TestProgressFactCheck(t *testing.T) {
 		map[string]any{"company": "V", "contract": contract.ID, "debt": 1.0}, basis, "")
 
 	task := e.Tasks("Collector", TaskOpen)[0]
-	_, _ = e.TakeTask(ctx, collector, task.ID)
+	_, _ = e.TakeTask(ctx, collector, task.ID, "")
 
 	// report with zero actual events on the record → facts: 0 in the journal
-	_ = e.ReportProgress(ctx, collector, task.ID, "всё почти готово, осталось чуть-чуть")
+	_ = e.ReportProgress(ctx, collector, task.ID, "всё почти готово, осталось чуть-чуть", "")
 	events, _ := e.store.All(ctx)
 	last := events[len(events)-1]
 	if last.Kind != eventstore.TaskProgress {
@@ -223,7 +223,7 @@ func TestProgressFactCheck(t *testing.T) {
 
 	// after real work the fact counter moves
 	_, _ = e.Act(ctx, collector, "Debtor", debtor.ID, "send_claim", basis, "")
-	_ = e.ReportProgress(ctx, collector, task.ID, "претензия отправлена")
+	_ = e.ReportProgress(ctx, collector, task.ID, "претензия отправлена", "")
 	events, _ = e.store.All(ctx)
 	_ = json.Unmarshal(events[len(events)-1].Payload, &p)
 	if p.Facts != 1 {

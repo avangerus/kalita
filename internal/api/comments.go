@@ -39,7 +39,9 @@ func (s *Server) postComment(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR", "message": "bad json"})
 		return
 	}
-	c, err := s.eng.Comment(r.Context(), actor, r.PathValue("entity"), r.PathValue("id"), req.Body, req.Internal, req.Basis)
+	// REST idempotency is soft-mode / out of scope for PR-5 (LLD-01 §5) — pass
+	// through empty, unchanged from pre-PR-5 behavior.
+	c, err := s.eng.Comment(r.Context(), actor, r.PathValue("entity"), r.PathValue("id"), req.Body, req.Internal, req.Basis, "")
 	if err != nil {
 		writeErr(w, err)
 		return

@@ -78,6 +78,7 @@ type RoleDecl struct {
 //	read [Debtor, Contract]          → verb=read, items: {Entity:Debtor}, {Entity:Contract}
 //	deny [update Debtor.debt, ...]   → verb=deny, items carry their own Verb
 //	act [send_claim]                 → names
+//	emit [OrderPlaced]               → names (LLD-01 §4.2 perm_verb)
 //	read Debtor where manager = $me  → entity + where
 type PermItem struct {
 	Verb   string // for deny sub-items; otherwise inherits rule verb

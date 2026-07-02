@@ -30,8 +30,10 @@ Identity: bootstrap as the Intake role (KALITA_BOOTSTRAP_SECRET + KALITA_WORKER_
 import json
 import os
 import sys
+import time
 import urllib.request
 import urllib.error
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -74,6 +76,24 @@ def mcp(name, arguments):
     content = res.get("content", [])
     payload = json.loads(content[0]["text"]) if content else {}
     return payload, bool(res.get("isError"))
+
+
+def create_with_retry(entity, basis, values, idem_key, attempts=3):
+    """create_record, retrying a transient network failure under the SAME
+    idempotency_key (LLD-01 §5, PR-5): one inbound POST is one task attempt —
+    the key is generated once per request (see do_POST) and reused across
+    these retries, so a retried Append dedups to the record already created
+    on an earlier attempt instead of creating a duplicate."""
+    last_err = None
+    for i in range(attempts):
+        try:
+            return mcp("create_record", {"entity": entity, "basis": basis, "values": values,
+                                         "idempotency_key": idem_key})
+        except (urllib.error.URLError, TimeoutError) as ex:
+            last_err = ex
+            if i < attempts - 1:
+                time.sleep(0.5 * (i + 1))
+    raise last_err
 
 
 def map_payload(raw):
@@ -137,7 +157,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": err})
 
         basis = {"type": "rule", "id": "intake/" + CFG["entity"].lower()}
-        res, is_err = mcp("create_record", {"entity": CFG["entity"], "basis": basis, "values": values})
+        # one idempotency_key per inbound attempt (this POST), reused across the
+        # retries inside create_with_retry — LLD-01 §5 / PR-5.
+        idem_key = str(uuid.uuid4())
+        try:
+            res, is_err = create_with_retry(CFG["entity"], basis, values, idem_key)
+        except (urllib.error.URLError, TimeoutError) as ex:
+            return self._json(502, {"error": "UPSTREAM_UNAVAILABLE", "message": str(ex)})
         if is_err:  # surface the node's governed validation verdict, nothing more
             return self._json(400, {"error": res.get("code", "REJECTED"),
                                     "message": res.get("message", "create rejected")})

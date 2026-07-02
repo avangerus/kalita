@@ -40,7 +40,7 @@ type commentPayload struct {
 
 // Comment posts a comment on a record. The actor must be able to read the host
 // record; posting an internal comment requires write rights on the host.
-func (e *Engine) Comment(ctx context.Context, actor eventstore.Actor, entity, id, body string, internal bool, basis *eventstore.Basis) (*Comment, error) {
+func (e *Engine) Comment(ctx context.Context, actor eventstore.Actor, entity, id, body string, internal bool, basis *eventstore.Basis, idemKey string) (*Comment, error) {
 	if basis == nil {
 		return nil, &Err{Code: CodeBasisRequired, Message: "comment without basis",
 			FixHint: "reference the task or human instruction"}
@@ -70,12 +70,13 @@ func (e *Engine) Comment(ctx context.Context, actor eventstore.Actor, entity, id
 	}
 	payload, _ := json.Marshal(commentPayload{Entity: entity, RecordID: id, Body: body, Internal: internal})
 	ev, err := e.store.Append(ctx, eventstore.AppendInput{
-		Actor:      actor,
-		Kind:       eventstore.CommentPosted,
-		Subject:    eventstore.Subject{Entity: entity, RecordID: id},
-		Payload:    payload,
-		Basis:      basis,
-		DefVersion: e.defVersion,
+		Actor:          actor,
+		Kind:           eventstore.CommentPosted,
+		Subject:        eventstore.Subject{Entity: entity, RecordID: id},
+		Payload:        payload,
+		Basis:          basis,
+		DefVersion:     e.defVersion,
+		IdempotencyKey: idemKey,
 	})
 	if err != nil {
 		return nil, err

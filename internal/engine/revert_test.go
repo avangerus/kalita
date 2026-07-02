@@ -57,7 +57,7 @@ permissions:
 	id := rec.ID
 
 	// reverting a bare creation has nothing to undo
-	if _, err := eng.Revert(ctx, sup, "Ticket", id, basis); err == nil {
+	if _, err := eng.Revert(ctx, sup, "Ticket", id, basis, ""); err == nil {
 		t.Fatal("reverting a freshly created record must fail (nothing to undo)")
 	}
 
@@ -66,7 +66,7 @@ permissions:
 		t.Fatal(err)
 	}
 	headBefore, _, _ := store.Head(ctx)
-	rev, err := eng.Revert(ctx, sup, "Ticket", id, basis)
+	rev, err := eng.Revert(ctx, sup, "Ticket", id, basis, "")
 	if err != nil {
 		t.Fatalf("revert edit: %v", err)
 	}
@@ -86,7 +86,7 @@ permissions:
 	if g, _ := eng.Get(ctx, sup, "Ticket", id); g.Values["status"] != "Working" {
 		t.Fatalf("after start, status = %v, want Working", g.Values["status"])
 	}
-	back, err := eng.Revert(ctx, sup, "Ticket", id, basis)
+	back, err := eng.Revert(ctx, sup, "Ticket", id, basis, "")
 	if err != nil {
 		t.Fatalf("revert transition: %v", err)
 	}
@@ -95,7 +95,7 @@ permissions:
 	}
 
 	// --- redo: reverting the revert moves it forward again ---
-	redo, err := eng.Revert(ctx, sup, "Ticket", id, basis)
+	redo, err := eng.Revert(ctx, sup, "Ticket", id, basis, "")
 	if err != nil {
 		t.Fatalf("revert of revert: %v", err)
 	}
@@ -105,7 +105,7 @@ permissions:
 
 	// --- an agent without `full` cannot revert ---
 	wrk := eventstore.Actor{Type: eventstore.ActorAgent, ID: "bot", Role: "Worker"}
-	if _, err := eng.Revert(ctx, wrk, "Ticket", id, basis); err == nil {
+	if _, err := eng.Revert(ctx, wrk, "Ticket", id, basis, ""); err == nil {
 		t.Fatal("an agent without full permission must not revert")
 	} else if e, ok := err.(*Err); !ok || e.Code != CodePermissionDenied {
 		t.Fatalf("want PERMISSION_DENIED, got %v", err)

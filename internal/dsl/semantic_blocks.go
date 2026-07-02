@@ -164,28 +164,50 @@ func analyzeBlocks(ast *AST, m *Model, errs *Errors) {
 		allActions = append(allActions, a)
 	}
 	sort.Strings(allActions)
+
+	// LLD-01 §4.2/§5 (PR-5): same did-you-mean discipline for `emit [Name]`
+	// grants — a name that is not one of this pack's own declared events is a
+	// silent "protection that isn't" exactly like an unknown act/approve name.
+	eventNames := make([]string, 0, len(m.Events))
+	for name := range m.Events {
+		eventNames = append(eventNames, name)
+	}
+	sort.Strings(eventNames)
+
 	for _, role := range sortedKeys(m.Perms) {
 		pb := m.Perms[role]
 		scoped := scopedActions(m, pb, entityActions)
 		for _, rule := range pb.Rules {
 			for _, item := range rule.Items {
-				v := item.Verb
-				if v != "act" && v != "approve" {
-					continue
-				}
-				for _, name := range item.Names {
-					if scoped[name] {
-						continue
+				switch item.Verb {
+				case "act", "approve":
+					for _, name := range item.Names {
+						if scoped[name] {
+							continue
+						}
+						hint := "action names come from workflow transitions of entities this role can access"
+						if near := nearest(name, keys(scoped)); near != "" {
+							hint = "did you mean " + near + "? " + hint
+						} else if near := nearest(name, allActions); near != "" {
+							hint = "did you mean " + near + "? (note: " + near + " belongs to an entity " + role + " has no grant on)"
+						}
+						errs.add(EUnknownAction, "", item.Line,
+							fmt.Sprintf("permissions of %s reference unknown action %s", role, name),
+							hint)
 					}
-					hint := "action names come from workflow transitions of entities this role can access"
-					if near := nearest(name, keys(scoped)); near != "" {
-						hint = "did you mean " + near + "? " + hint
-					} else if near := nearest(name, allActions); near != "" {
-						hint = "did you mean " + near + "? (note: " + near + " belongs to an entity " + role + " has no grant on)"
+				case "emit":
+					for _, name := range item.Names {
+						if _, ok := m.Events[name]; ok {
+							continue
+						}
+						hint := "event names come from `event` declarations in this pack"
+						if near := nearest(name, eventNames); near != "" {
+							hint = "did you mean " + near + "? " + hint
+						}
+						errs.add(EUnknownEmitGrant, "", item.Line,
+							fmt.Sprintf("permissions of %s reference unknown event %s", role, name),
+							hint)
 					}
-					errs.add(EUnknownAction, "", item.Line,
-						fmt.Sprintf("permissions of %s reference unknown action %s", role, name),
-						hint)
 				}
 			}
 		}

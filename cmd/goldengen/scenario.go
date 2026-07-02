@@ -88,7 +88,7 @@ func buildScenario(ctx context.Context) (*scenarioResult, error) {
 	// --- definition evolution ------------------------------------------------
 	advance(time.Minute)
 	propA, cerrs, err := eng.ProposeChange(ctx, reviewer, map[string]string{"pack.dsl": packV2Source},
-		eng.DefVersion(), "add Case.resolution for closing notes", humanBasis(reviewer.ID))
+		eng.DefVersion(), "add Case.resolution for closing notes", humanBasis(reviewer.ID), "")
 	if err != nil {
 		return nil, fmt.Errorf("propose A: %w", err)
 	}
@@ -102,7 +102,7 @@ func buildScenario(ctx context.Context) (*scenarioResult, error) {
 
 	advance(time.Minute)
 	propB, cerrs, err := eng.ProposeChange(ctx, reviewer, map[string]string{"pack.dsl": packV3Source},
-		eng.DefVersion(), "add Memo.tag (speculative)", humanBasis(reviewer.ID))
+		eng.DefVersion(), "add Memo.tag (speculative)", humanBasis(reviewer.ID), "")
 	if err != nil {
 		return nil, fmt.Errorf("propose B: %w", err)
 	}
@@ -189,17 +189,17 @@ func buildScenario(ctx context.Context) (*scenarioResult, error) {
 	if openTask1 == nil || triageTask1 == nil {
 		return nil, fmt.Errorf("expected case1's on-create tasks to exist, got %d open Worker tasks", len(openTasksWorker))
 	}
-	if _, err := eng.TakeTask(ctx, worker, openTask1.ID); err != nil {
+	if _, err := eng.TakeTask(ctx, worker, openTask1.ID, ""); err != nil {
 		return nil, fmt.Errorf("take case1 open task: %w", err)
 	}
 	if _, err := eng.Act(ctx, worker, "Case", case1.ID, "open", taskBasis(openTask1.ID), ""); err != nil {
 		return nil, fmt.Errorf("act open case1: %w", err)
 	}
-	if err := eng.CompleteTask(ctx, worker, openTask1.ID, "opened"); err != nil {
+	if err := eng.CompleteTask(ctx, worker, openTask1.ID, "opened", ""); err != nil {
 		return nil, fmt.Errorf("complete case1 open task: %w", err)
 	}
 
-	if _, err := eng.TakeTask(ctx, worker, triageTask1.ID); err != nil {
+	if _, err := eng.TakeTask(ctx, worker, triageTask1.ID, ""); err != nil {
 		return nil, fmt.Errorf("take case1 triage task: %w", err)
 	}
 	if _, err := eng.Create(ctx, worker, "Memo", map[string]any{
@@ -207,10 +207,10 @@ func buildScenario(ctx context.Context) (*scenarioResult, error) {
 	}, taskBasis(triageTask1.ID), ""); err != nil {
 		return nil, fmt.Errorf("create memo1: %w", err)
 	}
-	if err := eng.ReportProgress(ctx, worker, triageTask1.ID, "vendor W9 received, memo filed"); err != nil {
+	if err := eng.ReportProgress(ctx, worker, triageTask1.ID, "vendor W9 received, memo filed", ""); err != nil {
 		return nil, fmt.Errorf("report progress case1 triage: %w", err)
 	}
-	if err := eng.CompleteTask(ctx, worker, triageTask1.ID, "triaged"); err != nil {
+	if err := eng.CompleteTask(ctx, worker, triageTask1.ID, "triaged", ""); err != nil {
 		return nil, fmt.Errorf("complete case1 triage task: %w", err)
 	}
 
@@ -231,7 +231,7 @@ func buildScenario(ctx context.Context) (*scenarioResult, error) {
 	if openTask2 == nil {
 		return nil, fmt.Errorf("expected case2's open task to exist")
 	}
-	if _, err := eng.TakeTask(ctx, worker, openTask2.ID); err != nil {
+	if _, err := eng.TakeTask(ctx, worker, openTask2.ID, ""); err != nil {
 		return nil, fmt.Errorf("take case2 open task: %w", err)
 	}
 
@@ -249,10 +249,10 @@ func buildScenario(ctx context.Context) (*scenarioResult, error) {
 	if triageTask3 == nil {
 		return nil, fmt.Errorf("expected case3's triage task to exist")
 	}
-	if _, err := eng.TakeTask(ctx, worker, triageTask3.ID); err != nil {
+	if _, err := eng.TakeTask(ctx, worker, triageTask3.ID, ""); err != nil {
 		return nil, fmt.Errorf("take case3 triage task: %w", err)
 	}
-	if err := eng.FailTask(ctx, worker, triageTask3.ID, "cannot identify auditor of record"); err != nil {
+	if err := eng.FailTask(ctx, worker, triageTask3.ID, "cannot identify auditor of record", ""); err != nil {
 		return nil, fmt.Errorf("fail case3 triage task: %w", err)
 	}
 
@@ -295,7 +295,7 @@ func buildScenario(ctx context.Context) (*scenarioResult, error) {
 	}
 
 	advance(time.Minute)
-	if _, err := eng.RewindTo(ctx, owner, "Case", case6.ID, createSeq6, humanBasis(owner.ID)); err != nil {
+	if _, err := eng.RewindTo(ctx, owner, "Case", case6.ID, createSeq6, humanBasis(owner.ID), ""); err != nil {
 		return nil, fmt.Errorf("rewind case6: %w", err)
 	}
 
@@ -339,16 +339,16 @@ func buildScenario(ctx context.Context) (*scenarioResult, error) {
 	}, humanBasis(owner.ID), ""); err != nil {
 		return nil, fmt.Errorf("update case1 resolution: %w", err)
 	}
-	if _, err := eng.Comment(ctx, reviewer, "Case", case1.ID, "Please confirm vendor banking details on file.", false, humanBasis(reviewer.ID)); err != nil {
+	if _, err := eng.Comment(ctx, reviewer, "Case", case1.ID, "Please confirm vendor banking details on file.", false, humanBasis(reviewer.ID), ""); err != nil {
 		return nil, fmt.Errorf("comment case1 public: %w", err)
 	}
-	if _, err := eng.Comment(ctx, owner, "Case", case1.ID, "Approved after W9 and banking details verified against the ledger.", true, humanBasis(owner.ID)); err != nil {
+	if _, err := eng.Comment(ctx, owner, "Case", case1.ID, "Approved after W9 and banking details verified against the ledger.", true, humanBasis(owner.ID), ""); err != nil {
 		return nil, fmt.Errorf("comment case1 internal: %w", err)
 	}
 
 	// --- undo: a transition (case3) and a field edit (case4) ----------------
 	advance(time.Minute)
-	if _, err := eng.Revert(ctx, owner, "Case", case3.ID, humanBasis(owner.ID)); err != nil {
+	if _, err := eng.Revert(ctx, owner, "Case", case3.ID, humanBasis(owner.ID), ""); err != nil {
 		return nil, fmt.Errorf("revert case3 reject_case: %w", err)
 	}
 
@@ -361,7 +361,7 @@ func buildScenario(ctx context.Context) (*scenarioResult, error) {
 	}
 
 	advance(time.Minute)
-	if _, err := eng.Revert(ctx, owner, "Case", case4.ID, humanBasis(owner.ID)); err != nil {
+	if _, err := eng.Revert(ctx, owner, "Case", case4.ID, humanBasis(owner.ID), ""); err != nil {
 		return nil, fmt.Errorf("revert case4 notes: %w", err)
 	}
 

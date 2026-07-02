@@ -46,7 +46,7 @@ func TestRewindCrashConsistency(t *testing.T) {
 	if sendClaim == nil {
 		t.Fatalf("send_claim task expected after creation, got %+v", open)
 	}
-	if _, err := e.TakeTask(ctx, collector, sendClaim.ID); err != nil {
+	if _, err := e.TakeTask(ctx, collector, sendClaim.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.Act(ctx, collector, "Debtor", debtor.ID, "send_claim", basis, ""); err != nil {
@@ -71,7 +71,7 @@ func TestRewindCrashConsistency(t *testing.T) {
 	}
 	fs.failAfter = fs.calls + 1 // field-diff append allowed; state-move append fails
 
-	if _, err := e2raw.RewindTo(ctx, anna, "Debtor", debtor.ID, toSeq, basis); err == nil {
+	if _, err := e2raw.RewindTo(ctx, anna, "Debtor", debtor.ID, toSeq, basis, ""); err == nil {
 		t.Fatal("RewindTo must surface the simulated crash as an error")
 	}
 

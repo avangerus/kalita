@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
@@ -82,9 +84,38 @@ func rpc(t *testing.T, url, token, method string, params any) map[string]any {
 	return out.Result
 }
 
+// mutatingIdemTools is every MCP tool whose dispatch case now requires
+// idempotency_key (PR-5, LLD-01 §5). Kept here (not in tools.go) so the test
+// harness's auto-fill below is visibly a TEST convenience, not product policy.
+var mutatingIdemTools = map[string]bool{
+	"create_record": true, "update_record": true, "act": true,
+	"revert_record": true, "rewind_record": true, "take_task": true,
+	"report_progress": true, "complete_task": true, "fail_task": true,
+	"comment": true, "propose_change": true, "emit_event": true,
+}
+
 // call invokes a tool and decodes the single text content block.
+//
+// PR-5 note: idempotency_key became mandatory on every mutating MCP tool
+// (LLD-01 §5) after this whole suite (~80 call sites across acceptance_test.go
+// and the *_dogfood_test.go packs) was written against a world where it did
+// not exist. Rather than hand-edit every literal args map — which would only
+// paste the same placeholder key everywhere and risk accidental idem
+// collisions between distinct calls in the same test (e.g. loops that create
+// several records) — this single choke point fills in a fresh, unique key
+// (uuid) for any mutating-tool call whose args map does not already set one.
+// Every test still exercises exactly what it exercised before (permissions,
+// workflow, journal content, error codes); the only thing that changes is
+// that a previously-nonexistent required field is now populated.
 func call(t *testing.T, url, token, tool string, args any) (map[string]any, bool) {
 	t.Helper()
+	if mutatingIdemTools[tool] {
+		if m, ok := args.(map[string]any); ok {
+			if _, has := m["idempotency_key"]; !has {
+				m["idempotency_key"] = "test-idem-" + uuid.NewString()
+			}
+		}
+	}
 	res := rpc(t, url, token, "tools/call", map[string]any{"name": tool, "arguments": args})
 	content := res["content"].([]any)[0].(map[string]any)["text"].(string)
 	isErr, _ := res["isError"].(bool)

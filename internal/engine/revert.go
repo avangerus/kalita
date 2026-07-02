@@ -23,7 +23,7 @@ import (
 // BACKWARD across a one-way transition. So it is a supervisory capability —
 // gated on `full` permission over the entity, which an agent role (read/update/
 // act + deny) never holds. Agents act forward; humans correct.
-func (e *Engine) Revert(ctx context.Context, actor eventstore.Actor, entity, id string, basis *eventstore.Basis) (*Record, error) {
+func (e *Engine) Revert(ctx context.Context, actor eventstore.Actor, entity, id string, basis *eventstore.Basis, idemKey string) (*Record, error) {
 	if basis == nil {
 		return nil, &Err{Code: CodeBasisRequired, Message: "mutation without basis",
 			FixHint: "pass the human instruction this revert is based on"}
@@ -67,10 +67,11 @@ func (e *Engine) Revert(ctx context.Context, actor eventstore.Actor, entity, id 
 		payload, _ := json.Marshal(updatedPayload{Changes: undo})
 		if _, err := e.store.Append(ctx, eventstore.AppendInput{
 			Actor: actor, Kind: eventstore.RecordUpdated,
-			Subject:    eventstore.Subject{Entity: entity, RecordID: id},
-			Payload:    payload,
-			Basis:      &eventstore.Basis{Type: "revert", ID: fmt.Sprint(last.Seq)},
-			DefVersion: e.defVersion,
+			Subject:        eventstore.Subject{Entity: entity, RecordID: id},
+			Payload:        payload,
+			Basis:          &eventstore.Basis{Type: "revert", ID: fmt.Sprint(last.Seq)},
+			DefVersion:     e.defVersion,
+			IdempotencyKey: idemKey,
 		}); err != nil {
 			return nil, err
 		}
@@ -88,10 +89,11 @@ func (e *Engine) Revert(ctx context.Context, actor eventstore.Actor, entity, id 
 		payload, _ := json.Marshal(actionPayload{Action: "revert_" + p.Action, From: p.To, To: p.From})
 		if _, err := e.store.Append(ctx, eventstore.AppendInput{
 			Actor: actor, Kind: eventstore.RecordAction,
-			Subject:    eventstore.Subject{Entity: entity, RecordID: id},
-			Payload:    payload,
-			Basis:      &eventstore.Basis{Type: "revert", ID: fmt.Sprint(last.Seq)},
-			DefVersion: e.defVersion,
+			Subject:        eventstore.Subject{Entity: entity, RecordID: id},
+			Payload:        payload,
+			Basis:          &eventstore.Basis{Type: "revert", ID: fmt.Sprint(last.Seq)},
+			DefVersion:     e.defVersion,
+			IdempotencyKey: idemKey,
 		}); err != nil {
 			return nil, err
 		}
@@ -117,7 +119,7 @@ func (e *Engine) Revert(ctx context.Context, actor eventstore.Actor, entity, id 
 // record.action if the state field moved) to walk current -> target. History is
 // preserved; the rewind is itself journaled and reversible. Supervisory: gated
 // on `full`, same as Revert.
-func (e *Engine) RewindTo(ctx context.Context, actor eventstore.Actor, entity, id string, toSeq uint64, basis *eventstore.Basis) (*Record, error) {
+func (e *Engine) RewindTo(ctx context.Context, actor eventstore.Actor, entity, id string, toSeq uint64, basis *eventstore.Basis, idemKey string) (*Record, error) {
 	if basis == nil {
 		return nil, &Err{Code: CodeBasisRequired, Message: "mutation without basis",
 			FixHint: "pass the human instruction this rewind is based on"}
@@ -193,12 +195,20 @@ func (e *Engine) RewindTo(ctx context.Context, actor eventstore.Actor, entity, i
 	}
 
 	rb := &eventstore.Basis{Type: "rewind", ID: fmt.Sprint(toSeq)}
+	// two Appends can land in one call (a field diff plus a state move); a
+	// shared idemKey is split per-Append so a retry dedups each independently
+	// instead of the second Append colliding with the first's key (LLD-01 §5).
+	updIdem, actIdem := "", ""
+	if idemKey != "" {
+		updIdem, actIdem = idemKey+"|updated", idemKey+"|action"
+	}
 	if len(changes) > 0 {
 		payload, _ := json.Marshal(updatedPayload{Changes: changes})
 		if _, err := e.store.Append(ctx, eventstore.AppendInput{
 			Actor: actor, Kind: eventstore.RecordUpdated,
 			Subject: eventstore.Subject{Entity: entity, RecordID: id},
 			Payload: payload, Basis: rb, DefVersion: e.defVersion,
+			IdempotencyKey: updIdem,
 		}); err != nil {
 			return nil, err
 		}
@@ -213,6 +223,7 @@ func (e *Engine) RewindTo(ctx context.Context, actor eventstore.Actor, entity, i
 			Actor: actor, Kind: eventstore.RecordAction,
 			Subject: eventstore.Subject{Entity: entity, RecordID: id},
 			Payload: payload, Basis: rb, DefVersion: e.defVersion,
+			IdempotencyKey: actIdem,
 		}); err != nil {
 			return nil, err
 		}

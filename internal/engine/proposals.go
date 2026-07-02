@@ -56,7 +56,7 @@ func DefinitionMessage(proposalID, decision string) []byte {
 // ProposeChange validates new pack sources against the running definition and
 // parks them for a human signature. Compile errors are returned as data (the
 // agent's self-correction loop), not as a failure.
-func (e *Engine) ProposeChange(ctx context.Context, actor eventstore.Actor, files map[string]string, baseDefVersion uint64, description string, basis *eventstore.Basis) (*Proposal, []*dsl.Error, error) {
+func (e *Engine) ProposeChange(ctx context.Context, actor eventstore.Actor, files map[string]string, baseDefVersion uint64, description string, basis *eventstore.Basis, idemKey string) (*Proposal, []*dsl.Error, error) {
 	if basis == nil {
 		return nil, nil, &Err{Code: CodeBasisRequired, Message: "proposal without basis",
 			FixHint: "reference the task or human instruction this change implements"}
@@ -90,12 +90,13 @@ func (e *Engine) ProposeChange(ctx context.Context, actor eventstore.Actor, file
 		Description: description, BaseDefVersion: baseDefVersion, Files: files, Plan: p.Plan,
 	})
 	if _, err := e.store.Append(ctx, eventstore.AppendInput{
-		Actor:      actor,
-		Kind:       eventstore.DefinitionProposed,
-		Subject:    eventstore.Subject{ProposalID: p.ID},
-		Payload:    payload,
-		Basis:      basis,
-		DefVersion: e.defVersion,
+		Actor:          actor,
+		Kind:           eventstore.DefinitionProposed,
+		Subject:        eventstore.Subject{ProposalID: p.ID},
+		Payload:        payload,
+		Basis:          basis,
+		DefVersion:     e.defVersion,
+		IdempotencyKey: idemKey,
 	}); err != nil {
 		return nil, nil, err
 	}

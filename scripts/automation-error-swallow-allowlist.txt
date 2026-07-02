@@ -10,7 +10,10 @@
 # forever — the next runAutoTransitions/ensureWorkflowTasks pass for the same
 # record recomputes the identical key and retries the same Append. Still a
 # swallow: a failing store would not surface here today.
-internal/engine/tasks.go:310
+# Line updated for PR-5 (LLD-01 §5): earlier edits in this file (mandatory
+# MCP idempotency plumbing) shifted this call from line 310 to 313; same
+# call, same reviewed exception, no behavior change.
+internal/engine/tasks.go:313
 
 # internal/engine/workflow.go — runAutoTransitions: applies an `auto`
 # transition inside the hops<10 anti-loop bound. A failing Append here

@@ -67,7 +67,7 @@ permissions:
 	}
 
 	headBefore, _, _ := store.Head(ctx)
-	got, err := eng.RewindTo(ctx, sup, "Ticket", id, createSeq, basis)
+	got, err := eng.RewindTo(ctx, sup, "Ticket", id, createSeq, basis, "")
 	if err != nil {
 		t.Fatalf("rewind: %v", err)
 	}
@@ -85,12 +85,12 @@ permissions:
 	}
 
 	// rewinding before the record existed is refused
-	if _, err := eng.RewindTo(ctx, sup, "Ticket", id, createSeq-1, basis); err == nil {
+	if _, err := eng.RewindTo(ctx, sup, "Ticket", id, createSeq-1, basis, ""); err == nil {
 		t.Fatal("rewind to before creation must fail")
 	}
 	// an agent without `full` cannot rewind
 	wrk := eventstore.Actor{Type: eventstore.ActorAgent, ID: "bot", Role: "Worker"}
-	if _, err := eng.RewindTo(ctx, wrk, "Ticket", id, createSeq, basis); err == nil {
+	if _, err := eng.RewindTo(ctx, wrk, "Ticket", id, createSeq, basis, ""); err == nil {
 		t.Fatal("an agent without full permission must not rewind")
 	}
 }

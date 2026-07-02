@@ -167,7 +167,7 @@ func (e *Engine) AgentTasks() []*Task {
 }
 
 // TakeTask grants an exclusive lease to the actor.
-func (e *Engine) TakeTask(ctx context.Context, actor eventstore.Actor, taskID string) (*Task, error) {
+func (e *Engine) TakeTask(ctx context.Context, actor eventstore.Actor, taskID, idemKey string) (*Task, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	t, ok := e.tasks[taskID]
@@ -189,7 +189,8 @@ func (e *Engine) TakeTask(ctx context.Context, actor eventstore.Actor, taskID st
 		Actor: actor, Kind: eventstore.TaskTaken,
 		Subject: eventstore.Subject{TaskID: taskID},
 		Payload: payload, DefVersion: e.defVersion,
-		Basis: &eventstore.Basis{Type: "task", ID: taskID},
+		Basis:          &eventstore.Basis{Type: "task", ID: taskID},
+		IdempotencyKey: idemKey,
 	}); err != nil {
 		return nil, err
 	}
@@ -200,7 +201,7 @@ func (e *Engine) TakeTask(ctx context.Context, actor eventstore.Actor, taskID st
 // ReportProgress attaches a note, cross-checked against the journal: the
 // payload records how many events this actor actually produced on the task's
 // record since taking it. A glowing report with zero facts is visible as such.
-func (e *Engine) ReportProgress(ctx context.Context, actor eventstore.Actor, taskID, note string) error {
+func (e *Engine) ReportProgress(ctx context.Context, actor eventstore.Actor, taskID, note, idemKey string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	t, ok := e.tasks[taskID]
@@ -213,7 +214,8 @@ func (e *Engine) ReportProgress(ctx context.Context, actor eventstore.Actor, tas
 		Actor: actor, Kind: eventstore.TaskProgress,
 		Subject: eventstore.Subject{TaskID: taskID},
 		Payload: payload, DefVersion: e.defVersion,
-		Basis: &eventstore.Basis{Type: "task", ID: taskID},
+		Basis:          &eventstore.Basis{Type: "task", ID: taskID},
+		IdempotencyKey: idemKey,
 	})
 	if err != nil {
 		return err
@@ -226,16 +228,16 @@ func (e *Engine) ReportProgress(ctx context.Context, actor eventstore.Actor, tas
 }
 
 // CompleteTask finishes a task with a result.
-func (e *Engine) CompleteTask(ctx context.Context, actor eventstore.Actor, taskID, result string) error {
-	return e.finishTask(ctx, actor, taskID, eventstore.TaskCompleted, TaskCompleted, result)
+func (e *Engine) CompleteTask(ctx context.Context, actor eventstore.Actor, taskID, result, idemKey string) error {
+	return e.finishTask(ctx, actor, taskID, eventstore.TaskCompleted, TaskCompleted, result, idemKey)
 }
 
 // FailTask is the honest way out: cheaper for the record than a silent hang.
-func (e *Engine) FailTask(ctx context.Context, actor eventstore.Actor, taskID, reason string) error {
-	return e.finishTask(ctx, actor, taskID, eventstore.TaskFailed, TaskFailed, reason)
+func (e *Engine) FailTask(ctx context.Context, actor eventstore.Actor, taskID, reason, idemKey string) error {
+	return e.finishTask(ctx, actor, taskID, eventstore.TaskFailed, TaskFailed, reason, idemKey)
 }
 
-func (e *Engine) finishTask(ctx context.Context, actor eventstore.Actor, taskID string, kind eventstore.Kind, status TaskStatus, text string) error {
+func (e *Engine) finishTask(ctx context.Context, actor eventstore.Actor, taskID string, kind eventstore.Kind, status TaskStatus, text, idemKey string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	t, ok := e.tasks[taskID]
@@ -252,7 +254,8 @@ func (e *Engine) finishTask(ctx context.Context, actor eventstore.Actor, taskID 
 		Actor: actor, Kind: kind,
 		Subject: eventstore.Subject{TaskID: taskID},
 		Payload: payload, DefVersion: e.defVersion,
-		Basis: &eventstore.Basis{Type: "task", ID: taskID},
+		Basis:          &eventstore.Basis{Type: "task", ID: taskID},
+		IdempotencyKey: idemKey,
 	}); err != nil {
 		return err
 	}

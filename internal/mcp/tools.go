@@ -39,19 +39,19 @@ var toolDefs = []map[string]any{
 	{"name": "get_grammar", "description": "The kalita DSL grammar with a canonical example, for generating packs.", "inputSchema": schema(map[string]any{})},
 	{"name": "query", "description": "List records within your permissions. 'where' is the full condition language (and/or/not/(), =,!=,>,<,>=,<=, in [..], ref-paths like project.owner, $me/$self/$now); 'sort' is a list of fields (prefix - for descending); 'search' is full-text over text/string fields.", "inputSchema": schema(map[string]any{"entity": str, "filter": obj, "where": str, "sort": map[string]any{"type": "array", "items": str}, "search": str, "limit": num, "offset": num}, "entity")},
 	{"name": "get_record", "description": "One record by id (fields you may not read are absent).", "inputSchema": schema(map[string]any{"entity": str, "id": str}, "entity", "id")},
-	{"name": "create_record", "description": "Create a record. Requires basis.", "inputSchema": schema(map[string]any{"entity": str, "values": obj, "basis": basisSchema, "idempotency_key": str}, "entity", "values", "basis")},
-	{"name": "update_record", "description": "Partially update a record. Requires basis. The workflow state field cannot be written — use act.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "values": obj, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "values", "basis")},
-	{"name": "act", "description": "Execute a workflow transition by action name. May return pending_approval — then a human decides, you cannot rush it.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "action": str, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "action", "basis")},
-	{"name": "revert_record", "description": "Undo a record's most recent change — a field edit or a workflow transition — by appending a compensating event (history is never erased). Can move the state backward across a one-way transition; needs `full` on the entity, so it is a human supervisory action. Revert again to redo.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "basis": basisSchema}, "entity", "id", "basis")},
-	{"name": "rewind_record", "description": "Restore a record to its state as of journal event to_seq — multi-step undo across any number of edits and transitions (e.g. 'rewind to before the agent touched it'). Reconstructs the past state from history and appends compensating events; nothing is erased. Needs `full` on the entity. Use read_journal to find the target seq.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "to_seq": map[string]any{"type": "integer"}, "basis": basisSchema}, "entity", "id", "to_seq", "basis")},
+	{"name": "create_record", "description": "Create a record. Requires basis and idempotency_key.", "inputSchema": schema(map[string]any{"entity": str, "values": obj, "basis": basisSchema, "idempotency_key": str}, "entity", "values", "basis", "idempotency_key")},
+	{"name": "update_record", "description": "Partially update a record. Requires basis and idempotency_key. The workflow state field cannot be written — use act.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "values": obj, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "values", "basis", "idempotency_key")},
+	{"name": "act", "description": "Execute a workflow transition by action name. Requires idempotency_key. May return pending_approval — then a human decides, you cannot rush it.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "action": str, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "action", "basis", "idempotency_key")},
+	{"name": "revert_record", "description": "Undo a record's most recent change — a field edit or a workflow transition — by appending a compensating event (history is never erased). Can move the state backward across a one-way transition; needs `full` on the entity, so it is a human supervisory action. Revert again to redo. Requires idempotency_key.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "basis", "idempotency_key")},
+	{"name": "rewind_record", "description": "Restore a record to its state as of journal event to_seq — multi-step undo across any number of edits and transitions (e.g. 'rewind to before the agent touched it'). Reconstructs the past state from history and appends compensating events; nothing is erased. Needs `full` on the entity. Use read_journal to find the target seq. Requires idempotency_key.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "to_seq": map[string]any{"type": "integer"}, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "to_seq", "basis", "idempotency_key")},
 	{"name": "diff_record", "description": "The NET change to a record between two journal seqs: per-field old→new plus any workflow state move. 'Everything the agent touched since it took the record' is diff from that seq with to_seq omitted (= now). A read — honors read permissions, never mutates. Pair with rewind_record: see the change before you reverse it.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "from_seq": map[string]any{"type": "integer"}, "to_seq": map[string]any{"type": "integer"}}, "entity", "id", "from_seq")},
 	{"name": "list_my_tasks", "description": "Tasks assigned to your role (open by default).", "inputSchema": schema(map[string]any{"status": str})},
 	{"name": "wait_for_task", "description": "Long-poll: blocks until an open task exists for your role or timeout_sec (default 25, max 55) passes. Use this instead of polling list_my_tasks in a loop.", "inputSchema": schema(map[string]any{"timeout_sec": num})},
-	{"name": "take_task", "description": "Take an open task: an exclusive lease with TTL. Losing the lease loses the task.", "inputSchema": schema(map[string]any{"task_id": str}, "task_id")},
-	{"name": "report_progress", "description": "Attach a progress note. The journal cross-checks it against your actual events on the record.", "inputSchema": schema(map[string]any{"task_id": str, "note": str}, "task_id", "note")},
-	{"name": "complete_task", "description": "Finish a taken task with a result.", "inputSchema": schema(map[string]any{"task_id": str, "result": str}, "task_id", "result")},
-	{"name": "fail_task", "description": "Honestly fail a task with a reason. Cheaper than silently hanging until the lease expires.", "inputSchema": schema(map[string]any{"task_id": str, "reason": str}, "task_id", "reason")},
-	{"name": "comment", "description": "Post a comment on a record — the conversation thread (talk to a human in a task, reply to a customer). internal=true is a staff-only note the external customer cannot see.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "body": str, "internal": map[string]any{"type": "boolean"}, "basis": basisSchema}, "entity", "id", "body", "basis")},
+	{"name": "take_task", "description": "Take an open task: an exclusive lease with TTL. Losing the lease loses the task. Requires idempotency_key.", "inputSchema": schema(map[string]any{"task_id": str, "idempotency_key": str}, "task_id", "idempotency_key")},
+	{"name": "report_progress", "description": "Attach a progress note. The journal cross-checks it against your actual events on the record. Requires idempotency_key.", "inputSchema": schema(map[string]any{"task_id": str, "note": str, "idempotency_key": str}, "task_id", "note", "idempotency_key")},
+	{"name": "complete_task", "description": "Finish a taken task with a result. Requires idempotency_key.", "inputSchema": schema(map[string]any{"task_id": str, "result": str, "idempotency_key": str}, "task_id", "result", "idempotency_key")},
+	{"name": "fail_task", "description": "Honestly fail a task with a reason. Cheaper than silently hanging until the lease expires. Requires idempotency_key.", "inputSchema": schema(map[string]any{"task_id": str, "reason": str, "idempotency_key": str}, "task_id", "reason", "idempotency_key")},
+	{"name": "comment", "description": "Post a comment on a record — the conversation thread (talk to a human in a task, reply to a customer). internal=true is a staff-only note the external customer cannot see. Requires idempotency_key.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "body": str, "internal": map[string]any{"type": "boolean"}, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "body", "basis", "idempotency_key")},
 	{"name": "read_comments", "description": "Read the comment thread on a record (only what you may see — customers do not see internal notes).", "inputSchema": schema(map[string]any{"entity": str, "id": str}, "entity", "id")},
 	{"name": "read_journal", "description": "Event history of a record you can read.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "limit": num}, "entity", "id")},
 	{"name": "compose_pack", "description": "Author a pack from STRUCTURED JSON instead of raw DSL — you do not need the grammar. Pass entities with typed fields, workflows, roles and permission rules; the node renders and validates the DSL. Field types: string,text,int,float,money,bool,date,datetime,file,email,url,phone,duration,percent,color,decimal,json,serial,enum(+values),ref(+ref),array_ref(+ref),tags,multiselect(+values),array_file.", "inputSchema": map[string]any{
@@ -86,10 +86,11 @@ var toolDefs = []map[string]any{
 	}},
 	{"name": "field_types", "description": "The closed list of field types — discover types without the prose grammar.", "inputSchema": schema(map[string]any{})},
 	{"name": "validate_dsl", "description": "Dry-run compile of .dsl sources. Returns structured errors with fix hints; loop until ok.", "inputSchema": schema(map[string]any{"files": obj}, "files")},
-	{"name": "propose_change", "description": "Propose new/changed pack sources. Validated, then parked for a human signature; base_def_version must match the live system (describe_system).", "inputSchema": schema(map[string]any{"files": obj, "base_def_version": num, "description": str, "basis": basisSchema}, "files", "base_def_version", "description", "basis")},
+	{"name": "propose_change", "description": "Propose new/changed pack sources. Validated, then parked for a human signature; base_def_version must match the live system (describe_system). Requires idempotency_key.", "inputSchema": schema(map[string]any{"files": obj, "base_def_version": num, "description": str, "basis": basisSchema, "idempotency_key": str}, "files", "base_def_version", "description", "basis", "idempotency_key")},
 	{"name": "get_proposal", "description": "Status of a proposal: pending, applied or rejected with reason.", "inputSchema": schema(map[string]any{"proposal_id": str}, "proposal_id")},
 	{"name": "list_dashboards", "description": "Names and titles of the dashboards declared in the loaded packs.", "inputSchema": schema(map[string]any{})},
 	{"name": "dashboard", "description": "Compute one dashboard by name: each tile is an aggregate (count/sum/avg/min/max) over a whole table, optionally grouped. Totals respect your row-level permissions.", "inputSchema": schema(map[string]any{"name": str}, "name")},
+	{"name": "emit_event", "description": "Emit a domain event declared by the loaded pack(s) directly — for inbound connectors and cross-node bridges, outside any DSL transition. Requires an `emit [Name]` grant on your role; payload is validated against the event's own schema; subscribers run synchronously in the same cascade, exactly as if a transition's `emits` clause had fired it. Requires idempotency_key.", "inputSchema": schema(map[string]any{"name": str, "payload": obj, "idempotency_key": str}, "name", "idempotency_key")},
 }
 
 func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, args json.RawMessage) (any, any) {
@@ -135,6 +136,9 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 			IdempotencyKey string            `json:"idempotency_key"`
 		}
 		_ = json.Unmarshal(args, &a)
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
 		rec, err := s.eng.Create(ctx, actor, a.Entity, a.Values, a.Basis, a.IdempotencyKey)
 		return rec, toolErr(err)
 
@@ -147,6 +151,9 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 			IdempotencyKey string            `json:"idempotency_key"`
 		}
 		_ = json.Unmarshal(args, &a)
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
 		rec, err := s.eng.Update(ctx, actor, a.Entity, a.ID, a.Values, a.Basis, a.IdempotencyKey)
 		return rec, toolErr(err)
 
@@ -159,28 +166,39 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 			IdempotencyKey string            `json:"idempotency_key"`
 		}
 		_ = json.Unmarshal(args, &a)
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
 		res, err := s.eng.Act(ctx, actor, a.Entity, a.ID, a.Action, a.Basis, a.IdempotencyKey)
 		return res, toolErr(err)
 
 	case "revert_record":
 		var a struct {
-			Entity string            `json:"entity"`
-			ID     string            `json:"id"`
-			Basis  *eventstore.Basis `json:"basis"`
+			Entity         string            `json:"entity"`
+			ID             string            `json:"id"`
+			Basis          *eventstore.Basis `json:"basis"`
+			IdempotencyKey string            `json:"idempotency_key"`
 		}
 		_ = json.Unmarshal(args, &a)
-		rec, err := s.eng.Revert(ctx, actor, a.Entity, a.ID, a.Basis)
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
+		rec, err := s.eng.Revert(ctx, actor, a.Entity, a.ID, a.Basis, a.IdempotencyKey)
 		return rec, toolErr(err)
 
 	case "rewind_record":
 		var a struct {
-			Entity string            `json:"entity"`
-			ID     string            `json:"id"`
-			ToSeq  uint64            `json:"to_seq"`
-			Basis  *eventstore.Basis `json:"basis"`
+			Entity         string            `json:"entity"`
+			ID             string            `json:"id"`
+			ToSeq          uint64            `json:"to_seq"`
+			Basis          *eventstore.Basis `json:"basis"`
+			IdempotencyKey string            `json:"idempotency_key"`
 		}
 		_ = json.Unmarshal(args, &a)
-		rec, err := s.eng.RewindTo(ctx, actor, a.Entity, a.ID, a.ToSeq, a.Basis)
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
+		rec, err := s.eng.RewindTo(ctx, actor, a.Entity, a.ID, a.ToSeq, a.Basis, a.IdempotencyKey)
 		return rec, toolErr(err)
 
 	case "diff_record":
@@ -215,46 +233,84 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		return map[string]any{"tasks": s.eng.Tasks(actor.Role, status)}, nil
 
 	case "take_task":
-		var a struct{ TaskID string `json:"task_id"` }
+		var a struct {
+			TaskID         string `json:"task_id"`
+			IdempotencyKey string `json:"idempotency_key"`
+		}
 		_ = json.Unmarshal(args, &a)
-		t, err := s.eng.TakeTask(ctx, actor, a.TaskID)
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
+		t, err := s.eng.TakeTask(ctx, actor, a.TaskID, a.IdempotencyKey)
 		return t, toolErr(err)
 
 	case "report_progress":
 		var a struct {
-			TaskID string `json:"task_id"`
-			Note   string `json:"note"`
+			TaskID         string `json:"task_id"`
+			Note           string `json:"note"`
+			IdempotencyKey string `json:"idempotency_key"`
 		}
 		_ = json.Unmarshal(args, &a)
-		return map[string]any{"ok": true}, toolErr(s.eng.ReportProgress(ctx, actor, a.TaskID, a.Note))
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
+		return map[string]any{"ok": true}, toolErr(s.eng.ReportProgress(ctx, actor, a.TaskID, a.Note, a.IdempotencyKey))
 
 	case "complete_task":
 		var a struct {
-			TaskID string `json:"task_id"`
-			Result string `json:"result"`
+			TaskID         string `json:"task_id"`
+			Result         string `json:"result"`
+			IdempotencyKey string `json:"idempotency_key"`
 		}
 		_ = json.Unmarshal(args, &a)
-		return map[string]any{"ok": true}, toolErr(s.eng.CompleteTask(ctx, actor, a.TaskID, a.Result))
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
+		return map[string]any{"ok": true}, toolErr(s.eng.CompleteTask(ctx, actor, a.TaskID, a.Result, a.IdempotencyKey))
 
 	case "fail_task":
 		var a struct {
-			TaskID string `json:"task_id"`
-			Reason string `json:"reason"`
+			TaskID         string `json:"task_id"`
+			Reason         string `json:"reason"`
+			IdempotencyKey string `json:"idempotency_key"`
 		}
 		_ = json.Unmarshal(args, &a)
-		return map[string]any{"ok": true}, toolErr(s.eng.FailTask(ctx, actor, a.TaskID, a.Reason))
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
+		return map[string]any{"ok": true}, toolErr(s.eng.FailTask(ctx, actor, a.TaskID, a.Reason, a.IdempotencyKey))
 
 	case "comment":
 		var a struct {
-			Entity   string            `json:"entity"`
-			ID       string            `json:"id"`
-			Body     string            `json:"body"`
-			Internal bool              `json:"internal"`
-			Basis    *eventstore.Basis `json:"basis"`
+			Entity         string            `json:"entity"`
+			ID             string            `json:"id"`
+			Body           string            `json:"body"`
+			Internal       bool              `json:"internal"`
+			Basis          *eventstore.Basis `json:"basis"`
+			IdempotencyKey string            `json:"idempotency_key"`
 		}
 		_ = json.Unmarshal(args, &a)
-		c, err := s.eng.Comment(ctx, actor, a.Entity, a.ID, a.Body, a.Internal, a.Basis)
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
+		c, err := s.eng.Comment(ctx, actor, a.Entity, a.ID, a.Body, a.Internal, a.Basis, a.IdempotencyKey)
 		return c, toolErr(err)
+
+	case "emit_event":
+		var a struct {
+			Name           string         `json:"name"`
+			Payload        map[string]any `json:"payload"`
+			IdempotencyKey string         `json:"idempotency_key"`
+		}
+		_ = json.Unmarshal(args, &a)
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
+		fact, err := s.eng.EmitEvent(ctx, actor, a.Name, a.Payload, a.IdempotencyKey)
+		if err != nil {
+			return nil, toolErr(err)
+		}
+		return map[string]any{"name": fact.Name, "payload": fact.Payload, "seq": fact.Seq}, nil
 
 	case "read_comments":
 		var a struct {
@@ -325,9 +381,13 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 			BaseDefVersion uint64            `json:"base_def_version"`
 			Description    string            `json:"description"`
 			Basis          *eventstore.Basis `json:"basis"`
+			IdempotencyKey string            `json:"idempotency_key"`
 		}
 		_ = json.Unmarshal(args, &a)
-		p, dslErrs, err := s.eng.ProposeChange(ctx, actor, a.Files, a.BaseDefVersion, a.Description, a.Basis)
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
+			return nil, terr
+		}
+		p, dslErrs, err := s.eng.ProposeChange(ctx, actor, a.Files, a.BaseDefVersion, a.Description, a.Basis, a.IdempotencyKey)
 		if err != nil {
 			return nil, toolErr(err)
 		}
@@ -366,6 +426,22 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		return nil, map[string]any{"code": "VALIDATION_ERROR", "message": "unknown tool " + name,
 			"fix_hint": "call tools/list for the available tools"}
 	}
+}
+
+// requireIdemKey enforces LLD-01 §5: every mutating MCP tool requires an
+// idempotency_key (8..128 chars) — missing or malformed is INVALID_PARAMS,
+// not a permission or validation error, because nothing about the request's
+// meaning has been checked yet. Returns nil when the key is acceptable.
+func requireIdemKey(key string) any {
+	if len(key) < 8 || len(key) > 128 {
+		return map[string]any{
+			"code":    "INVALID_PARAMS",
+			"message": "idempotency_key is required (8..128 chars)",
+			"fix_hint": "generate a uuid per task attempt and pass it as idempotency_key; " +
+				"reuse the exact same key when retrying that same attempt so a retry cannot double-apply",
+		}
+	}
+	return nil
 }
 
 // toolErr converts an engine error to tool-output form (nil stays nil).

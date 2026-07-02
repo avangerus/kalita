@@ -41,18 +41,18 @@ permissions:
 	tk, _ := e.Create(ctx, agent, "Ticket", map[string]any{"title": "broken", "customer": "ivan"}, basis, "")
 
 	// customer posts; operator replies publicly; operator adds an internal note
-	if _, err := e.Comment(ctx, ivan, "Ticket", tk.ID, "It does not work", false, basis); err != nil {
+	if _, err := e.Comment(ctx, ivan, "Ticket", tk.ID, "It does not work", false, basis, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Comment(ctx, agent, "Ticket", tk.ID, "Looking into it", false, basis); err != nil {
+	if _, err := e.Comment(ctx, agent, "Ticket", tk.ID, "Looking into it", false, basis, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Comment(ctx, agent, "Ticket", tk.ID, "probably their cache, escalate if not", true, basis); err != nil {
+	if _, err := e.Comment(ctx, agent, "Ticket", tk.ID, "probably their cache, escalate if not", true, basis, ""); err != nil {
 		t.Fatal(err)
 	}
 
 	// customer may NOT post an internal note (no write rights on the host)
-	if _, err := e.Comment(ctx, ivan, "Ticket", tk.ID, "sneaky", true, basis); err == nil {
+	if _, err := e.Comment(ctx, ivan, "Ticket", tk.ID, "sneaky", true, basis, ""); err == nil {
 		t.Fatal("customer must not post internal comments")
 	}
 

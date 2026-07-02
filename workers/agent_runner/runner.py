@@ -23,6 +23,7 @@ import sys
 import time
 import urllib.request
 import urllib.error
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bootstrap import get_token  # noqa: E402
@@ -67,6 +68,19 @@ def mcp(token, name, arguments):
     content = res.get("content", [])
     payload = json.loads(content[0]["text"]) if content else {}
     return payload, bool(res.get("isError"))
+
+
+def idem_key(task_id, *parts):
+    """The idempotency_key for one mutating MCP call within one task attempt
+    (LLD-01 §5, PR-5) — every mutating tool now requires one. A pure,
+    deterministic function of the task id plus a call-site label (uuid5, no
+    randomness): re-deriving it on a retry of the SAME task attempt — same
+    task id, same call site — reproduces the identical key, so the Store
+    dedups the retry to exactly one event instead of a double-apply. No
+    per-attempt state needs to survive a worker restart; the key regenerates
+    itself from data already at hand (task["id"]) every time."""
+    name = str(task_id) + "|" + "|".join(str(p) for p in parts)
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
 
 
 _LABEL_KEYS = ("name", "title", "subject", "full_name", "label", "number")
@@ -165,17 +179,21 @@ def handle(token, task):
         out = _output_field(desc)
         if out:  # the deliverable goes in the record's result field, journaled
             mcp(token, "update_record", {"entity": entity, "id": rid, "basis": basis,
-                                         "values": {out: note}})
+                                         "values": {out: note},
+                                         "idempotency_key": idem_key(task["id"], "update", out)})
             mcp(token, "comment", {"entity": entity, "id": rid, "basis": basis,
-                                   "body": "Work product written to '%s'; submitting for review." % out})
+                                   "body": "Work product written to '%s'; submitting for review." % out,
+                                   "idempotency_key": idem_key(task["id"], "comment")})
         else:  # no result field — the message itself is the deliverable
-            mcp(token, "comment", {"entity": entity, "id": rid, "body": note, "basis": basis})
+            mcp(token, "comment", {"entity": entity, "id": rid, "body": note, "basis": basis,
+                                   "idempotency_key": idem_key(task["id"], "comment")})
 
     field = (desc.get("workflow") or {}).get("field", "status") if LLM_URL else "status"
     last, seen = None, set()
     next_act = action
     for _ in range(5):  # the assigned action, then any forced non-HITL follow-ups
-        res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": next_act, "basis": basis})
+        res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": next_act, "basis": basis,
+                                      "idempotency_key": idem_key(task["id"], "act", next_act)})
         if err:
             return (last is not None), (last or json.dumps(res))
         if res.get("status") == "pending_approval":
@@ -231,7 +249,8 @@ def handle_legal(token, task):
         return True, "nothing to do"
     basis = {"type": "task", "id": task["id"]}
     if not LLM_URL:
-        res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis})
+        res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis,
+                                      "idempotency_key": idem_key(task["id"], "act", action)})
         return (not err), ("submitted (no model)" if not err else json.dumps(res))
 
     desc, _ = mcp(token, "describe_entity", {"entity": entity})
@@ -257,7 +276,7 @@ def handle_legal(token, task):
     findings = _extract_json(out)
 
     worst, made = 0, 0
-    for f in findings:
+    for i, f in enumerate(findings):
         if not isinstance(f, dict):
             continue
         risk = f.get("risk") if f.get("risk") in _RISK else "Medium"
@@ -267,15 +286,18 @@ def handle_legal(token, task):
         rid_rule = rule_id.get(str(f.get("rule_topic") or "").lower())
         if rid_rule:
             vals["rule"] = rid_rule
-        _, err = mcp(token, "create_record", {"entity": "Finding", "values": vals, "basis": basis})
+        _, err = mcp(token, "create_record", {"entity": "Finding", "values": vals, "basis": basis,
+                                              "idempotency_key": idem_key(task["id"], "finding", i)})
         if not err:
             made += 1
     overall = {0: "Low", 1: "Low", 2: "Medium", 3: "High"}[worst]
     mcp(token, "update_record", {"entity": entity, "id": rid, "basis": basis, "values": {
         "risk": overall,
-        "assessment": "Reviewed against the playbook: %d finding(s) raised, overall risk %s." % (made, overall)}})
+        "assessment": "Reviewed against the playbook: %d finding(s) raised, overall risk %s." % (made, overall)},
+        "idempotency_key": idem_key(task["id"], "update")})
 
-    res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis})
+    res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis,
+                                  "idempotency_key": idem_key(task["id"], "act", action)})
     if err:
         return False, json.dumps(res)
     return True, "raised %d finding(s), overall risk %s, submitted for the lawyer" % (made, overall)
@@ -313,7 +335,8 @@ def handle_sales(token, task):
         return True, "nothing to do"
     basis = {"type": "task", "id": task["id"]}
     if not LLM_URL:
-        res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis})
+        res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis,
+                                      "idempotency_key": idem_key(task["id"], "act", action)})
         return (not err), ("advanced (no model)" if not err else json.dumps(res))
 
     desc, _ = mcp(token, "describe_entity", {"entity": entity})
@@ -335,11 +358,14 @@ def handle_sales(token, task):
     subject = (obj.get("first_activity") or "Intro call: confirm need, budget and timeline").strip()[:200]
 
     _, aerr = mcp(token, "create_record", {"entity": "Activity", "basis": basis, "values": {
-        "subject": subject, "kind": "Call", "opportunity": rid}})
+        "subject": subject, "kind": "Call", "opportunity": rid},
+        "idempotency_key": idem_key(task["id"], "activity")})
     mcp(token, "comment", {"entity": entity, "id": rid, "basis": basis,
-                           "body": "Qualification: " + qualification})
+                           "body": "Qualification: " + qualification,
+                           "idempotency_key": idem_key(task["id"], "comment")})
 
-    res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis})
+    res, err = mcp(token, "act", {"entity": entity, "id": rid, "action": action, "basis": basis,
+                                  "idempotency_key": idem_key(task["id"], "act", action)})
     if err:
         return False, json.dumps(res)
     booked = "booked follow-up + " if not aerr else "(activity not booked) "
@@ -359,7 +385,8 @@ def _work(token, task):
 def run_once(token):
     tasks, _ = mcp(token, "wait_for_task", {"timeout_sec": 25})
     for t in tasks.get("tasks", []):
-        _, err = mcp(token, "take_task", {"task_id": t["id"]})
+        _, err = mcp(token, "take_task", {"task_id": t["id"],
+                                          "idempotency_key": idem_key(t["id"], "take")})
         if err:
             continue  # lost the lease to another worker — fine, skip it
         try:
@@ -367,10 +394,13 @@ def run_once(token):
         except Exception as ex:  # never silently hang on the lease
             ok, msg = False, "handler crashed: " + str(ex)
         if ok:
-            mcp(token, "report_progress", {"task_id": t["id"], "note": msg})
-            mcp(token, "complete_task", {"task_id": t["id"], "result": msg})
+            mcp(token, "report_progress", {"task_id": t["id"], "note": msg,
+                                           "idempotency_key": idem_key(t["id"], "progress")})
+            mcp(token, "complete_task", {"task_id": t["id"], "result": msg,
+                                         "idempotency_key": idem_key(t["id"], "complete")})
         else:
-            mcp(token, "fail_task", {"task_id": t["id"], "reason": msg})
+            mcp(token, "fail_task", {"task_id": t["id"], "reason": msg,
+                                     "idempotency_key": idem_key(t["id"], "fail")})
         print(("done " if ok else "failed ") + t["id"] + ": " + msg)
 
 

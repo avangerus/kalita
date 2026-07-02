@@ -355,7 +355,7 @@ func (e *Engine) execEmit(ctx context.Context, a dsl.AutomationAction, entity, i
 	if errr != nil {
 		return errr
 	}
-	e.fireEmits(ctx, autoActor, entity, id, plans, basis)
+	e.fireEmits(ctx, autoActor, entity, id, plans, basis, "")
 	return nil
 }
 

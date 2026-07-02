@@ -61,6 +61,9 @@ const (
 	EEventPayload     Code = "E045_EVENT_PAYLOAD"       // emit payload field unknown / type mismatch / missing required
 	EUpdateWorkflow   Code = "E046_UPDATE_WORKFLOW_FIELD" // update ... set <workflow-field> bypasses HITL
 	EBadActionExpr    Code = "E047_BAD_ACTION_TARGET"   // create/update names an unknown entity/field/ref-path
+
+	// LLD-01 §4.2/§5 (PR-5): the `emit` permission verb.
+	EUnknownEmitGrant Code = "E048_UNKNOWN_EMIT_GRANT" // emit [Name] grant names an event this pack does not declare
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)
