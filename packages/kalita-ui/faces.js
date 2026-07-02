@@ -95,11 +95,70 @@ export function RiskCardFace({ ent, record, riskField, clauseField, riskTone, re
 
 // --- ChatFace ----------------------------------------------------------------
 
-// ChatFace: a STUB. Contract-only — the right container/layout so LLD-06 can
-// drop a real chat implementation in without renegotiating the shell. Do not
-// add chat logic here (out of scope for LLD-05, per the implementing brief).
-export function ChatFace({ title = 'Chat' }) {
-  return html`<div class="card" style="max-width:720px;min-height:320px;display:flex;flex-direction:column;justify-content:center;align-items:center">
-    <div class="muted">💬 ${title} — coming in LLD-06</div>
+// ChatFace: KChat, the operator chat (LLD-06 §2 PK-3) — a Message stream +
+// input box talking to workers/chat_runner's `/chat/turn`, and NOTHING else.
+// Like every other face here, it carries zero domain knowledge: chat_runner
+// already resolved everything product-specific (which tool, which pack) on
+// the worker side, under the SAME bearer this component's `chatApi` call
+// carries — ChatFace itself never sees or handles a token, it only calls the
+// injected capability function, exactly like SearchFace calls `api` (see
+// this file's header: no hardcoded pack/entity names, ever).
+//
+// `chatApi` defaults to `api` (same capability-injection convention as
+// every other face) — pass a distinct one only when chat_runner is served
+// from a different origin than the node's own /api (deployment routing,
+// not this component's concern). `pending_approval` on a turn's response
+// (workers/chat_runner/chat_runner.py `handle_turn`'s third return value)
+// is a STRUCTURED signal, not something this component greps out of the
+// reply text — LLD-06 §2: "рендерит pending-approval, если действие чата
+// упёрлось в HITL."
+//
+// Message history is kept CLIENT-SIDE for the running conversation (each
+// turn appends the user's line + the assistant's reply locally) — the
+// governed source of truth is the assistant.Message records chat_runner
+// itself writes on the node; this component does not re-fetch them per
+// keystroke, it only needs to render what just happened in THIS window.
+export function ChatFace({ api, chatApi, sessionId: initialSessionId = null, title = 'Chat',
+  placeholder = 'Ask your system, or say what you need done…' }) {
+  const send = chatApi || api;
+  const [sessionId, setSessionId] = useState(initialSessionId);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const submit = async () => {
+    const text = input.trim();
+    if (!text || busy) return;
+    setInput('');
+    setErr(null);
+    setMessages((m) => [...m, { role: 'user', body: text }]);
+    setBusy(true);
+    try {
+      const res = await send('/chat/turn', { method: 'POST', body: JSON.stringify({ session_id: sessionId, message: text }) });
+      setSessionId(res.session_id);
+      setMessages((m) => [...m, { role: 'assistant', body: res.reply, pendingApproval: !!res.pending_approval }]);
+    } catch (e) {
+      setErr(e);
+    }
+    setBusy(false);
+  };
+
+  return html`<div class="card" style="max-width:720px;min-height:320px;display:flex;flex-direction:column">
+    <b style="margin-bottom:8px">${title}</b>
+    <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:220px;max-height:420px">
+      ${messages.length === 0 && html`<div class="muted">Ask your system, or say what you need done.</div>`}
+      ${messages.map((m, i) => html`<div key=${i} style=${'align-self:' + (m.role === 'user' ? 'flex-end' : 'flex-start') + ';max-width:85%'}>
+        ${m.pendingApproval && html`<div style="margin-bottom:4px"><${StatusChip} value="pending approval" tone="warn" /></div>`}
+        <div class="card" style=${'padding:8px 12px;white-space:pre-wrap;' + (m.role === 'user' ? 'background:var(--accent-bg,#1f6feb22)' : '')}>${m.body}</div>
+      </div>`)}
+      ${busy && html`<div class="muted">…</div>`}
+    </div>
+    ${err && html`<div class="err">${err.message || JSON.stringify(err)}</div>`}
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input style="margin:0;flex:1" placeholder=${placeholder} value=${input}
+        onInput=${(e) => setInput(e.target.value)} onKeyDown=${(e) => e.key === 'Enter' && submit()} />
+      <button class="btn green" onClick=${submit} disabled=${busy}>${busy ? '…' : 'Send'}</button>
+    </div>
   </div>`;
 }

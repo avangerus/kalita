@@ -235,6 +235,71 @@ LLM-вызовами agent_runner. Но пока его нет, дыры наш�
   переключить app.js, либо явно принять, что admin-клиент и storybook-organisms
   — разные реализации одного паттерна. (2026-07-02, LLD-05 PR-1/PR-2)
 
+## LLD-06 (product MCP façade / KChat, реализация 2026-07-02)
+
+- **P1 (КЛАСС, унаследован, не новый) cross-pack composition — один узел
+  компилирует ОДИН каталог `--pack`, не несколько.** Уже задокументировано
+  под LLD-01 PR-4 (`agent/kalita/QUESTIONS-LLD.md` "Cross-pack — реальная
+  граница загрузчика"): `cmd/kalita/main.go`'s `loadPack` читает `.dsl` из
+  ОДНОГО каталога в ОДНУ `dsl.Model`; два `pack.dsl`-манифеста в одной
+  компиляции молча схлопываются (`internal/dsl/parser.go:118` `m.Name =
+  rest` — второй `pack` перезаписывает первый без ошибки). Следствие для
+  LLD-06: пак `assistant` (Session/Message, PR-1) и пак `contracts` (Contract/
+  Finding + `product.mcp`, PR-2) НЕ МОГУТ быть загружены в ОДИН работающий
+  узел сегодня — значит полное демо «KChat → façade legal.submit_contract →
+  Contract» на ОДНОМ узле требует ЛИБО дождаться cross-pack composition
+  (ядровая фича, уже отдельно залогирована), ЛИБО деплой-время слияние (не
+  правка `internal/`, а просто копирование/конкатенация `.dsl`-файлов обоих
+  паков в один каталог с ОДНИМ `pack.dsl`) как временный обходной путь для
+  демо-окружения. Ничего не хакалось в ядре под это — PR-1 (assistant) и
+  PR-2 (façade, generic — доказано на `packs/contracts`, live-тест
+  `workers/product_mcp/test_facade_live.py`) КАЖДЫЙ по отдельности приняты и
+  протестированы против РЕАЛЬНОГО узла; только их СОВМЕСТНАЯ загрузка на
+  одном узле упирается в этот унаследованный гэп. (2026-07-02, LLD-06 PR-1/PR-2)
+- **P2 `workers/product_mcp/compose.py`'s интерпретатор closed на 3
+  глаголах.** Реализованы ровно `create Entity(...) -> $x`, `act action on
+  $x`, `query Entity [where ...] -> $x` — весь набор, который РЕАЛЬНО
+  использует `packs/contracts/product_mcp.dsl` сегодня. `update`/`comment`/
+  `emit_event` compose-шаги НЕ поддержаны — `parse_step` кидает
+  `ManifestError` с явным списком поддерживаемых форм (fail fast при
+  старте façade на любом паке, который попробует такой шаг), а не тихо
+  игнорирует/падает на первом вызове. → расширить `compose.py`'s грамматику
+  формой за формой, когда РЕАЛЬНЫЙ продуктовый пак объявит `update`/
+  `comment`/`emit_event` в `compose:`. (2026-07-02, LLD-06 PR-2)
+- **P2 (унаследованный класс, не новый) `create`-время cross-owner ref-запись
+  не гейтится ABAC.** `internal/engine/permissions.go`'s `can()`: условный
+  (`where`) allow-правило требует `record != nil` для матча (`if record !=
+  nil && evalWhere(...)`), а на `create` записи ещё не существует (record ==
+  nil) — значит `create [Session, Message]` (пак `assistant`, как и
+  `create [Lead, Opportunity, Activity]` в `crm.dsl`, `create [Employee,
+  LeaveRequest]` в `hr.dsl` и далее по всем owner-scoped пакам в этом репо)
+  НЕ может быть сужен `where`-условием на запись: актор технически МОЖЕТ
+  передать `values.session = <чужой session id>` при создании Message и
+  привязать сообщение к чужой сессии — движок это не остановит на этапе
+  create (только `read`/`update` потом скрывают чужие записи через `where
+  session.owner = $me`). Это ТОТ ЖЕ структурный гэп, что и во ВСЕХ
+  owner-scoped паках репозитория уже сегодня, не что-то новое, внесённое
+  паком `assistant` — задокументировано здесь явно, потому что LLD-06 §2
+  особо подчёркивает «диалог governed по построению» и микс с чужой сессией
+  был бы прямым нарушением этого обещания. → core-фикс: `can()` для `create`
+  должен уметь проверять `where`-условие против ПЕРЕДАВАЕМЫХ `values`, не
+  только против существующей записи (`record` сейчас либо nil на create,
+  либо реальная запись на read/update — нужен третий режим «черновые values
+  без id»). Не хакалось (задача явно запрещает патчить `internal/`).
+  (2026-07-02, LLD-06 PR-1, packs/assistant/security.dsl)
+- **P3 `workers/chat_runner/chat_runner.py`'s `idempotency_key` для
+  Message-постов не retry-safe через границу процесса.** `_idem(...)`
+  подмешивает случайный `uuid4().hex` на каждый вызов (не чисто
+  детерминированная функция входа, в отличие от `agent_runner.runner.
+  idem_key`, которая ключуется от `task_id` — у чат-хода нет natural
+  "attempt id" без запроса клиента на предмет retry-семантики). Значит
+  ретрай HTTP-запроса к `/chat/turn` (сетевой сбой на стороне клиента)
+  создаст ВТОРОЕ Message-событие, а не схлопнется в одно. Не критично для
+  демо (retry чат-хода — редкий путь, в отличие от task-ретраев
+  agent_runner), но зафиксировано как гэп надёжности. → пробрасывать
+  request-id от KChat-клиента (ChatFace) и ключевать `_idem` от него.
+  (2026-07-02, LLD-06 PR-3)
+
 ---
 
 ## Долг закрытый (для истории)
