@@ -1,0 +1,25 @@
+{
+  "name": "@kalita/ui",
+  "version": "0.1.0",
+  "description": "Kalita Product Kit — atomic design system (atoms/molecules/organisms/faces) over preact+htm, buildless (ADR-004)",
+  "type": "module",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./tokens/format": "./tokens/format.js",
+    "./atoms": "./atoms.js",
+    "./molecules": "./molecules.js",
+    "./organisms": "./organisms.js",
+    "./faces": "./faces.js",
+    "./hooks": "./hooks.js"
+  },
+  "files": ["tokens.css", "tokens", "atoms.js", "molecules.js", "organisms.js", "faces.js", "hooks.js"],
+  "peerDependencies": {
+    "preact": ">=10"
+  },
+  "peerDependenciesMeta": {
+    "preact": { "optional": true }
+  },
+  "sideEffects": ["*.css"],
+  "license": "Apache-2.0",
+  "keywords": ["kalita", "ai-agents", "design-system", "preact", "htm"]
+}

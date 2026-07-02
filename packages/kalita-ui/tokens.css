@@ -1,0 +1,67 @@
+/* kalita-ui / tokens.css — the single source of design tokens (LLD-05 PK-1).
+ *
+ * Promoted from web/index.html's inline :root block so the embedded admin
+ * client, catalog.html, and any future product face theme off ONE set of
+ * CSS custom properties. No preprocessor, no build step — plain CSS custom
+ * properties, overridden on :root.
+ *
+ * THEMING CONTRACT (read this before writing a brand manifest, LLD-05 §3/§4):
+ * a pack's brand manifest may override any variable below by re-declaring it
+ * on :root AFTER this stylesheet loads (a plain <style> block, or a second
+ * <link>, appended later in <head> — CSS cascade order decides, last wins).
+ * Do not rename variables; new tokens may be ADDED but existing names are a
+ * public contract other files rely on (web/index.html, catalog.html, atoms.js
+ * inline styles, kalita-sdk consumers that choose to reuse them).
+ *
+ * Color tokens are the part a brand manifest is expected to override
+ * (product.colors{...} in LLD-05 §3). Typography/density/radii are safe to
+ * override too, but most packs will only touch color + --acc.
+ */
+
+:root {
+  /* --- color: surface & text -------------------------------------------- */
+  --bg: #0f1419;      /* page background */
+  --panel: #171d24;   /* card/table/modal surface */
+  --line: #2a323c;    /* borders, dividers */
+  --fg: #dbe2ea;       /* primary text */
+  --dim: #8a96a3;      /* secondary/muted text */
+
+  /* --- color: semantic ----------------------------------------------------
+   * --acc is the ONE variable most brand manifests override (product.colors.accent).
+   */
+  --acc: #4da3ff;   /* accent / links / primary action / focus */
+  --ok: #3fb96f;    /* success / positive state */
+  --warn: #e0a93f;  /* warning / pending state */
+  --bad: #e0604f;   /* error / negative / destructive state */
+
+  /* --- color: derived surfaces (used by pills/badges/buttons) ------------- */
+  --acc-soft: #1c232c;   /* hovered row / highlighted option */
+  --ok-soft: #15301f;    /* success pill/button background */
+  --warn-soft: #2a2013;  /* warning pill/button background */
+  --bad-soft: #33201c;   /* error/destructive pill/button background */
+  --input-bg: #0d1217;   /* input/textarea/select background */
+
+  /* --- typography ---------------------------------------------------------- */
+  --font-sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --font-size: 14px;
+  --font-size-sm: 12px;
+  --font-size-lg: 17px;
+  --line-height: 1.45;
+
+  /* --- density (spacing scale, 4px base) ------------------------------------ */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+
+  /* --- radii ------------------------------------------------------------- */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  /* --- elevation ----------------------------------------------------------- */
+  --shadow-modal: 0 16px 60px #000c;
+  --shadow-dropdown: 0 6px 20px #0008;
+}

@@ -46,6 +46,8 @@ func main() {
 		exportCmd(os.Args[2:])
 	case "import":
 		importCmd(os.Args[2:])
+	case "product":
+		productCmd(os.Args[2:])
 	default:
 		usage()
 	}
@@ -113,6 +115,7 @@ func registerActor(args []string, typ eventstore.ActorType, what string) {
 	endpoint := fs.String("endpoint", "", "where the agent runs")
 	owner := fs.String("owner", "", "who answers for this actor")
 	desc := fs.String("desc", "", "description")
+	password := fs.String("password", "", "set a password credential (LLD-05 PK-4, humans only) — a UX wrapper over the same bearer token, not a new identity model")
 	_ = fs.Parse(args[1:])
 	if *id == "" {
 		log.Fatal("--id is required")
@@ -153,6 +156,15 @@ func registerActor(args []string, typ eventstore.ActorType, what string) {
 	}
 	fmt.Printf("%s %s (role %s) registered\n", what, *id, *role)
 	fmt.Printf("bearer token (shown once, only the hash is journaled):\n%s\n", token)
+	if *password != "" {
+		if typ != eventstore.ActorHuman {
+			log.Fatal("--password is only for human actors (LLD-05 PK-4)")
+		}
+		if err := reg.SetPassword(ctx, registrar, *id, *password, basis); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("password set: sign in at POST /api/login with {login, password}")
+	}
 	fmt.Println("restart the node to pick up the registration (v0)")
 }
 
@@ -161,6 +173,7 @@ func usage() {
 	fmt.Println("usage:")
 	fmt.Println("  kalita serve --pack <dir> [--listen :8080]   run a node (KALITA_PG_DSN for postgres, else in-memory)")
 	fmt.Println("  kalita check --pack <dir>                    compile a pack and print diagnostics")
+	fmt.Println("  kalita product scaffold <pack>                generate a deploy skeleton (compose, status page, brand manifest)")
 	fmt.Println("  kalita version")
 }
 
@@ -281,12 +294,23 @@ func serve(args []string) {
 	if *connectorEntity != "" && *connectorEntity != "Connector" {
 		apiOpts = append(apiOpts, api.WithCallProxy(*connectorEntity))
 	}
-	if b := *brand; b != "" || os.Getenv("KALITA_BRAND") != "" {
-		name := b
+	// Brand precedence (LLD-05 §3, PK-4): explicit --brand* flag > KALITA_BRAND
+	// env > the pack's product{} manifest as a default > "Kalita". A product
+	// pack ships branded out of the box; an operator can still override it.
+	{
+		name, accent, tagline := *brand, *brandAccent, *brandTagline
 		if name == "" {
 			name = os.Getenv("KALITA_BRAND")
 		}
-		apiOpts = append(apiOpts, api.WithBrand(name, *brandAccent, *brandTagline))
+		if name == "" && model.Product != nil {
+			name = model.Product.Name
+			if accent == "" {
+				accent = model.Product.Colors["accent"]
+			}
+		}
+		if name != "" {
+			apiOpts = append(apiOpts, api.WithBrand(name, accent, tagline))
+		}
 	}
 	if secret := os.Getenv("KALITA_BOOTSTRAP_SECRET"); secret != "" {
 		roles := []string{"Indexer", "Searcher"}
@@ -313,6 +337,20 @@ func serve(args []string) {
 		log.Print("UI: none (API-only) — use --ui-dir, -tags embedui, or @kalita/sdk")
 	}
 	mux.Handle("/", ui)
+	// packages/ (kalita-ui, kalita-sdk) is served under its own prefix,
+	// separate from --ui-dir, because it is a sibling directory of the UI
+	// root, not a subdirectory of it (LLD-05 PK-1: packages/kalita-ui sits
+	// next to packages/kalita-sdk at the repo root, matching npm-package
+	// layout, while --ui-dir's http.FileServer can only reach files inside
+	// its own root — see internal/webui/webui.go). Only mounted when serving
+	// the UI from disk; the embedded build instead gets packages/kalita-ui
+	// copied INTO the embedded tree by scripts/embed-ui.sh, so the single
+	// embedded FileServer already covers it with no second mount needed.
+	if *uiDir != "" {
+		if pkgs := webui.DirHandler("packages"); pkgs != nil {
+			mux.Handle("/packages/", http.StripPrefix("/packages/", pkgs))
+		}
+	}
 	handler := api.Secure(mux)
 
 	if *filesDir != "" {

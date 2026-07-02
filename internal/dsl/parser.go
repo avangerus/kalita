@@ -42,6 +42,8 @@ func (p *parser) run() {
 		case "pack", "version", "requires", "depends":
 			p.manifestLine(ln)
 			p.pos++
+		case "product":
+			p.product(ln)
 		case "entity":
 			p.entity(ln)
 		case "event":
@@ -68,7 +70,7 @@ func (p *parser) run() {
 		default:
 			p.errs.add(EUnknownBlock, ln.File, ln.Num,
 				"unknown top-level block "+head,
-				"allowed: pack, version, requires, depends, entity, event, constraints, workflow, link, roles, permissions, automation, ui, dashboard, integration")
+				"allowed: pack, version, requires, depends, product, entity, event, constraints, workflow, link, roles, permissions, automation, ui, dashboard, integration")
 			p.pos++
 			p.skipChildren(0)
 		}

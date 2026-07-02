@@ -59,6 +59,11 @@ const (
 	ActorRoleChanged Kind = "actor.role_changed"
 	ActorKeyRotated  Kind = "actor.key_rotated"
 	ActorDisabled    Kind = "actor.disabled"
+	// ActorPasswordSet (LLD-05 §3, PK-4): a password credential set for an
+	// EXISTING actor — a UX wrapper over the same bearer-token mechanism, not
+	// a new identity model. Only the bcrypt hash is journaled (I-4); the raw
+	// password never touches the journal.
+	ActorPasswordSet Kind = "actor.password_set"
 
 	InviteCreated  Kind = "invite.created"
 	InviteRedeemed Kind = "invite.redeemed"
@@ -95,7 +100,7 @@ var AllKinds = []Kind{
 	DefinitionProposed, DefinitionValidated, DefinitionApproved, DefinitionRejected, DefinitionApplied, DefinitionReverted,
 	ApprovalRequested, ApprovalGranted, ApprovalRejected,
 	TaskCreated, TaskTaken, TaskProgress, TaskCompleted, TaskFailed, TaskExpired,
-	ActorRegistered, ActorRoleChanged, ActorKeyRotated, ActorDisabled,
+	ActorRegistered, ActorRoleChanged, ActorKeyRotated, ActorDisabled, ActorPasswordSet,
 	InviteCreated, InviteRedeemed,
 	LinkAdded, LinkRemoved,
 	CommentPosted,

@@ -95,6 +95,63 @@ LLM-вызовами agent_runner. Но пока его нет, дыры наш�
 - **P2 legacy-форматы doc/xls/ppt** не извлекаются (нужен LibreOffice/конвертер; у фаундера не стоит). (ранее)
 - **P2 mail/git как источники** — заявлены в видении, не реализованы (ingest понимает только Files/Upload). (ранее)
 
+## Product Kit (LLD-05, PK-4 — password-credential, реализация 2026-07-02)
+
+- **P1 `POST /api/actors/{id}/password` не ограничен self/Owner.** Гейт —
+  «любой человек» (тот же паттерн, что уже у `disableActor`/`createInvite` в
+  v0-модели), но в сочетании с password-login это значит: любой
+  аутентифицированный человек любой роли может выставить пароль ЛЮБОМУ
+  другому актору и залогиниться под ним (impersonation). Для v0 одноузловой
+  admin-модели терпимо (принято по образцу существующих ручек), но при
+  первом продукте с несколькими человеческими ролями needs role-gate
+  (например, только Owner меняет чужой пароль; актор меняет только свой).
+  → добавить проверку `actor.ID == id || actor.Role == approver` в
+  `setPassword`. **Это КЛАСС** (setPassword/disableActor/createInvite — все
+  «любой человек»); закрывать системно в **LLD-10** (identity hardening), не
+  патчить одну ручку вразнобой. Ревью Fable: принято как долг, обязателен к
+  закрытию ДО Legal-пилота с несколькими человеческими ролями.
+  (2026-07-02, LLD-05 PR-4)
+- **P2 нет self-service «забыли пароль».** `SetPassword`/CLI `user add
+  --password` — только админский/CLI путь выставить начальный пароль; сброса
+  по email/каналу нет (массовый self-service сознательно вне LLD-05 — внешний
+  IdP, граница N7). Если продукту понадобится "забыли пароль" внутри текущей
+  identity-модели — нужен отдельный LLD (канал доставки кода сброса — не
+  тривиален для governed-модели без email-инфраструктуры в ядре). (2026-07-02)
+- **P2 login не троттлится.** `/api/login` — публичный эндпойнт без
+  rate-limit/backoff на неверные попытки; bcrypt сам по себе медленный
+  (защита от офлайн-перебора хэша), но онлайн brute-force по каналу не
+  ограничен отдельно. → rate-limit по login или по IP на уровне API/прокси —
+  входит в **LLD-10 §4** (rate-limit + auth-fail-агрегация). (2026-07-02)
+
+## Product Kit (LLD-05, PK-1 — atoms/molecules/organisms/faces, реализация 2026-07-02)
+
+- **P2 два fetch-клиента (web/app.js's `api()` и `packages/kalita-sdk/client.js`)
+  не сходятся на одном источнике правды.** LLD-05 §1 явно фиксирует это как
+  НЕ блокер PR-1/PR-2 ("два fetch-клиента... сходятся на client.js отдельным
+  шагом"); зафиксировано здесь как отдельный шаг, а не молча оставлено. →
+  перевести web/app.js's `api()` на `@kalita/sdk/client.js` целиком (auth
+  token/records/act/approve/search/meta/invites), одним PR, вне LLD-05.
+  (2026-07-02, LLD-05 PR-1/PR-2)
+- **P2 `@kalita/sdk`'s React organisms (KList/KDetail/KBoard) не резолвят
+  `ref`/`array_ref` в человеческий label** — показывают сырой id.
+  packages/kalita-ui/tokens/format.js's `formatValue()` намеренно возвращает
+  `{kind:'ref'|'array_ref', id/ids}` БЕЗ резолюции (async id→label — сетевой
+  вызов, вне чистой data-in/data-out функции); preact-стек (kalita-ui's
+  `RefLink`) резолвит через injectable `fetcher`, React-стек аналога пока не
+  получил. → добавить `useRefLabel`-эквивалент в `packages/kalita-sdk/react.js`
+  и звать его в `components.js`'s `renderSpec('ref')`. (2026-07-02, LLD-05 PR-1)
+- **P2 web/app.js's `EntityList`/`Board` НЕ переведены на kalita-ui's новые
+  `KList`/`KBoard` organisms.** LLD-05 PR-1 требовал только `FieldInput`/
+  `FieldValue` на atoms; PR-2 добавил organisms как НОВЫЙ слой (используется
+  `web/catalog.html`), но существующие списочные/канбан-экраны admin-клиента
+  сохранены как есть (пагинация, инлайн-фильтр, инлайн-`CreateForm` — богаче,
+  чем текущий `KList`/`KBoard`). `ApprovalCard`/`TimelineItem`/`DashboardTile`
+  — единственные molecules, на которые app.js реально переключён (это и было
+  предметом де-дупликации, которую фиксирует LLD-05 §1). → либо расширить
+  `KList`/`KBoard` до паритета (pagination/filter/inline-create) и
+  переключить app.js, либо явно принять, что admin-клиент и storybook-organisms
+  — разные реализации одного паттерна. (2026-07-02, LLD-05 PR-1/PR-2)
+
 ---
 
 ## Долг закрытый (для истории)

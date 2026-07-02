@@ -81,6 +81,18 @@ type MetaChild struct {
 	Label  string `json:"label,omitempty"`
 }
 
+// MetaProduct surfaces the pack's product{} manifest (LLD-05 §3, PK-4):
+// white-label identity + default auth mode for a pack shipped as a
+// standalone product. Absent (nil) for packs without a product block —
+// additive: zero impact on existing packs/journals (I-1).
+type MetaProduct struct {
+	Name   string            `json:"name"`
+	Logo   string            `json:"logo,omitempty"`
+	Colors map[string]string `json:"colors,omitempty"`
+	Home   string            `json:"home,omitempty"` // landing face name (frontend-interpreted)
+	Auth   string            `json:"auth,omitempty"` // password | invite | token
+}
+
 type Meta struct {
 	Pack       string       `json:"pack"`
 	DefVersion uint64       `json:"def_version"`
@@ -88,6 +100,7 @@ type Meta struct {
 	Role       string       `json:"role"`
 	Entities   []MetaEntity `json:"entities"`
 	Roles      []MetaRole   `json:"roles"` // for inviting a user into a role (select, don't type)
+	Product    *MetaProduct `json:"product,omitempty"`
 }
 
 // MetaFor builds the per-actor system description.
@@ -101,6 +114,16 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 	actor := eventstore.Actor{ID: actorID, Role: role}
 	if e.model.Manifest != nil {
 		m.Pack = e.model.Manifest.Name
+	}
+	if e.model.Product != nil {
+		name := e.model.Product.Name
+		if name == "" {
+			name = m.Pack // fall back to the pack's technical name
+		}
+		m.Product = &MetaProduct{
+			Name: name, Logo: e.model.Product.Logo, Colors: e.model.Product.Colors,
+			Home: e.model.Product.Home, Auth: e.model.Product.Auth,
+		}
 	}
 
 	uiByEntity := map[string]*dsl.UIDecl{}

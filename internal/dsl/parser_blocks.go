@@ -562,6 +562,86 @@ func (p *parser) dashboardTile(ln *Line) *DashboardTile {
 	return tile
 }
 
+// --- product --------------------------------------------------------------
+//
+// The product{} manifest (LLD-05 §3, PK-4) white-labels a pack shipped as a
+// standalone product — name/logo/colors/home face/auth mode. Node --brand*
+// flags default from these values (cmd/kalita); the frontend reads them via
+// /api/meta to theme itself without a build step (ADR-004). `#` starts a
+// comment in this DSL (lexer.go), so hex colors must be quoted strings.
+//
+//	product:
+//	    name "KnowVault"
+//	    logo "https://cdn.example.com/logo.svg"
+//	    color accent "#4da3ff"
+//	    home SearchFace
+//	    auth password
+
+var productAuthModes = map[string]bool{"password": true, "invite": true, "token": true}
+
+func (p *parser) product(ln *Line) {
+	p.pos++
+	t := ln.Toks
+	if len(t) < 2 || t[len(t)-1].Text != ":" {
+		p.errs.add(EExpectedColon, ln.File, ln.Num,
+			"product block must be `product:`", "write `product:` with fields indented below")
+		p.skipChildren(ln.Indent)
+		return
+	}
+	if p.ast.Product != nil {
+		p.errs.add(EBadProduct, ln.File, ln.Num,
+			"product block declared twice", "a pack has exactly one product block")
+		p.skipChildren(ln.Indent)
+		return
+	}
+	decl := &ProductDecl{Colors: map[string]string{}, File: ln.File, Line: ln.Num}
+	for _, body := range p.children(ln.Indent) {
+		bt := body.Toks
+		switch bt[0].Text {
+		case "name":
+			if len(bt) >= 2 && bt[1].Kind == TStr {
+				decl.Name = bt[1].Text
+			} else {
+				p.errs.add(EBadProduct, body.File, body.Num,
+					"name requires a quoted value", `write e.g. name "KnowVault"`)
+			}
+		case "logo":
+			if len(bt) >= 2 && bt[1].Kind == TStr {
+				decl.Logo = bt[1].Text
+			} else {
+				p.errs.add(EBadProduct, body.File, body.Num,
+					"logo requires a quoted value", `write e.g. logo "https://.../logo.svg"`)
+			}
+		case "color":
+			if len(bt) >= 3 && bt[1].Kind == TIdent && bt[2].Kind == TStr {
+				decl.Colors[bt[1].Text] = bt[2].Text
+			} else {
+				p.errs.add(EBadProduct, body.File, body.Num,
+					"color requires a name and a quoted value", `write e.g. color accent "#4da3ff"`)
+			}
+		case "home":
+			if len(bt) >= 2 && bt[1].Kind == TIdent {
+				decl.Home = bt[1].Text
+			} else {
+				p.errs.add(EBadProduct, body.File, body.Num,
+					"home requires a face name", "write e.g. `home SearchFace`")
+			}
+		case "auth":
+			if len(bt) >= 2 && bt[1].Kind == TIdent && productAuthModes[bt[1].Text] {
+				decl.Auth = bt[1].Text
+			} else {
+				p.errs.add(EBadProduct, body.File, body.Num,
+					"auth must be one of password, invite, token", "write e.g. `auth password`")
+			}
+		default:
+			p.errs.add(EBadProduct, body.File, body.Num,
+				"unknown product field "+bt[0].Text,
+				"allowed: name, logo, color <key> <value>, home <Face>, auth password|invite|token")
+		}
+	}
+	p.ast.Product = decl
+}
+
 // bracketContents returns identifiers inside the first [...] of the line.
 func bracketContents(toks []Tok) []string {
 	var out []string

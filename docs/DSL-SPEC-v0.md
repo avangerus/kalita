@@ -31,6 +31,27 @@ requires kalita >= 0.1
 depends core >= 0.1        # base pack: core.User, core.Calendar, mdg dictionaries
 ```
 
+### 1.1 Product manifest (optional, LLD-05 §3, PK-4)
+
+A pack shipped as a standalone product may declare a `product:` block —
+white-label identity and default auth mode. `--brand*` node flags default
+from it; the frontend reads it via `/api/meta`. Absent entirely for packs
+that are not standalone products (I-1: zero impact on existing packs).
+
+```
+product:
+    name "KnowVault"
+    logo "https://cdn.example.com/logo.svg"
+    color accent "#4da3ff"
+    home SearchFace          # a Face name (frontend concept, opaque to the DSL)
+    auth password            # password | invite | token
+```
+
+`#` starts a comment in this DSL, so hex colors must be quoted strings, not
+bare `#RRGGBB` tokens. `home` names a renderer-side "face" template (LLD-05
+§1) — the DSL does not validate it against a known face list, since faces are
+a frontend-library concept, not a backend one.
+
 ## 2. Data types (closed list)
 
 | Type | Note |

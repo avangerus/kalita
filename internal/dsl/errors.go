@@ -67,6 +67,9 @@ const (
 
 	// LLD-08 §2 (PR-1): the `tail` permission verb (node-wide journal read).
 	EUnknownTailKind Code = "E049_UNKNOWN_TAIL_KIND" // tail [kind,...] grant names a kind outside the closed eventstore.Kind taxonomy
+
+	// LLD-05 §3 (PR-3): the `product` manifest block (PK-4 delivery wrapper).
+	EBadProduct Code = "E050_BAD_PRODUCT" // malformed product{} field or a second product block
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)

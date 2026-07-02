@@ -66,8 +66,11 @@ type ActorInfo struct {
 	Role      string               `json:"role"`
 	PublicKey ed25519.PublicKey    `json:"-"`
 	TokenHash []byte               `json:"-"`
-	Meta      *ActorMeta           `json:"meta,omitempty"`
-	Disabled  bool                 `json:"disabled"`
+	// PasswordHash is the bcrypt hash from the most recent actor.password_set
+	// event (LLD-05 §3, PK-4). Never serialized, never the raw password (I-4).
+	PasswordHash []byte     `json:"-"`
+	Meta         *ActorMeta `json:"meta,omitempty"`
+	Disabled     bool       `json:"disabled"`
 }
 
 var (
@@ -227,6 +230,17 @@ func (r *Registry) all(ctx context.Context) (map[string]*ActorInfo, error) {
 			if info, ok := r.cache[id]; ok {
 				info.Disabled = true
 			}
+		case eventstore.ActorPasswordSet:
+			var p passwordPayload
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				continue
+			}
+			info := r.cache[id]
+			if info == nil {
+				info = &ActorInfo{ID: id}
+				r.cache[id] = info
+			}
+			info.PasswordHash = p.BcryptHash
 		}
 	}
 	// snapshot copy: callers iterate without holding the registry lock

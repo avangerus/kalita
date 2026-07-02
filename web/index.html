@@ -4,8 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kalita</title>
+<!-- kalita-ui tokens.css is the single source of design tokens (LLD-05
+     PK-1) — --bg/--panel/--line/--fg/--dim/--acc/--ok/--warn/--bad live
+     there now, not here; a brand manifest overrides them by re-declaring on
+     :root AFTER this stylesheet. Path is relative (not "/packages/...")
+     so this page resolves identically off disk, via `--ui-dir`, and via the
+     embedded single-binary build — see cmd/kalita/main.go and
+     scripts/embed-ui.sh for why. -->
+<link rel="stylesheet" href="../packages/kalita-ui/tokens.css">
+<!-- import map: lets packages/kalita-ui/*.js (which lives OUTSIDE web/) import
+     the SAME vendored preact+htm bundle web/app.js uses, via a bare
+     specifier resolved relative to THIS page rather than to atoms.js's own
+     (unstable-across-serving-modes) location. See atoms.js's file header. -->
+<script type="importmap">
+{ "imports": { "kalita-vendor": "vendor/preact-standalone.module.js" } }
+</script>
 <style>
-  :root{--bg:#0f1419;--panel:#171d24;--line:#2a323c;--fg:#dbe2ea;--dim:#8a96a3;--acc:#4da3ff;--ok:#3fb96f;--warn:#e0a93f;--bad:#e0604f;}
   *{box-sizing:border-box} body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
   a{color:var(--acc);text-decoration:none;cursor:pointer}
   .shell{display:flex;min-height:100vh}

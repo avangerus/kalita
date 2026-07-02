@@ -119,6 +119,8 @@ func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("POST /api/actors/{id}/disable", s.disableActor)
 	s.mux.HandleFunc("POST /api/invites", s.createInvite)
 	s.mux.HandleFunc("POST /api/register", s.register)
+	s.mux.HandleFunc("POST /api/actors/{id}/password", s.setPassword)
+	s.mux.HandleFunc("POST /api/login", s.login)
 	s.mux.HandleFunc("POST /api/files", s.uploadFile)
 	s.mux.HandleFunc("GET /api/files/{hash}", s.downloadFile)
 	s.mux.HandleFunc("GET /api/records/{entity}/{id}/comments", s.listComments)

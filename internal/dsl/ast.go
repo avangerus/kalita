@@ -196,6 +196,23 @@ type Manifest struct {
 	Depends  []string
 }
 
+// ProductDecl is the product{} manifest section (LLD-05 §3, PK-4): white-label
+// identity and default auth mode for a pack shipped as a standalone product.
+// Backend-agnostic — the DSL has no notion of a "Face" (a frontend/renderer
+// concept, LLD-05 §1); Home is carried through as an opaque string for the
+// renderer to interpret. Node --brand* flags default from these values
+// (cmd/kalita); the frontend themes off them via /api/meta (ADR-004: zero
+// build step, override CSS custom properties).
+type ProductDecl struct {
+	Name   string
+	Logo   string
+	Colors map[string]string // token name -> value, e.g. "accent" -> "#4da3ff"
+	Home   string            // face name shown as the landing screen
+	Auth   string            // password | invite | token
+	File   string
+	Line   int
+}
+
 // LinkDecl is a named bidirectional relation between two entities (Jira issue
 // links): `link Task -> Task as blocks / blocked_by`. The runtime keeps both
 // sides consistent: adding a forward link creates the inverse automatically.
@@ -263,6 +280,7 @@ type IntegrationDecl struct {
 
 type AST struct {
 	Manifest     *Manifest
+	Product      *ProductDecl
 	Entities     []*EntityDecl
 	Events       []*EventDecl
 	Roles        []*RoleDecl

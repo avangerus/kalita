@@ -1,6 +1,15 @@
 // Kalita universal client: a pure projection of /api/meta. No business logic
 // lives here — what this actor can see and press comes from the server.
 import { h, render, html, useState, useEffect } from '/vendor/preact-standalone.module.js';
+// kalita-ui (LLD-05 PK-1): the atoms/molecules FieldInput/FieldValue and
+// friends dispatch to, so the type-rendering switch has ONE source of truth
+// shared with web/catalog.html and (via tokens/format.js) @kalita/sdk.
+// Relative path, not "/packages/..." — see packages/kalita-ui/atoms.js's
+// file header and cmd/kalita/main.go for why this resolves under every
+// serving mode (disk, --ui-dir, embedded single-binary).
+import { FieldAtom, RefLink, MultiSelect } from '../packages/kalita-ui/atoms.js';
+import { ApprovalCard, TimelineItem, DashboardTile, isMutation } from '../packages/kalita-ui/molecules.js';
+import { reclabel, humanize, fieldSpan, fmtPlain } from '../packages/kalita-ui/tokens/format.js';
 
 // --- session & api -----------------------------------------------------------
 
@@ -45,28 +54,26 @@ const nav = (r) => { location.hash = r; };
 const elab = (e) => e.label || e.name;
 const flab = (f) => f.label || f.name;
 const colLabel = (ent, c) => { const f = ent.fields.find(x => x.name === c); return f ? flab(f) : c; };
-// humanize a workflow action identifier for a button: close_incident → Close incident
-const humanize = (s) => s.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+// humanize/reclabel/fieldSpan: shared with kalita-ui and @kalita/sdk, see
+// packages/kalita-ui/tokens/format.js — imported above, not redefined here.
 
-// reclabel: a short human label for one record — a name-like field if present
-// (so it reads "Rich types demo", not the #hex color that happened to come
-// first), else the first plain string value.
-const LABEL_KEYS = ['name', 'title', 'subject', 'full_name', 'label', 'number', 'company'];
-const isPlainStr = (v) => typeof v === 'string' && v && !v.match(/^[0-9a-f-]{36}$/);
-const reclabel = (values) => {
-  for (const k of LABEL_KEYS) if (isPlainStr(values[k])) return values[k];
-  for (const k in values) if (isPlainStr(values[k])) return values[k];
-  return (values.id || '').slice(0, 8) || '—';
-};
+// refFetcher/gotoRef: the network + navigation capabilities RefLink (kalita-ui)
+// needs injected — RefLink itself never imports app.js's authenticated `api()`
+// or hash-router `nav()` (see atoms.js's file header on capability injection).
+const refFetcher = (entity, id) => api(`/api/records/${entity}/${id}`);
+const gotoRef = (entity, id) => nav(`/e/${entity}/${id}`);
 
-// fieldSpan: how many of the 3 form columns a control should occupy. Big inputs
-// (long text, json, attachments, multi-pickers) take the full row; a ref picker
-// half; short scalars a third. Keeps dense forms readable instead of a 1-wide column.
-function fieldSpan(f) {
-  if (f.picker) return 2;
-  if (['text', 'json', 'array_file', 'array_ref'].includes(f.type)) return 3;
-  if (['ref', 'tags', 'multiselect', 'url'].includes(f.type)) return 2;
-  return 1;
+// uploadFile: the network capability FieldAtom's file/array_file atoms need
+// injected as `uploader` — a plain multipart POST to /api/files with this
+// session's bearer token.
+async function uploadFile(file) {
+  const s = session.get();
+  const form = new FormData(); form.append('file', file);
+  const resp = await fetch('/api/files', { method: 'POST',
+    headers: s?.token ? { Authorization: `Bearer ${s.token}` } : {}, body: form });
+  const ref = await resp.json();
+  if (!resp.ok) throw ref;
+  return ref;
 }
 
 // --- field rendering -------------------------------------------------------------
@@ -111,7 +118,7 @@ function LookupModal({ entity, multi, value, onPick, onClose }) {
             <tbody>${visible.map(r => html`<tr onClick=${() => multi ? toggle(r.id) : (onPick(r.id), onClose())}>
               ${multi ? html`<td><input type="checkbox" style="width:auto;margin:0" checked=${sel.includes(r.id)}
                   onClick=${e => e.stopPropagation()} onChange=${() => toggle(r.id)} /></td>` : ''}
-              ${cols.map(c => html`<td>${fmt(r.values[c])}</td>`)}</tr>`)}</tbody></table>`}
+              ${cols.map(c => html`<td>${fmtPlain(r.values[c])}</td>`)}</tr>`)}</tbody></table>`}
       </div>
       <div class="modal-foot">
         ${page > 0 ? html`<button class="btn" onClick=${() => setPage(page - 1)}>← prev</button>` : ''}
@@ -247,72 +254,16 @@ function CapabilityPicker({ field, value, onChange }) {
   </div>`;
 }
 
-// FileInput: drag-drop or pick a document, upload it, hold the returned ref.
-function FileInput({ value, onChange }) {
-  const [busy, setBusy] = useState(false); const [err, setErr] = useState(null);
-  const upload = async (file) => {
-    if (!file) return;
-    setBusy(true); setErr(null);
-    try {
-      const s = session.get();
-      const form = new FormData(); form.append('file', file);
-      const resp = await fetch('/api/files', { method: 'POST',
-        headers: s?.token ? { Authorization: `Bearer ${s.token}` } : {}, body: form });
-      const ref = await resp.json();
-      if (!resp.ok) throw ref;
-      onChange(ref);
-    } catch (e) { setErr(e.message || 'upload failed'); }
-    setBusy(false);
-  };
-  const inputId = 'fi-' + (value?.hash || 'new');
-  return html`<div
-      onDragOver=${e => e.preventDefault()}
-      onDrop=${e => { e.preventDefault(); upload(e.dataTransfer.files[0]); }}
-      onClick=${() => document.getElementById(inputId)?.click()}
-      style="border:1px dashed var(--line);border-radius:6px;padding:12px;text-align:center;margin:3px 0 10px;cursor:pointer">
-    ${busy ? html`<span class="muted">loading…</span>`
-      : value?.name ? html`<span>📄 ${value.name} <span class="muted">(${Math.round((value.size || 0) / 1024)} KB)</span></span>`
-      : html`<span class="muted">drop a file here or click to choose</span>`}
-    <input id=${inputId} type="file" style="display:none" onChange=${e => upload(e.target.files[0])} />
-    ${err && html`<div class="err">${err}</div>`}
-  </div>`;
-}
-
-// TagsInput: add/remove chips. multiselect picks from declared enum options;
-// free tags (array[string]) suggest values already used on other records — so
-// you select an existing label and only type a genuinely new one.
-function TagsInput({ value, onChange, options, entity, fieldName }) {
-  const list = Array.isArray(value) ? value : [];
-  const [draft, setDraft] = useState('');
-  const [existing, setExisting] = useState(null);
-  useEffect(() => {
-    if (options || !entity || !fieldName) return;
-    api(`/api/query/${entity}`, { method: 'POST', body: JSON.stringify({ limit: 100 }) })
-      .then(r => { const set = new Set(); (r.records || []).forEach(rec => (rec.values[fieldName] || []).forEach(t => set.add(t))); setExisting([...set]); })
-      .catch(() => setExisting([]));
-  }, [entity, fieldName, options]);
-  const add = (t) => { t = (t || '').trim(); if (t && !list.includes(t)) onChange([...list, t]); setDraft(''); };
-  const opts = (options || existing || []).filter(o => !list.includes(o));
-  return html`<div style="margin:3px 0 10px">
-    <div>${list.map(t => html`<span class="pill" style="margin:0 6px 4px 0;display:inline-block">${t}
-      <span style="cursor:pointer;color:var(--dim)" onClick=${() => onChange(list.filter(x => x !== t))}> ✕</span></span>`)}</div>
-    <div style="display:flex;gap:8px">
-      ${opts.length > 0 && html`<select style="margin:0;max-width:220px" value="" onChange=${e => e.target.value && add(e.target.value)}>
-        <option value="">choose existing…</option>${opts.map(o => html`<option value=${o}>${o}</option>`)}</select>`}
-      ${!options && html`<input style="margin:0" placeholder="or add new, Enter" value=${draft}
-        onInput=${e => setDraft(e.target.value)} onKeyDown=${e => e.key === 'Enter' && (e.preventDefault(), add(draft))} />`}
-    </div>
-  </div>`;
-}
-
 // ArrayRefInput: many refs — pick with the same async picker, remove as chips.
+// The chip label comes from kalita-ui's RefLink (id -> target record label),
+// not a local RefValue — see the "removed" comment near FieldValue below.
 function ArrayRefInput({ field, value, onChange }) {
   const list = Array.isArray(value) ? value : [];
   const [lk, setLk] = useState(false);
   const add = (id) => { if (id && !list.includes(id)) onChange([...list, id]); };
   return html`<div style="margin:3px 0 10px">
     <div>${list.map(id => html`<span class="pill" style="margin:0 6px 4px 0;display:inline-block">
-      <${RefValue} field=${field} value=${id} />
+      <${RefLink} field=${field} value=${id} fetcher=${refFetcher} />
       <span style="cursor:pointer;color:var(--dim)" onClick=${() => onChange(list.filter(x => x !== id))}> ✕</span></span>`)}</div>
     <div style="display:flex;gap:6px;align-items:flex-start">
       <div style="flex:1"><${RefInput} field=${field} value="" onChange=${add} noBrowse=${true} /></div>
@@ -323,72 +274,34 @@ function ArrayRefInput({ field, value, onChange }) {
   </div>`;
 }
 
-// ArrayFileInput: many attachments — upload one at a time, remove as chips.
-function ArrayFileInput({ value, onChange }) {
-  const list = Array.isArray(value) ? value : [];
-  return html`<div style="margin:3px 0 10px">
-    ${list.map((f, i) => html`<span class="pill" style="display:inline-block;margin:0 6px 4px 0">📄 ${f?.name || 'file'}
-      <span style="cursor:pointer;color:var(--dim)" onClick=${() => onChange(list.filter((_, j) => j !== i))}> ✕</span></span>`)}
-    <${FileInput} value=${null} onChange=${f => f && onChange([...list, f])} />
-  </div>`;
+// TagsInput: the free-tags case of kalita-ui's MultiSelect atom, plus the one
+// bit of network business the atom deliberately does NOT own (see atoms.js's
+// file header) — fetching values already used on other records of this
+// entity, so a user picks an existing label instead of typing a near-dupe.
+// multiselect (closed enum list, field.values) needs no such fetch and calls
+// FieldAtom directly from FieldInput below.
+function TagsInput({ field, entity, value, onChange }) {
+  const [existing, setExisting] = useState(null);
+  useEffect(() => {
+    api(`/api/query/${entity}`, { method: 'POST', body: JSON.stringify({ limit: 100 }) })
+      .then(r => { const set = new Set(); (r.records || []).forEach(rec => (rec.values[field.name] || []).forEach(t => set.add(t))); setExisting([...set]); })
+      .catch(() => setExisting([]));
+  }, [entity, field.name]);
+  return html`<${MultiSelect} field=${field} value=${value} onChange=${onChange} suggestions=${existing || []} />`;
 }
 
+// FieldInput: the EDIT-mode dispatcher (meta field -> the right control).
+// Three cases stay app.js-local because they are stateful search/browse UI
+// with no atom equivalent (see FieldAtom's doc comment in atoms.js); every
+// other type delegates straight to kalita-ui's FieldAtom — the type-render
+// switch itself lives ONCE, there, not here.
 function FieldInput({ field, value, onChange, entity }) {
   if (field.picker) return html`<${CapabilityPicker} field=${field} value=${value} onChange=${onChange} />`;
-  if (field.type === 'file') return html`<${FileInput} value=${value} onChange=${onChange} />`;
-  if (field.type === 'array_file') return html`<${ArrayFileInput} value=${value} onChange=${onChange} />`;
   if (field.type === 'ref') return html`<${RefInput} field=${field} value=${value} onChange=${onChange} />`;
   if (field.type === 'array_ref') return html`<${ArrayRefInput} field=${field} value=${value} onChange=${onChange} />`;
-  if (field.type === 'tags') return html`<${TagsInput} value=${value} onChange=${onChange} entity=${entity} fieldName=${field.name} />`;
-  if (field.type === 'multiselect') return html`<${TagsInput} value=${value} onChange=${onChange} options=${field.values} />`;
-  if (field.type === 'enum') return html`<select value=${value || ''} onChange=${e => onChange(e.target.value)}>
-    <option value="">—</option>${field.values.map(v => html`<option value=${v}>${v}</option>`)}</select>`;
-  if (field.type === 'bool') return html`<select value=${String(value ?? '')} onChange=${e => onChange(e.target.value === 'true')}>
-    <option value="">—</option><option value="true">true</option><option value="false">false</option></select>`;
-  if (field.type === 'color') return html`<input type="color" value=${value || '#000000'} onInput=${e => onChange(e.target.value)}
-    style="width:56px;height:34px;padding:2px;cursor:pointer" />`;
-  if (field.type === 'text' || field.type === 'json')
-    return html`<textarea rows=${field.type === 'json' ? 4 : 3}
-      value=${typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : (value || '')}
-      onInput=${e => onChange(e.target.value)} />`;
-  if (field.type === 'email' || field.type === 'url' || field.type === 'phone')
-    return html`<input type=${field.type === 'phone' ? 'tel' : field.type} value=${value || ''} onInput=${e => onChange(e.target.value)} />`;
-  if (field.type === 'datetime') {
-    // native picker; store RFC3339 (engine format), edit the wall-clock part
-    const local = value ? String(value).slice(0, 16) : '';
-    return html`<input type="datetime-local" value=${local}
-      onInput=${e => { const v = e.target.value; onChange(v ? (v.length === 16 ? v + ':00Z' : v + 'Z') : ''); }} />`;
-  }
-  const numeric = ['int', 'float', 'money', 'percent', 'decimal'].includes(field.type);
-  return html`<input type=${numeric ? 'number' : field.type === 'date' ? 'date' : 'text'}
-    value=${value ?? ''} onInput=${e => onChange(numeric ? Number(e.target.value) : e.target.value)} />`;
+  if (field.type === 'tags') return html`<${TagsInput} field=${field} entity=${entity} value=${value} onChange=${onChange} />`;
+  return html`<${FieldAtom} field=${field} value=${value} onChange=${onChange} uploader=${uploadFile} />`;
 }
-
-const fmt = (v) => v === null || v === undefined ? '' :
-  typeof v === 'object' ? JSON.stringify(v) : String(v);
-
-// fmtVal: type-aware display. Money gets thousands separators (and a currency
-// when it is a {amount, currency} object), percent a %, datetime a readable
-// wall-clock. Everything else falls back to fmt.
-const fmtNum = (n) => typeof n === 'number' ? n.toLocaleString('en-US') : n;
-const chip = (x) => html`<span class="pill" style="margin:0 4px 2px 0;display:inline-block">${x}</span>`;
-const fmtVal = (field, v) => {
-  if (v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) return '';
-  switch (field?.type) {
-    case 'money': return typeof v === 'object'
-      ? `${fmtNum(v.amount)} ${v.currency || ''}`.trim() : fmtNum(v);
-    case 'percent': return `${v}%`;
-    case 'datetime': return typeof v === 'string' ? v.slice(0, 16).replace('T', ' ') : fmt(v);
-    case 'color': return html`<span style="display:inline-flex;align-items:center;gap:6px">
-      <span style="width:13px;height:13px;border-radius:3px;border:1px solid var(--line);background:${v}"></span>${v}</span>`;
-    case 'url': return html`<a href=${v} target="_blank" rel="noreferrer noopener">${v}</a>`;
-    case 'file': return html`<span>📄 ${v?.name || 'file'}</span>`;
-    case 'array_file': return Array.isArray(v) ? v.map(f => chip(html`📄 ${f?.name || 'file'}`)) : fmt(v);
-    case 'tags': case 'multiselect': return Array.isArray(v) ? v.map(chip) : fmt(v);
-    case 'array_ref': return Array.isArray(v) ? `${v.length} linked` : fmt(v);
-    default: return fmt(v);
-  }
-};
 
 // --- branding (white-label; fetched before auth) --------------------------------
 const BRAND = { name: 'Kalita', accent: '', tagline: '' };
@@ -436,42 +349,9 @@ function Login() {
   </div>`;
 }
 
-// ApprovalCard: a signature request with "what am I signing?" — the record's net
-// change since creation (the agent's work) and any work-product text, inline, so
-// a human signs informed, not blind. The whole point of HITL over agent output.
-function ApprovalCard({ a, meta, onDecide }) {
-  const [open, setOpen] = useState(false);
-  const [rec, setRec] = useState(null);
-  const ent = meta.entities.find(e => e.name === a.entity) || { name: a.entity, fields: [] };
-  useEffect(() => {
-    if (open && !rec) api(`/api/records/${a.entity}/${a.record_id}`).then(setRec).catch(() => {});
-  }, [open, a.entity, a.record_id]);
-  // the agent's work product (long text: assessment/result/...) shown in full,
-  // the rest as a compact field summary — enough to sign informed.
-  const fields = (ent.fields || []).filter(f => f.readable !== false);
-  const textFields = fields.filter(f => f.type === 'text' && rec?.values?.[f.name]);
-  const scalarFields = fields.filter(f => f.type !== 'text' && rec?.values?.[f.name] != null && rec.values[f.name] !== '');
-  return html`<div class="card">
-    <b>${humanize(a.action)}</b>: ${elab(ent)} <span class="pill">${a.from} → ${a.to}</span>
-    <div class="muted">requested by ${a.requested_by.id} (${a.requested_by.type}) · <a onClick=${() => nav(`/e/${a.entity}/${a.record_id}`)}>open record</a></div>
-    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button class="btn green" onClick=${() => onDecide(a.id, true)}>Approve ✍</button>
-      <button class="btn red" onClick=${() => onDecide(a.id, false)}>Reject</button>
-      <button class="btn ${open ? 'on' : ''}" onClick=${() => setOpen(!open)}>${open ? 'hide' : '👁 what am I signing?'}</button>
-    </div>
-    ${open && html`<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
-      ${!rec ? html`<div class="muted">loading preview…</div>` : html`
-        ${textFields.map(f => html`<div style="margin-bottom:8px">
-          <div class="muted" style="font-size:12px">${flab(f)} — the work to sign off:</div>
-          <div style="white-space:pre-wrap;font-size:13px;max-height:260px;overflow:auto;background:#161b22;padding:8px;border-radius:6px">${rec.values[f.name]}</div></div>`)}
-        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 18px">
-          ${scalarFields.map(f => html`<div style="font-size:13px;padding:2px 0">
-            <span class="muted">${flab(f)}:</span> <${FieldValue} field=${f} value=${rec.values[f.name]} /></div>`)}
-        </div>
-        <${RelatedPanel} ent=${ent} id=${a.record_id} meta=${meta} readOnly=${true} />`}
-    </div>`}
-  </div>`;
-}
+// ApprovalCard is kalita-ui's molecule (imported above) — the "what am I
+// signing?" expand-to-preview logic lives there now, generalized off this
+// former app.js-local component (fetch/nav/related-panel injected below).
 
 function Inbox({ meta, refresh }) {
   const [data, setData] = useState({ approvals: [], proposals: [], tasks: [] });
@@ -496,7 +376,10 @@ function Inbox({ meta, refresh }) {
     <h2>Inbox</h2>
     ${err && html`<div class="err">${err.message || JSON.stringify(err)}</div>`}
     <h3>Signatures requested · ${data.approvals.length}</h3>
-    ${data.approvals.map(a => html`<${ApprovalCard} a=${a} meta=${meta} onDecide=${decide} />`)}
+    ${data.approvals.map(a => html`<${ApprovalCard} a=${a}
+      ent=${meta.entities.find(e => e.name === a.entity) || { name: a.entity, fields: [] }}
+      onDecide=${decide} onOpenRecord=${gotoRef} fetchRecord=${refFetcher}
+      renderRelated=${({ ent, id }) => html`<${RelatedPanel} ent=${ent} id=${id} meta=${meta} readOnly=${true} />`} />`)}
     <h3>Definition changes · ${data.proposals.length}</h3>
     ${data.proposals.map(p => html`<div class="card">
       <b>${p.description || 'proposal'}</b> <span class="muted">by ${p.author.id}</span>
@@ -683,7 +566,7 @@ function EntityList({ ent }) {
     <table style="margin-top:10px"><thead><tr>${cols.map(c => html`<th>${colLabel(ent, c)}</th>`)}</tr></thead>
     <tbody>${visible.map(r => html`<tr onClick=${() => nav(`/e/${ent.name}/${r.id}`)}>
       ${cols.map(c => { const f = ent.fields.find(x => x.name === c);
-        return html`<td>${f ? html`<${FieldValue} field=${f} value=${r.values[c]} />` : fmt(r.values[c])}</td>`; })}</tr>`)}</tbody></table>
+        return html`<td>${f ? html`<${FieldValue} field=${f} value=${r.values[c]} />` : fmtPlain(r.values[c])}</td>`; })}</tr>`)}</tbody></table>
     ${visible.length === 0 && html`<div class="muted" style="margin-top:8px">no records visible to your role</div>`}
     <div style="margin-top:10px">
       ${page > 0 && html`<button class="btn" onClick=${() => setPage(page - 1)}>← prev</button>`}
@@ -702,48 +585,18 @@ function Board({ ent }) {
     <h2>${elab(ent)} <a class="muted" style="font-size:13px" onClick=${() => nav(`/e/${ent.name}`)}>list</a></h2>
     <div class="cols">${(field?.values || []).map(v => html`<div class="col"><h4>${v} · ${rows.filter(r => r.values[ent.ui.board_by] === v).length}</h4>
       ${rows.filter(r => r.values[ent.ui.board_by] === v).map(r => html`
-        <div class="kcard" onClick=${() => nav(`/e/${ent.name}/${r.id}`)}>${fmt(r.values[title])}</div>`)}
+        <div class="kcard" onClick=${() => nav(`/e/${ent.name}/${r.id}`)}>${fmtPlain(r.values[title])}</div>`)}
     </div>`)}</div>
   </div>`;
 }
 
-// RefValue: render a ref field in READ mode as the target's label, not its uuid.
-// useRefLabel: resolve a ref id to its record label, through a shared cache so
-// the same id is fetched once even across a whole table column of repeats.
-const _refCache = new Map(); // "entity/id" -> label
-function useRefLabel(entity, id) {
-  const key = entity + '/' + id;
-  const [text, setText] = useState(() => id ? (_refCache.get(key) ?? null) : null);
-  useEffect(() => {
-    if (!id) { setText(null); return; }
-    if (_refCache.has(key)) { setText(_refCache.get(key)); return; }
-    api(`/api/records/${entity}/${id}`).then(r => { const l = reclabel(r.values); _refCache.set(key, l); setText(l); })
-      .catch(() => { const l = String(id).slice(0, 8); _refCache.set(key, l); setText(l); });
-  }, [entity, id]);
-  return text;
-}
-
-function RefValue({ field, value }) {
-  const text = useRefLabel(field.ref, value);
-  if (!value) return html`<span class="muted">—</span>`;
-  return html`${text || html`<span class="muted">…</span>`}`;
-}
-
-// ArrayRefValue: render many refs as labelled chips, not raw uuids.
-function ArrayRefValue({ field, value }) {
-  const list = Array.isArray(value) ? value : [];
-  if (!list.length) return html`<span class="muted">—</span>`;
-  return html`${list.map(id => html`<span class="pill" style="margin:0 4px 2px 0;display:inline-block"><${RefValue} field=${field} value=${id} /></span>`)}`;
-}
-
-// FieldValue: the read-mode display of any field — refs resolved to labels,
-// arrays as chips, the rest type-formatted. The single place the UI decides how
-// a value of a given type looks.
+// FieldValue: the READ-mode dispatcher — refs resolved to labels (RefLink),
+// arrays as chips, the rest type-formatted. All of that logic lives in
+// kalita-ui's FieldAtom/tokens/format.js now (see atoms.js's RefLink doc
+// comment for why the former useRefLabel/RefValue/ArrayRefValue moved
+// there); this function is what the LLD calls the dispatcher staying put.
 function FieldValue({ field, value }) {
-  if (field.type === 'ref') return html`<${RefValue} field=${field} value=${value} />`;
-  if (field.type === 'array_ref') return html`<${ArrayRefValue} field=${field} value=${value} />`;
-  const out = fmtVal(field, value);
-  return out === '' ? html`<span class="muted">—</span>` : html`${out}`;
+  return html`<${FieldAtom} field=${field} value=${value} onNavigate=${gotoRef} fetcher=${refFetcher} />`;
 }
 
 // LinksPanel: the `link` construct surfaced — named bidirectional relations
@@ -775,7 +628,7 @@ function LinksPanel({ ent, id }) {
     ${Object.entries(byName).map(([name, items]) => html`<div style="margin-bottom:8px">
       <div class="muted" style="font-size:12px">${humanize(name)}</div>
       ${items.map(l => html`<span class="pill" style="margin:0 6px 4px 0;display:inline-block">
-        <a onClick=${() => nav(`/e/${l.entity}/${l.record_id}`)}><${RefValue} field=${{ ref: l.entity }} value=${l.record_id} /></a>
+        <a onClick=${() => nav(`/e/${l.entity}/${l.record_id}`)}><${RefLink} field=${{ ref: l.entity }} value=${l.record_id} fetcher=${refFetcher} /></a>
         ${ent.can_update && html`<span style="cursor:pointer;color:var(--dim)" onClick=${() => mutate('DELETE', name, l.record_id)}> ✕</span>`}</span>`)}
     </div>`)}
     ${ent.can_update && defs.length > 0 && html`<div style="display:flex;gap:8px;align-items:flex-start;margin-top:8px">
@@ -789,29 +642,15 @@ function LinksPanel({ ent, id }) {
 
 // --- audit timeline (the differentiator surfaced) -------------------------------
 
-// kindLabel: a human verb for a journal event kind.
-const KIND_LABEL = {
-  'record.created': 'created', 'record.updated': 'edited', 'record.action': 'transition',
-  'comment.posted': 'commented', 'task.created': 'task queued', 'task.taken': 'task taken',
-  'task.completed': 'task done', 'approval.requested': 'sent for signature',
-  'approval.granted': 'signed', 'approval.rejected': 'rejected',
-};
-const kindLabel = (k) => KIND_LABEL[k] || k;
-
-// changeLines: the human-readable net of one mutation event's payload.
-function changeLines(e) {
-  const p = e.payload || {};
-  if (e.kind === 'record.created') return ['created'];
-  if (e.kind === 'record.updated') return (p.changes || []).map(c => `${c.field}: ${fmt(c.old) || '∅'} → ${fmt(c.new) || '∅'}`);
-  if (e.kind === 'record.action') return [`${p.from || '∅'} → ${p.to || '∅'}${p.action ? ` (${p.action})` : ''}`];
-  return [];
-}
-const isMutation = (k) => k === 'record.created' || k === 'record.updated' || k === 'record.action';
+// kindLabel/changeLines/isMutation moved to kalita-ui's molecules.js (used by
+// its TimelineItem, and isMutation is needed here too — both imported above).
 
 // Timeline: a record's audited history as a readable sequence — every change,
 // who made it, and (for a supervisor) one-click undo of the last change or a
 // rewind to any earlier point. The undo is itself a journaled event, so the
-// timeline shows the undos too (basis: revert/rewind of seq N).
+// timeline shows the undos too (basis: revert/rewind of seq N). Each row is
+// kalita-ui's TimelineItem molecule; this component keeps only the
+// load/undo/rewind orchestration.
 function Timeline({ ent, id, canRevert, onChanged }) {
   const [events, setEvents] = useState(null);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(null);
@@ -838,22 +677,7 @@ function Timeline({ ent, id, canRevert, onChanged }) {
       ${canRevert && lastMutSeq > 0 && html`<button class="btn" disabled=${busy} onClick=${undoLast} title="undo the most recent change">↩ Undo last</button>`}
     </div>
     ${err && html`<div class="err">${err.message} ${err.fix_hint || ''}</div>`}
-    ${events.map(e => {
-      const lines = changeLines(e);
-      const undone = e.basis && (e.basis.type === 'revert' || e.basis.type === 'rewind');
-      return html`<div style="padding:6px 0;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:flex-start">
-        <span class="muted" style="font-size:11px;width:118px;flex:none">${(e.ts || '').slice(0, 16).replace('T', ' ')}</span>
-        <div style="flex:1">
-          <span class="pill" style=${undone ? 'background:#33201c' : ''}>${kindLabel(e.kind)}</span>
-          <b> ${e.actor.id}</b> <span class="muted">(${e.actor.type})</span>
-          ${undone && html`<span class="muted"> · ${e.basis.type} of #${e.basis.id}</span>`}
-          ${lines.map(l => html`<div style="font-size:13px;margin-top:2px">${l}</div>`)}
-        </div>
-        ${canRevert && isMutation(e.kind) && e.seq < lastMutSeq && html`
-          <button class="btn" style="flex:none;font-size:12px;padding:3px 8px" disabled=${busy}
-            onClick=${() => rewindTo(e.seq)} title="restore the record to its state at this point">⤺ rewind here</button>`}
-      </div>`;
-    })}
+    ${events.map(e => html`<${TimelineItem} e=${e} canRevert=${canRevert} busy=${busy} onRewind=${rewindTo} lastMutSeq=${lastMutSeq} />`)}
   </div>`;
 }
 
@@ -1005,23 +829,9 @@ function Thread({ ent, id }) {
   </div>`;
 }
 
-// Dashboards: table-wide aggregate tiles (count/sum/avg/min/max), some grouped.
-// Each tile already respects the viewer's row permissions server-side.
-function Tile({ t }) {
-  const grouped = t.groups && t.groups.length;
-  const max = grouped ? Math.max(...t.groups.map(g => g.value), 1) : 0;
-  return html`<div class="card" style=${grouped ? 'flex:1 1 320px' : 'flex:0 0 200px'}>
-    <div class="muted" style="font-size:12px;margin-bottom:6px">${t.label}</div>
-    ${grouped
-      ? html`<div>${t.groups.map(g => html`<div style="display:flex;align-items:center;gap:8px;margin:4px 0">
-          <span style="width:96px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${g.key}</span>
-          <span style="flex:1;background:#1f2630;border-radius:4px;height:14px;position:relative">
-            <span style="position:absolute;inset:0 auto 0 0;width:${Math.round(g.value / max * 100)}%;background:var(--acc);border-radius:4px"></span></span>
-          <b style="width:32px;text-align:right">${g.value}</b></div>`)}</div>`
-      : html`<div style="font-size:30px;font-weight:600">${t.value}</div>`}
-  </div>`;
-}
-
+// Dashboards: table-wide aggregate tiles (count/sum/avg/min/max), some
+// grouped. Each tile already respects the viewer's row permissions
+// server-side. Tile itself is kalita-ui's DashboardTile molecule (imported above).
 function Dashboards() {
   const [list, setList] = useState(null);
   const [active, setActive] = useState(null);
@@ -1042,7 +852,7 @@ function Dashboards() {
     </div>
     ${!data ? html`<div class="muted">loading…</div>`
       : html`<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start">
-          ${data.tiles.map(t => html`<${Tile} t=${t} />`)}</div>`}
+          ${data.tiles.map(t => html`<${DashboardTile} t=${t} />`)}</div>`}
   </div>`;
 }
 

@@ -9,6 +9,7 @@ import (
 
 type Model struct {
 	Manifest     *Manifest
+	Product      *ProductDecl // product{} manifest section (LLD-05 §3), nil if absent
 	Entities     map[string]*EntityDecl
 	Order        []string // entity declaration order
 	Events       map[string]*EventDecl // by short name (own pack)
@@ -95,6 +96,7 @@ var coreEntities = coreEntityNames()
 func analyze(ast *AST, errs *Errors) *Model {
 	m := &Model{
 		Manifest:     ast.Manifest,
+		Product:      ast.Product,
 		Entities:     map[string]*EntityDecl{},
 		Events:       map[string]*EventDecl{},
 		Roles:        map[string]*RoleDecl{},
