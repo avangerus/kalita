@@ -113,6 +113,42 @@ perm_verb     := "emit" "[" ident_list "]"            # verb в permissions
   делают подписчики под своими правами.
 - UI людям прямой emit не даётся (только переходы/automation/MCP-verb).
 
+## 4b. Automation-действия `create` / `update` (гэп, вскрытый фиксами паков 02.07)
+
+Закрытый список действий automation расширяется двумя (нужны eshop-складу,
+crm-convert, finance-dunning — правило петли выполнено трёхкратно):
+```
+create_action := "create" IDENT "(" field "=" expr {"," field "=" expr} ")"
+update_action := "update" [ref_path] "set" field "=" expr {"," ...}
+                 # без ref_path — сама запись-триггер; ref_path — один хоп
+                 # по ref-полю записи-триггера (update product set ...)
+```
+- Семантика: исполняются в каскаде (op-скобки §2, механика ошибок §3,
+  idem-ключи как у прочих действий); выражения — evalComputed-контекст записи-
+  триггера (арифметика доступна: `in_stock = in_stock - qty`).
+- Создание проходит полный validate целевой сущности; on create-automation
+  целевой сущности срабатывает в том же каскаде (общий лимит глубины 8).
+- **Запрет обхода HITL:** `update ... set <workflow-поле>` — ошибка КОМПИЛЯЦИИ
+  (workflow-поле меняется только переходами). Отдельного действия `transition`
+  этот LLD сознательно НЕ вводит (TECHDEBT P2 остаётся открытым — не расширять
+  скоуп).
+- Актор: системный autoActor, basis = rule (file:line) — как у прочих действий;
+  событие журнала обычное record.created/updated.
+
+## 4c. Валидация имён действий в permissions (ложная защита — закрыть)
+
+Факт (02.07): элементы `act [...]` / `approve [...]` с несуществующими именами
+действий компилируются молча — «защита», которой нет. Исправление:
+- Семантическая проверка: каждое имя в act/approve-списках роли обязано
+  существовать как имя перехода хотя бы одной сущности, на которую у роли есть
+  какой-либо grant (E-код, следующий свободный; fix_hint с ближайшим по
+  Левенштейну существующим именем).
+- То же для deny-форм. `call [...]`-имена валидируются против integration-
+  деклараций (уже частично? — Sonnet сверяет и закрывает симметрично).
+- Прогон по всем packs/ + examples/ обязателен: существующие паки должны
+  компилироваться (если вскроются мусорные имена — это найденные баги паков,
+  чинить в том же PR с пометкой в agent/<pack>/BUGS.md).
+
 ## 5. Идемпотентность
 
 - **MCP: обязательна.** Все мутационные тулы получают поле
@@ -172,6 +208,14 @@ perm_verb     := "emit" "[" ident_list "]"            # verb в permissions
     (кроме добавления idempotency_key в MCP-вызовы) — I-1.
 12. Bench: op-скобки + failed-проекция дают ≤5% деградации на профиле
     «пилотный микс» (методика H10).
+13. `TestAutomationCreateAction` — crm: on update Lead when status=Converted →
+    create Opportunity(...) — запись создана, каскад в одном op, on create
+    целевой сущности сработал.
+14. `TestAutomationUpdateRefAction` — eshop: декремент in_stock через
+    `update product set in_stock = in_stock - qty`; запрет workflow-поля —
+    ошибка компиляции (отдельный кейс).
+15. `TestUnknownActionNameRejected` — permissions с несуществующим именем
+    действия → E-код + fix_hint; все packs/ + examples/ компилируются.
 
 ## 8. Порядок реализации (PR-нарезка для Sonnet)
 
@@ -180,6 +224,11 @@ PR-2: fireActions с ошибками, automation.failed/abandoned, retry-про
       CI-grep-гейт (+тесты 1).
 PR-3: op-скобки + recovery + inconsistent (+тесты 2,3).
 PR-4: event: грамматика/compose/семантика/emits (+тесты 4,7,8).
+PR-4b: automation create/update-действия + валидация имён действий в
+       permissions (+тесты 13,14,15) — разблокирует hr BUG-01-класс… нет:
+       разблокирует eshop BUG-01 и crm BUG-01 (агент паков закрывает их
+       следом); hr BUG-01 ждёт where-агрегатов (отдельный вопрос ядра,
+       НЕ этот LLD — зафиксирован в agent/kalita).
 PR-5: MCP emit_event + verb emit + идемпотентность MCP (+тесты 5,6) +
       обновление agent_runner/inbound.
 PR-6: периметр: prompt-контракт, детектор, honeypot-корпус (+тесты 9,10).
