@@ -101,41 +101,25 @@ LLM-вызовами agent_runner. Но пока его нет, дыры наш�
 
 ## Legal пак / DEMO-0 hardening (2026-07-02, Fable review zone)
 
-- **P1 (КЛАСС) field-level update ALLOW-LIST не реализуемо в одиночку —
-  ядровой гэп в движке прав, не в грамматике.** Грамматика ПАРСИТ
-  `update [Entity.field]` (field-scoped `PermItem`) корректно. Но
-  `engine.Update` (internal/engine/records.go:341) гейтит КАЖДЫЙ update
-  ДВУМЯ проверками: (1) нескоуп-проверка `can(actor,"update",entity,"",rec)`
-  — гейт на весь рекорд, ДО (2) `checkFieldWrites` по каждому полю. Гейт (1)
-  спрашивает `field=""`; `itemMatches` (internal/engine/permissions.go:92)
-  матчит `field=""` ТОЛЬКО против правила, чьё СОБСТВЕННОЕ `item.Field` тоже
-  `""`/`"*"` — field-scoped-правило (`item.Field="assessment"`) никогда не
-  матчит `field=""`, значит гейт (1) отказывает ВСЕГДА, и до гейта (2)
-  никогда не доходит, сколько бы полей ни было явно разрешено. Значит роль
-  МОЖЕТ иметь либо (a) `update [Entity]` — тогда `itemMatches` матчит ЛЮБОЕ
-  поле через тот же `item.Field=""`, т.е. "пиши что угодно", либо
-  (b) `update [Entity.f]` — тогда `update_record` на этой entity не
-  проходит гейт (1) вообще, включая запись в `f`. Чистого «разрешено
-  писать ТОЛЬКО эти поля» сегодня НЕТ. Подтверждено запуском
-  `TestDogfoodContractsMultiSignature` с `update [Contract.assessment,
-  Contract.risk]` без нескоуп-гранта: агентский write в СВОЁ ЖЕ
-  `assessment` был отклонён на гейте (1). Минимальный репро: роль R имеет
-  ТОЛЬКО `update [X.f]`; `can(actor,"update","X","",rec)` = `false` для R
-  независимо от f, `Update()` до `checkFieldWrites` не доходит. Не хакалось
-  (задача явно запретила патчить internal/ под это). Обходной путь,
-  реализованный в `packs/contracts/security.dsl`'s роли `Legal`: нескоуп
-  `update [Contract]` (проходит гейт 1) + ИСЧЕРПЫВАЮЩИЙ `deny` на каждое
-  Contract-поле, кроме `assessment`/`risk` — закрыт против ТЕКУЩЕГО списка
-  полей `entities.dsl`. Остаточный риск ЭТОГО обхода (в отличие от
-  настоящего allow-list): новое human-поле на Contract, забытое в
-  `deny`-списке, ПЕРЕОТКРЫВАЕТ дыру — в отличие от allow-list, где забытое
-  поле только недодаёт прав. → core-фикс: гейт (1) должен требовать «есть
-  ХОТЬ КАКОЕ-ТО update-правило на entity, скоуп неважен» (checkFieldWrites
-  уже перепроверяет каждое поле — гейту (1) достаточно доказать, что update
-  вообще возможен, а не что он безусловен). До фикса — любая роль с
-  field-scoped-only update на любой пак несёт тот же остаточный риск; при
-  ревью Fable проверять КАЖДЫЙ такой `deny`-список на полноту вручную.
-  (2026-07-02, BUG-02 hardening, packs/contracts/security.dsl)
+- ~~**P1 (КЛАСС) field-level update ALLOW-LIST не реализуемо в одиночку —
+  ядровой гэп в движке прав.**~~ RESOLVED by LLD-20
+  (docs/lld/LLD-20-field-scoped-update-perms.md, PR-1+PR-2, в рабочем дереве,
+  не закоммичено). Гейт (1) в `engine.Update` (internal/engine/records.go)
+  был нескоуп-проверкой `can(actor,"update",entity,"",rec)` на весь рекорд;
+  field-scoped-only грант (`update [X.f]`) никогда не матчил `field=""`
+  (`itemMatches`, internal/engine/permissions.go), значит гейт (1) отказывал
+  ВСЕГДА и до гейта (2) `checkFieldWrites` (уже корректного per-field
+  allow+deny) не доходил. Заменён на `canUpdateEntity` (permissions.go):
+  проверка СУЩЕСТВОВАНИЯ — есть ли у роли хоть одно update-правило на entity
+  любого скоупа, не перекрытое безусловным whole-entity/`*` deny — гейт (2)
+  остаётся единственным источником per-field решения. Доказательство
+  не-ослабления: `TestUpdateNotLoosened`
+  (internal/engine/lld20_update_perms_test.go) — перебор роль×поле×запись,
+  new⊇old, единственная новая способность — scoped-роль пишет ровно свои
+  поля. `packs/contracts/security.dsl`'s роль `Legal` переведена с
+  нескоуп-`update [Contract]` + исчерпывающий deny НА настоящий allow-list
+  `update [Contract.assessment, Contract.risk]` — новое Contract-поле теперь
+  безопасно по умолчанию, не по полноте deny-списка. (2026-07-02)
 
 - **P2 `product.mcp`'s `compose:` — сырой, неинтерпретируемый компилятором
   текст.** Секция `product.mcp` (LLD-06 §1, `internal/dsl` — новый

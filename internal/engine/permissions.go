@@ -88,6 +88,80 @@ func (e *Engine) can(actor eventstore.Actor, verb, entity, field string, record 
 	return decision{false, "default deny: no allow rule for " + verb + " " + entity}
 }
 
+// canUpdateEntity is engine.Update's gate (1) (LLD-20): does role hold AT
+// LEast one update-allow rule for entity, at any field scope, not blocked by
+// an unconditional (no `where`) whole-entity or `Entity.*` deny? This proves
+// only that SOME update access exists for a clean early denial ("no update
+// right on this entity at all") — it is deliberately NOT a per-field or
+// per-record decision. Which fields are actually writable, and record-level
+// `where` denies, are gate (2)'s job (checkFieldWrites, called next with the
+// real record for every touched field) — see LLD-20 §1-2. A field-scoped
+// allow (`update [Entity.f]`) now satisfies this gate on its own; previously
+// gate (1) queried field="" via can(), which only a whole-entity/`*` item
+// can match, so a scoped-only role always failed here before ever reaching
+// gate (2) (LLD-20 §0, the bug this closes).
+//
+// Conditional (`where`) denies are intentionally NOT evaluated here: they
+// need the record, which an existence check does not have and must not
+// need — record-level locks (e.g. `deny update X where status=Signed`)
+// still hold because their item has Field="", which matches every field in
+// gate (2)'s per-field can() call regardless of scope (LLD-20 §2/§3).
+func (e *Engine) canUpdateEntity(role, entity string) decision {
+	if strings.HasPrefix(entity, "core.") {
+		if role == e.defApprover {
+			return decision{true, ""}
+		}
+		return decision{false, "core reference data is managed by the " + e.defApprover + " role"}
+	}
+	pb, ok := e.model.Perms[role]
+	if !ok {
+		return decision{false, "no permissions block for role " + role}
+	}
+
+	// pass 1: an unconditional deny covering the whole entity or Entity.*
+	// blocks every field, so it blocks existence outright. A field-scoped
+	// deny (`deny update Entity.f`) or a conditional deny (`where ...`)
+	// does not: some other field may still be writable, or the record may
+	// not match the condition — both are gate (2)'s decision, not this one.
+	for _, rule := range pb.Rules {
+		if rule.Verb != "deny" {
+			continue
+		}
+		for _, item := range rule.Items {
+			if item.Where != "" {
+				continue
+			}
+			if !verbGrantsUpdate(item.Verb) {
+				continue
+			}
+			if !item.All && item.Entity != entity {
+				continue
+			}
+			if item.All || item.Field == "" || item.Field == "*" {
+				return decision{false, denyRuleText(item)}
+			}
+		}
+	}
+
+	// pass 2: any update (or full) rule targeting this entity, at any field
+	// scope, proves access exists. Field is deliberately not checked here.
+	for _, rule := range pb.Rules {
+		if !verbGrantsUpdate(rule.Verb) {
+			continue
+		}
+		for _, item := range rule.Items {
+			if item.All || item.Entity == entity {
+				return decision{true, ""}
+			}
+		}
+	}
+	return decision{false, "default deny: no allow rule for update " + entity}
+}
+
+func verbGrantsUpdate(v string) bool {
+	return v == "update" || v == "full"
+}
+
 // itemMatches checks verb/entity/field match, ignoring where.
 func itemMatches(item dsl.PermItem, verb, entity, field string) bool {
 	if item.Verb != verb && !(item.Verb == "full" && isCrud(verb)) {

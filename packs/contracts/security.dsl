@@ -32,42 +32,23 @@ permissions:
     # findings and writes the narrative assessment, then submits. It cannot change
     # the amount or the workflow state, cannot triage its own findings, signs nothing.
     #
-    # BUG-02: a pure field-level ALLOW-LIST (`update [Contract.assessment,
-    # Contract.risk]` with no unscoped `update [Contract]`) is NOT enforceable
-    # today -- CORE GAP, not a grammar gap: the grammar parses field-scoped
-    # items fine, but engine.Update (engine/records.go) gates every update
-    # through TWO checks: (1) an unscoped `can(actor,"update",entity,"",rec)`
-    # record-level gate, THEN (2) checkFieldWrites per touched field. Gate (1)
-    # queries field="" and engine/permissions.go's itemMatches only matches
-    # field="" against an item whose OWN Field is "" or "*" -- a field-scoped
-    # allow (Field="assessment") never matches field="", so gate (1) always
-    # denies and the update never reaches gate (2), no matter what is granted
-    # per field. Confirmed by running TestDogfoodContractsMultiSignature with
-    # only `update [Contract.assessment, Contract.risk]` granted: the agent's
-    # own in-bounds write to assessment/risk was rejected at gate (1).
-    # Minimal repro: role R has ONLY `update [X.f]`; `can(actor,"update","X","",rec)`
-    # is `false` for R regardless of f, so Update() never proceeds to check f.
-    # Not hacked around here (see task instructions: do not patch internal/
-    # engine for this). Logged as TECHDEBT (core: language/compiler) with a
-    # proposed core fix (gate (1) should be satisfied by ANY matching update
-    # rule for the entity, scoped or not -- checkFieldWrites already re-checks
-    # every field, so gate (1) only needs to prove SOME update access exists).
-    #
-    # Maximum expressible today: an unscoped `update [Contract]` (satisfies
-    # gate 1) PAIRED WITH an exhaustive per-field `deny` covering every
-    # Contract field except the agent's own work product (assessment, risk).
-    # This list is closed against entities.dsl's current Contract fields
-    # (number, title, counterparty, kind, amount, start_date, end_date, terms,
-    # status -- assessment/risk excluded, days_left/open_findings are computed
-    # and already read-only). A field added to Contract later that is NOT
-    # meant for the agent must be added here too -- unlike a real allow-list,
-    # a missed field HERE reopens the hole; tracked as the residual risk of
-    # this workaround in TECHDEBT.
+    # LLD-20 (docs/lld/LLD-20-field-scoped-update-perms.md): a true field-level
+    # ALLOW-LIST is now enforceable -- the prior CORE GAP is closed. Gate (1) in
+    # engine.Update (engine/records.go) used to be an unscoped
+    # `can(actor,"update",entity,"",rec)` record-level check, which a
+    # field-scoped-only grant could never satisfy (see git history / TECHDEBT
+    # for the old workaround this replaces). Gate (1) is now an existence check
+    # (engine/permissions.go: canUpdateEntity) -- does the role hold ANY update
+    # rule on the entity, any field scope? -- and gate (2) (checkFieldWrites,
+    # unchanged) remains the sole per-field allow+deny decision. So the agent's
+    # grant below is the true allow-list: it names exactly the fields it may
+    # write (assessment, risk); every other Contract field, present or added
+    # later, is default-denied with no maintenance burden -- unlike the old
+    # exhaustive per-field `deny` list, a field added to Contract in the future
+    # is safe by default here, not by omission.
     Legal:
         read   [Contract, Counterparty, Playbook, Finding]
-        update [Contract]
+        update [Contract.assessment, Contract.risk]
         create [Finding]
         act    [review]
         deny   [delete *, act [address, waive, reopen]]
-        deny   [update Contract.number, update Contract.title, update Contract.counterparty, update Contract.kind]
-        deny   [update Contract.amount, update Contract.start_date, update Contract.end_date, update Contract.terms, update Contract.status]

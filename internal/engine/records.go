@@ -338,7 +338,11 @@ func (e *Engine) Update(ctx context.Context, actor eventstore.Actor, entity, id 
 	if err := e.checkWorkflowField(entity, values); err != nil {
 		return nil, err
 	}
-	if d := e.can(actor, "update", entity, "", rec.Values); !d.allowed {
+	// Gate (1) (LLD-20): does the actor's role have update access to entity
+	// at all, any field scope? Existence only — see canUpdateEntity. The
+	// real per-field allow-list, including record-level `where` denies, is
+	// gate (2) below (checkFieldWrites), which sees the actual record.
+	if d := e.canUpdateEntity(actor.Role, entity); !d.allowed {
 		return nil, denied(actor.Role, "update", entity, d.rule)
 	}
 	if err := e.checkFieldWrites(actor, "update", entity, values, rec.Values); err != nil {
