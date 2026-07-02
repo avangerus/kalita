@@ -221,7 +221,15 @@ class TestBug02ModelChangeTriggerRebuild(unittest.TestCase):
             }
         }
 
+        # BUG-12 added a probe-embed call in index_source (New/Failed path) that
+        # runs BEFORE sync_source: it calls the real `embed()`, which hits LM
+        # Studio over the network. Without stubbing it here, the probe fails with
+        # a URLError in this offline test env, index_source hits its except-branch
+        # (fail_task + early return), and sync_source is never reached — a false
+        # negative unrelated to BUG-02. Stub embed() so the probe succeeds and the
+        # test actually exercises the force_rebuild wiring it's meant to check.
         with mock.patch.object(idx, "tool", return_value=src_with_history), \
+             mock.patch.object(idx, "embed", return_value=[[0.1]]), \
              mock.patch.object(idx, "sync_source", mock_sync_source):
             idx.index_source({"id": "tid-1", "record_id": "sid-1"})
 
@@ -247,7 +255,11 @@ class TestBug02ModelChangeTriggerRebuild(unittest.TestCase):
             }
         }
 
+        # Same BUG-12 probe-embed issue as the reindex test above: stub embed()
+        # so the New/Failed probe in index_source succeeds and execution actually
+        # reaches sync_source, instead of bailing out early on a real network call.
         with mock.patch.object(idx, "tool", return_value=src_failed), \
+             mock.patch.object(idx, "embed", return_value=[[0.1]]), \
              mock.patch.object(idx, "sync_source", mock_sync_source):
             idx.index_source({"id": "tid-2", "record_id": "sid-2"})
 
