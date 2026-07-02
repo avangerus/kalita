@@ -1,4 +1,4 @@
-﻿// Package api is the REST layer over the engine: same operations, same error
+// Package api is the REST layer over the engine: same operations, same error
 // codes, zero business logic of its own. The UI (week 7) and humans consume
 // it; agents get the MCP gateway (week 6).
 package api

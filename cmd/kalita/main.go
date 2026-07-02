@@ -1,4 +1,4 @@
-﻿// Command kalita is the single-binary entry point for the Kalita node.
+// Command kalita is the single-binary entry point for the Kalita node.
 package main
 
 import (

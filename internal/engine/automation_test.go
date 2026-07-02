@@ -1,4 +1,4 @@
-﻿package engine
+package engine
 
 import (
 	"encoding/json"
@@ -55,8 +55,11 @@ func automationEngine(t *testing.T) *tickEngine {
 	if len(errs) > 0 {
 		t.Fatalf("compile: %v", errs[0])
 	}
+	// One clock for engine AND store: stuck-detection compares engine now()
+	// against event TS written by the store — split clocks make the test a
+	// time bomb that starts failing once wall time passes the fixture date.
 	clock := time.Date(2026, 6, 12, 9, 0, 0, 0, time.UTC)
-	e, err := New(ctx, model, eventstore.NewMemStore(nil),
+	e, err := New(ctx, model, eventstore.NewMemStore(func() time.Time { return clock }),
 		WithClock(func() time.Time { return clock }),
 		WithTaskTTL(30*time.Minute))
 	if err != nil {
