@@ -209,17 +209,19 @@ func (e *Engine) ReportProgress(ctx context.Context, actor eventstore.Actor, tas
 	}
 	facts := e.countActorEvents(ctx, actor.ID, t.Entity, t.RecordID)
 	payload, _ := json.Marshal(taskPayload{Note: note, Facts: facts})
-	if _, err := e.store.Append(ctx, eventstore.AppendInput{
+	ev, err := e.store.Append(ctx, eventstore.AppendInput{
 		Actor: actor, Kind: eventstore.TaskProgress,
 		Subject: eventstore.Subject{TaskID: taskID},
 		Payload: payload, DefVersion: e.defVersion,
 		Basis: &eventstore.Basis{Type: "task", ID: taskID},
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
-	// live projection update (like finishTask) — applyEvent only covers replay
-	now := time.Now().UTC()
-	t.Note, t.NoteAt = note, &now
+	// live projection update (like finishTask) — applyEvent only covers replay.
+	// NoteAt comes from the journaled event's TS, exactly as replay derives it:
+	// wall time here would make live and replayed projections disagree (K-BUG-10).
+	t.Note, t.NoteAt = note, &ev.TS
 	return nil
 }
 
