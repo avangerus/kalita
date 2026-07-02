@@ -21,8 +21,24 @@ tmp/
 # Native dev run state (node key, logs, indexed files)
 /.native/
 
-# Agent scratch: review/planning notes — must NOT enter git
+# Agent scratch: review/planning notes — must NOT enter git.
+# Strategy/commercial docs (masterplan, GTM, market, per-product plans, pricing)
+# live under agent/strategy/ — this repo is PUBLIC, only technical design of
+# record (docs/lld, docs/HLD*, docs/adr, docs/TECHDEBT) belongs in it.
 /agent/
+
+# Guard: strategy docs must never be tracked in the public repo even if
+# re-created under docs/ — their home is agent/strategy/ (ignored above).
+/docs/MASTERPLAN.md
+/docs/AGENT-PLATFORM-VISION.md
+/docs/PLATFORM-NEXT.md
+/docs/EXECUTION-ROUTING.md
+/docs/MARKET.md
+/docs/gtm-legal.md
+/docs/DYNAMICS-VISION.md
+/docs/THOUGHTS-INBOX.md
+/docs/KNOWVAULT-PRODUCT.md
+/docs/products/
 
 # eval run artifacts (results are reproducible from the harness)
 workers/knowvault_eval/eval_results_*.json
