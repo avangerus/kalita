@@ -1,5 +1,10 @@
 # Kalita DSL — Specification v0
 
+> **Навигация (2026-07-05):** это грамматика, которую принимает СЕГОДНЯШНИЙ
+> компилятор. ЦЕЛЕВОЙ язык — [LANGUAGE.md](LANGUAGE.md) (v0.9); парсер сходится
+> к нему итерациями. Где расходятся (напр. конструкт `fact` — в цели отменён,
+> факт выводится из команды) — направление задаёт `LANGUAGE.md`.
+
 Status: **frozen** — this reflects the grammar the shipped compiler accepts
 (authoritative companion: `internal/mcp/grammar.go`, served live by `get_grammar`,
 kept in lockstep with the parser). New constructs are additive and arrive through

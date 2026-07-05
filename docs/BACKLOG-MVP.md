@@ -1,5 +1,10 @@
 # Kalita MVP — 8-Week Backlog
 
+> **Историческое (2026-07-05):** 8-недельный бэклог Fable-стройки, выполнен.
+> Хранится как контекст истории. Актуальные план/готовность —
+> [ROADMAP.md](ROADMAP.md), [RELEASE-1.0.md](RELEASE-1.0.md),
+> [V1-GATE.md](V1-GATE.md), [PLATFORM-STDLIB.md](PLATFORM-STDLIB.md).
+
 Status: draft. Foundation: HLD.md, DSL-SPEC-v0.md, MCP-CONTRACT-v0.md, EVENT-STORE-v0.md.
 Working mode: agent pipeline; a spec with acceptance criteria precedes code for each epic; architectural deviations from the four foundation documents — only via ADR.
 
