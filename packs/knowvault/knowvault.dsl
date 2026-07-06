@@ -94,6 +94,13 @@ permissions:
         read   [Workspace, Source, VaultSettings]
         update [Source]
         act    [start_index, finish_index, fail_index]
+        # TECHDEBT "Безопасность LLM-периметра" (b): a dedicated grant for the
+        # perimeter detector's tripwire — journaling ingest.flagged is a
+        # stronger surface than the `update [Source]` grant above and is
+        # NEVER inferred from it (internal/engine's canFlag / dsl's `flag`
+        # verb); only Indexer, the sole role that ever runs the detector on
+        # ingest, holds it.
+        flag   [ingest.flagged]
         deny   [delete *, update Workspace.*, update VaultSettings.*, read SearchQuery, update Source.path]
     Searcher:
         read   [Workspace]
