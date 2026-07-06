@@ -44,6 +44,12 @@ jobs:
       # it. Also covered by the blanket `go test ./...` above (it is ./tests/...);
       # kept as its own step so a fold regression is unmistakable in CI logs.
       - run: go test ./tests/... -run TestGoldenReplay -v
+      # release hygiene (docs/RELEASE-1.0.md DoD): known-vulnerability scan of
+      # the module graph. A finding fails the build — triage it, do not mute.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
 
   # Node performance passport (docs/HLD-V1.md §H10, docs/RELEASE-1.0.md N6/N9):
   # P1 pilot mix, P2 bulk create, P3 journal replay, P4 auth storm — see
