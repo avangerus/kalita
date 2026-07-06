@@ -31,6 +31,24 @@ type approvalPayload struct {
 	To       string `json:"to"`
 	Role     string `json:"role"`
 	Reason   string `json:"reason,omitempty"`
+	// HumanSignature/RPID/HeadSeq are ADDITIVE fields on approval.decided
+	// (LLD-02 §1, §5): the WebAuthn assertion a human signed the decision
+	// with, the relying-party id, and the head_seq captured when its
+	// challenge was issued — everything `kalita verify` needs to rebuild the
+	// EXACT canonical string offline (task_id/entity/record_id/transition/
+	// decision/basis are all otherwise reconstructable from the journal
+	// itself; node_id comes from node.pub; head_seq is NOT reconstructable
+	// after the fact from anything else, so it must be journaled here —
+	// LLD-02 §5, "самодостаточная" offline verification). Absence of
+	// HumanSignature means a token-only decision (dev-mode) — every event
+	// written before LLD-02 is valid exactly as it was (I-1). The engine
+	// does not parse or verify this payload itself: by the time Decide sees
+	// it, the API layer (internal/api, which owns the credential registry
+	// and canonical-string reconstruction) has already verified it — see
+	// DecideOption/WithHumanSignature below.
+	HumanSignature json.RawMessage `json:"human_signature,omitempty"`
+	RPID           string          `json:"rp_id,omitempty"`
+	HeadSeq        uint64          `json:"head_seq,omitempty"`
 }
 
 type ApprovalStatus string
@@ -43,15 +61,15 @@ const (
 
 // Approval is a pending human decision: the HITL gate.
 type Approval struct {
-	ID          string            `json:"id"`
-	Entity      string            `json:"entity"`
-	RecordID    string            `json:"record_id"`
-	Action      string            `json:"action"`
-	From        string            `json:"from"`
-	To          string            `json:"to"`
-	Role        string            `json:"role"`
-	RequestedBy eventstore.Actor  `json:"requested_by"`
-	Status      ApprovalStatus    `json:"status"`
+	ID          string           `json:"id"`
+	Entity      string           `json:"entity"`
+	RecordID    string           `json:"record_id"`
+	Action      string           `json:"action"`
+	From        string           `json:"from"`
+	To          string           `json:"to"`
+	Role        string           `json:"role"`
+	RequestedBy eventstore.Actor `json:"requested_by"`
+	Status      ApprovalStatus   `json:"status"`
 }
 
 // ActResult reports what happened: applied, or parked for a signature.
@@ -149,10 +167,65 @@ func (e *Engine) Act(ctx context.Context, actor eventstore.Actor, entity, id, ac
 	return &ActResult{Status: "applied", Record: e.records[entity][id]}, nil
 }
 
+// DecideOption customizes a Decide call with the WebAuthn era's additive
+// human_signature (LLD-02). Omitting every option reproduces the pre-LLD-02
+// behavior exactly (I-1) — this is why it is a trailing variadic, not a new
+// positional parameter: every existing call site across the codebase (mcp
+// dogfood tests, engine tests) compiles and behaves unchanged.
+type DecideOption func(*decideOpts)
+
+type decideOpts struct {
+	humanSig json.RawMessage // pre-verified by the caller — see WithHumanSignature
+	rpID     string
+	headSeq  uint64
+}
+
+// WithHumanSignature attaches a WebAuthn assertion to a decision. The caller
+// (internal/api, which owns the credential registry and canonical-string
+// reconstruction, LLD-02 §2-3) MUST have already verified the assertion
+// before calling Decide — Decide only journals it additively on
+// approval.decided, it does not re-verify crypto. rpID and headSeq are
+// journaled alongside it (LLD-02 §5, offline re-verification: node_id comes
+// from node.pub and the rest of the canonical from the journal itself, but
+// head_seq — the head captured when the challenge was issued — cannot be
+// reconstructed after the fact from anything else).
+func WithHumanSignature(raw json.RawMessage, rpID string, headSeq uint64) DecideOption {
+	return func(o *decideOpts) { o.humanSig = raw; o.rpID = rpID; o.headSeq = headSeq }
+}
+
+// GetApproval returns a pending or decided approval by id, read-only. LLD-02
+// §4 needs this: the challenge-issuance endpoint must read the approval's
+// entity/record/action/role to build the canonical string BEFORE any
+// verification happens, without mutating engine state.
+func (e *Engine) GetApproval(id string) (*Approval, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	a, ok := e.approvals[id]
+	if !ok {
+		return nil, false
+	}
+	cp := *a
+	return &cp, true
+}
+
+// CanApprove exported wrapper over canApprove (LLD-02 §4): the challenge
+// endpoint gates issuance on the same role check Decide itself enforces, so
+// a role that cannot decide an approval cannot even fetch its challenge.
+func (e *Engine) CanApprove(role, action string) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.canApprove(role, action)
+}
+
 // Decide resolves a pending approval. When a verifier is wired, a valid
 // signature over ApprovalMessage(id, decision) is mandatory — the signature
-// lands in the journal and verifies offline.
-func (e *Engine) Decide(ctx context.Context, actor eventstore.Actor, approvalID string, grant bool, signature []byte, basis *eventstore.Basis) (*Record, error) {
+// lands in the journal and verifies offline. opts carries the WebAuthn-era
+// additive human_signature (LLD-02) — see DecideOption.
+func (e *Engine) Decide(ctx context.Context, actor eventstore.Actor, approvalID string, grant bool, signature []byte, basis *eventstore.Basis, opts ...DecideOption) (*Record, error) {
+	var do decideOpts
+	for _, o := range opts {
+		o(&do)
+	}
 	if basis == nil {
 		return nil, &Err{Code: CodeBasisRequired, Message: "decision without basis",
 			FixHint: "reference the approval request"}
@@ -186,17 +259,34 @@ func (e *Engine) Decide(ctx context.Context, actor eventstore.Actor, approvalID 
 		decision = "rejected"
 		kind = eventstore.ApprovalRejected
 	}
-	// Signature policy: verify a signature when one is provided. Require it
-	// only when the node enforces signatures (WebAuthn era). Until then a
-	// token-authenticated human decision is allowed and journaled — the API
-	// already proved identity. The journal records which path was used.
-	if signature != nil && e.verify != nil {
+	// Signature policy, checked in order:
+	//  1. a verified WebAuthn human_signature (LLD-02) always satisfies both
+	//     enforcement flags — it is the strongest proof there is.
+	//  2. --require-human-signature (LLD-02 §5): a human actor without one
+	//     is rejected outright, regardless of any raw signature bytes —
+	//     this is the production gate ("approve без passkey невозможно").
+	//     Agents are unaffected: they never carried WebAuthn credentials to
+	//     begin with (LLD-02 §HLD H1: "человек-WebAuthn / агент-Ed25519").
+	//  3. the pre-LLD-02 path: verify a raw signature when one is provided
+	//     and a verifier is wired.
+	//  4. --require-signatures (pre-LLD-02, test-only today): reject if
+	//     nothing verified.
+	// Until any flag is set, a token-authenticated decision is allowed and
+	// journaled unchanged — the API already proved identity (dev-mode, I-1).
+	switch {
+	case do.humanSig != nil:
+		// already verified by the caller before invoking Decide.
+	case e.requireHumanSig && actor.Type == eventstore.ActorHuman:
+		return nil, &Err{Code: CodeSignatureRequired,
+			Message: "this node requires a WebAuthn human signature (passkey) on HITL decisions",
+			FixHint: "decide from the approval UI, which signs with a registered passkey — token/MCP decisions are not accepted"}
+	case signature != nil && e.verify != nil:
 		if err := e.verify(ctx, actor.ID, ApprovalMessage(approvalID, decision), signature); err != nil {
 			return nil, &Err{Code: CodePermissionDenied,
 				Message: "approval signature is invalid: " + err.Error(),
 				Rule:    "a provided signature must verify"}
 		}
-	} else if e.requireSig {
+	case e.requireSig:
 		return nil, &Err{Code: CodePermissionDenied,
 			Message: "this node requires a signed approval (passkey)",
 			Rule:    "signatures are mandatory on HITL decisions"}
@@ -204,6 +294,7 @@ func (e *Engine) Decide(ctx context.Context, actor eventstore.Actor, approvalID 
 
 	payload, _ := json.Marshal(approvalPayload{
 		Entity: a.Entity, RecordID: a.RecordID, Action: a.Action, From: a.From, To: a.To, Role: a.Role,
+		HumanSignature: do.humanSig, RPID: do.rpID, HeadSeq: do.headSeq,
 	})
 	if _, err := e.store.Append(ctx, eventstore.AppendInput{
 		Actor:      actor,

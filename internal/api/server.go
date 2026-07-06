@@ -33,12 +33,25 @@ type Server struct {
 	// window-per-minute shape as internal/mcp/server.go, applied once per
 	// request in ServeHTTP.
 	limiter rateLimiter
+	// nodeID is the node's own public key (LLD-02 §2 "node_id"): the
+	// canonical string embeds it so a passkey signature is not portable
+	// between nodes. Empty on a node started without WithNodeID — the
+	// credential/decide endpoints still work, just with an empty node_id
+	// component (fine for dev; production wiring sets it from node.pub).
+	nodeID string
+	// requireHumanSig mirrors engine.WithRequireHumanSignature (LLD-02 §5):
+	// when set, a decision's human_signature verification also requires the
+	// UV (user verification) flag.
+	requireHumanSig bool
+	// challenges holds short-lived WebAuthn ceremony state (registration
+	// challenges, approval-decision challenges) — see credentials.go.
+	challenges challengeStore
 }
 
 // brandConfig white-labels the UI: the product the customer sees, not "Kalita".
 type brandConfig struct {
-	Name   string `json:"name"`
-	Accent string `json:"accent,omitempty"`
+	Name    string `json:"name"`
+	Accent  string `json:"accent,omitempty"`
 	Tagline string `json:"tagline,omitempty"`
 }
 
@@ -80,6 +93,18 @@ func WithBrand(name, accent, tagline string) Option {
 	}
 }
 
+// WithNodeID sets the node's public key (LLD-02 §2 "node_id") — the
+// canonical string embeds it so a passkey signature is not portable between
+// nodes. Pass the same base64 the node already writes to node.pub.
+func WithNodeID(id string) Option { return func(s *Server) { s.nodeID = id } }
+
+// WithRequireHumanSignature enforces UV (user verification) on every
+// WebAuthn human_signature this server verifies (LLD-02 §5). Pair with
+// engine.WithRequireHumanSignature on the SAME node — this option only
+// changes what the API layer requires from a signature that IS present;
+// the engine option is what rejects a decision that has none.
+func WithRequireHumanSignature() Option { return func(s *Server) { s.requireHumanSig = true } }
+
 func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	s := &Server{eng: eng, reg: reg, mux: http.NewServeMux(), brand: brandConfig{Name: "Kalita"}}
 	for _, o := range opts {
@@ -115,7 +140,12 @@ func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("POST /api/records/{entity}/{id}/revert", s.revert)
 	s.mux.HandleFunc("POST /api/records/{entity}/{id}/rewind", s.rewind)
 	s.mux.HandleFunc("GET /api/approvals", s.approvals)
+	s.mux.HandleFunc("GET /api/approvals/{id}/challenge", s.approvalChallenge)
 	s.mux.HandleFunc("POST /api/approvals/{id}/decide", s.decide)
+	s.mux.HandleFunc("POST /api/credentials/begin", s.credentialsBegin)
+	s.mux.HandleFunc("POST /api/credentials/finish", s.credentialsFinish)
+	s.mux.HandleFunc("GET /api/credentials", s.listCredentials)
+	s.mux.HandleFunc("DELETE /api/credentials/{id}", s.revokeCredential)
 	s.mux.HandleFunc("GET /api/tasks", s.tasks)
 	s.mux.HandleFunc("GET /api/proposals", s.proposals)
 	s.mux.HandleFunc("POST /api/proposals/{id}/decide", s.decideProposal)
@@ -395,11 +425,12 @@ func coerce(s string) any {
 }
 
 var statusByCode = map[string]int{
-	engine.CodePermissionDenied: http.StatusForbidden,
-	engine.CodeValidation:       http.StatusUnprocessableEntity,
-	engine.CodeNotFound:         http.StatusNotFound,
-	engine.CodeConflict:         http.StatusConflict,
-	engine.CodeBasisRequired:    http.StatusUnprocessableEntity,
+	engine.CodePermissionDenied:  http.StatusForbidden,
+	engine.CodeValidation:        http.StatusUnprocessableEntity,
+	engine.CodeNotFound:          http.StatusNotFound,
+	engine.CodeConflict:          http.StatusConflict,
+	engine.CodeBasisRequired:     http.StatusUnprocessableEntity,
+	engine.CodeSignatureRequired: http.StatusForbidden,
 }
 
 func writeErr(w http.ResponseWriter, err error) {

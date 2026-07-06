@@ -19,13 +19,18 @@ const (
 	// operation left mid-flight (LLD-01 §2). Revert/RewindTo/ConfirmConsistent
 	// are the sanctioned way out; every other mutation is refused.
 	CodeRecordInconsistent = "RECORD_INCONSISTENT"
+	// CodeSignatureRequired rejects a human HITL decision made without a
+	// verified WebAuthn human_signature on a node running with
+	// --require-human-signature (LLD-02 §5). fix_hint points at the approval
+	// UI, the only place that can produce one — MCP/token decisions cannot.
+	CodeSignatureRequired = "SIGNATURE_REQUIRED"
 )
 
 type Err struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
-	Field   string `json:"field,omitempty"`    // VALIDATION_ERROR
-	Rule    string `json:"rule,omitempty"`     // PERMISSION_DENIED: which rule decided
+	Field   string `json:"field,omitempty"` // VALIDATION_ERROR
+	Rule    string `json:"rule,omitempty"`  // PERMISSION_DENIED: which rule decided
 	FixHint string `json:"fix_hint,omitempty"`
 }
 

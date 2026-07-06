@@ -8,6 +8,7 @@ import (
 
 	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
+	"github.com/avangerus/kalita/internal/identity"
 )
 
 // Handlers backing the generated UI (week 7): per-actor meta, workflow
@@ -155,6 +156,10 @@ type decideRequest struct {
 	Grant     bool              `json:"grant"`
 	Signature []byte            `json:"signature,omitempty"`
 	Basis     *eventstore.Basis `json:"basis"`
+	// HumanSignature is the additive WebAuthn assertion (LLD-02 §1, §4): the
+	// UI signs over the challenge from GET /api/approvals/{id}/challenge and
+	// submits it here instead of (or alongside) the legacy raw Signature.
+	HumanSignature *identity.HumanSignaturePayload `json:"human_signature,omitempty"`
 }
 
 func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +173,47 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR", "message": "bad json"})
 		return
 	}
-	rec, err := s.eng.Decide(r.Context(), actor, r.PathValue("id"), req.Grant, req.Signature, req.Basis)
+	approvalID := r.PathValue("id")
+	var opts []engine.DecideOption
+	if req.HumanSignature != nil {
+		// SIGNATURE_REQUIRED-style rejection for a non-human actor trying to
+		// submit a WebAuthn assertion: only a browser/SDK acting as a human
+		// can ever produce one (LLD-02 §4, "MCP without human_signature is
+		// rejected" — an agent WITH one makes even less sense and is refused
+		// the same way).
+		if actor.Type != eventstore.ActorHuman {
+			writeJSON(w, http.StatusForbidden, &engine.Err{Code: engine.CodeSignatureRequired,
+				Message: "only a human actor may submit a WebAuthn human_signature"})
+			return
+		}
+		a, ok := s.eng.GetApproval(approvalID)
+		if !ok {
+			writeJSON(w, http.StatusNotFound, &engine.Err{Code: engine.CodeNotFound, Message: "approval " + approvalID + " not found"})
+			return
+		}
+		ac, ok := s.challenges.getApproval(approvalID)
+		if !ok || ac.actorID != actor.ID {
+			writeJSON(w, http.StatusUnprocessableEntity, &engine.Err{Code: engine.CodeValidation,
+				Message: "no outstanding challenge for this approval and actor",
+				FixHint: "call GET /api/approvals/{id}/challenge first"})
+			return
+		}
+		decision := identity.DecisionDeny
+		if req.Grant {
+			decision = identity.DecisionGrant
+		}
+		basisType, basisID := approvalCanonicalBasis(approvalID)
+		canon := identity.BuildApprovalCanonical(approvalID, a.Entity, a.RecordID, a.Action, decision, basisType, basisID, ac.headSeq, s.nodeID)
+		rpID := rpIDFromHost(r.Host)
+		if verr := s.reg.VerifyApprovalSignature(r.Context(), actor.ID, req.HumanSignature, canon, rpID, originAllowed(r.Host), s.requireHumanSig); verr != nil {
+			writeJSON(w, http.StatusForbidden, &engine.Err{Code: engine.CodePermissionDenied,
+				Message: "human signature invalid: " + verr.Error()})
+			return
+		}
+		raw, _ := json.Marshal(req.HumanSignature)
+		opts = append(opts, engine.WithHumanSignature(raw, rpID, ac.headSeq))
+	}
+	rec, err := s.eng.Decide(r.Context(), actor, approvalID, req.Grant, req.Signature, req.Basis, opts...)
 	if err != nil {
 		writeErr(w, err)
 		return

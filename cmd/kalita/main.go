@@ -69,7 +69,8 @@ func main() {
 // of the backup drill in OPERATIONS.md.
 func verifyCmd(args []string) {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
-	pub := fs.String("pub", "", "node.pub file for checkpoint verification")
+	pub := fs.String("pub", "", "node.pub file for checkpoint AND human_signature verification (LLD-02 §5)")
+	requireSignedApprovals := fs.Bool("require-signed-approvals", false, "fail if any human approve/reject decision has no WebAuthn human_signature (LLD-02 §5 — audits a prod journal that is supposed to be passkey-only)")
 	_ = fs.Parse(args)
 	dsn := resolveDSN()
 	if dsn == "" {
@@ -100,6 +101,22 @@ func verifyCmd(args []string) {
 			os.Exit(1)
 		}
 		fmt.Println("checkpoints ok: history is provably unrewritten")
+
+		// LLD-02 §5: re-verify every human_signature offline, entirely from
+		// this event dump plus the node's own public key (node_id — the
+		// same base64 string a live server passes to api.WithNodeID).
+		nodeID := base64.StdEncoding.EncodeToString(key)
+		checked, problems := identity.VerifyApprovalSignaturesOffline(events, nodeID, *requireSignedApprovals)
+		fmt.Printf("human signatures: %d human approve/reject decisions checked\n", checked)
+		if len(problems) > 0 {
+			for _, p := range problems {
+				fmt.Println("SIGNATURE PROBLEM:", p)
+			}
+			os.Exit(1)
+		}
+		fmt.Println("human signatures ok")
+	} else if *requireSignedApprovals {
+		log.Fatal("--require-signed-approvals requires --pub (node_id is part of the canonical string it checks)")
 	}
 }
 
@@ -362,6 +379,7 @@ func serve(args []string) {
 	connectorEntity := fs.String("connector-entity", "Connector", "entity holding connector records (name→backend) for the /api/call capability proxy")
 	shutdownTimeout := fs.Duration("shutdown-timeout", 25*time.Second, "how long SIGTERM/SIGINT waits for in-flight requests to drain before forcing the listener closed")
 	forceDowngrade := fs.Bool("force-downgrade", false, "start even though the journal was last run by a newer version (LLD-03 §1); events of kinds this binary does not recognize are skipped and counted in a warning, and a node.downgraded event is recorded")
+	requireHumanSig := fs.Bool("require-human-signature", false, "require a verified WebAuthn passkey signature on every human approve/reject (LLD-02 §5) — the production gate; off by default so demo/dev nodes keep working unchanged")
 	_ = fs.Parse(args)
 
 	tls := *tlsCert != "" && *tlsKey != ""
@@ -410,13 +428,31 @@ func serve(args []string) {
 	enforceVersionGuard(ctx, store, *forceDowngrade)
 
 	reg := identity.NewRegistry(store)
-	eng, err := engine.New(ctx, model, store,
+	engOpts := []engine.Option{
 		engine.WithVerifier(reg.VerifySignature),
-		engine.WithDefinitionApprover(*approver))
+		engine.WithDefinitionApprover(*approver),
+	}
+	if *requireHumanSig {
+		engOpts = append(engOpts, engine.WithRequireHumanSignature())
+	}
+	eng, err := engine.New(ctx, model, store, engOpts...)
 	if err != nil {
 		log.Fatalf("engine: %v", err)
 	}
+	// node key: loaded here (rather than at the original later boot-stamp
+	// spot) because the API layer needs its public key NOW, for LLD-02 §2's
+	// node_id — the canonical string component that makes a passkey
+	// signature non-portable between nodes.
+	nodeKey, err := identity.LoadOrCreateNodeKey(*dataDir)
+	if err != nil {
+		log.Fatalf("node key: %v", err)
+	}
 	var apiOpts []api.Option
+	apiOpts = append(apiOpts, api.WithNodeID(base64.StdEncoding.EncodeToString(nodeKey.Public().(ed25519.PublicKey))))
+	if *requireHumanSig {
+		apiOpts = append(apiOpts, api.WithRequireHumanSignature())
+		log.Print("--require-human-signature is on: human approve/reject decisions require a verified passkey (LLD-02 §5)")
+	}
 	if *devHeaders {
 		log.Print("WARNING: --insecure-dev-auth is on — X-Actor headers grant any identity. Local development only.")
 		apiOpts = append(apiOpts, api.WithDevHeaders())
@@ -506,11 +542,8 @@ func serve(args []string) {
 		seedDemo(ctx, eng, reg, store)
 	}
 
-	// node key + boot stamp: every start is a journaled, versioned event
-	nodeKey, err := identity.LoadOrCreateNodeKey(*dataDir)
-	if err != nil {
-		log.Fatalf("node key: %v", err)
-	}
+	// boot stamp: every start is a journaled, versioned event (nodeKey
+	// itself was already loaded above, before apiOpts, for LLD-02's node_id)
 	_, _ = store.Append(ctx, eventstore.AppendInput{
 		Actor:   eventstore.Actor{Type: eventstore.ActorSystem, ID: "node"},
 		Kind:    eventstore.NodeStarted,

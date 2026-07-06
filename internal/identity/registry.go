@@ -38,6 +38,9 @@ type Registry struct {
 
 	// authFails (LLD-10 §4) has its own lock — see authfail.go.
 	authFails authFailState
+
+	// credState (LLD-02 §1) has its own lock and watermark — see webauthn.go.
+	credState credentialState
 }
 
 func NewRegistry(store eventstore.Store) *Registry {
