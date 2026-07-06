@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -28,6 +29,10 @@ type Server struct {
 	call    *callConfig
 	boot    *bootstrapConfig
 	brand   brandConfig
+	// limiter is the per-actor REST rate limit (LLD-10 §4), the same
+	// window-per-minute shape as internal/mcp/server.go, applied once per
+	// request in ServeHTTP.
+	limiter rateLimiter
 }
 
 // brandConfig white-labels the UI: the product the customer sees, not "Kalita".
@@ -140,16 +145,61 @@ func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	return s
 }
 
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
+// ServeHTTP resolves the caller identity exactly once per request — stashed
+// in context for actor() below to read — then applies the REST rate limit
+// (LLD-10 §4, per-actor, same shape as internal/mcp/server.go's 240/min)
+// before handing off to the route mux. Resolving once here (rather than
+// leaving every handler to call Authenticate independently, as they still do
+// via actor()) matters beyond avoiding repeat work: a failed bearer token
+// records exactly one auth-fail count per request (see resolveActor) — if
+// resolution ran again inside the handler, that count would double.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.resolveActor(r)
+	r = r.WithContext(context.WithValue(r.Context(), actorCtxKey, resolvedActor{actor: a, ok: ok}))
+	if ok && s.rateLimited(a.ID) {
+		writeRateLimited(w)
+		return
+	}
+	s.mux.ServeHTTP(w, r)
+}
 
 // --- identity -------------------------------------------------------------------
 
-// actor resolves the caller: bearer token via the registry; dev headers only
-// when explicitly enabled.
+type ctxKey struct{ name string }
+
+var actorCtxKey = ctxKey{"api.actor"}
+
+// resolvedActor is what ServeHTTP stashes in the request context so actor()
+// below reads a cached result rather than re-authenticating (see ServeHTTP).
+type resolvedActor struct {
+	actor eventstore.Actor
+	ok    bool
+}
+
+// actor returns the caller resolved by ServeHTTP for this request. The
+// fallback to resolveActor directly exists only for callers that reach a
+// handler without going through Server.ServeHTTP (there are none in this
+// binary's own request path today, but a direct unit test invoking a handler
+// would otherwise panic on a type-assertion of a context value that was never
+// set) — that path re-authenticates and so may double-count an auth failure;
+// it is not the hot path.
 func (s *Server) actor(r *http.Request) (eventstore.Actor, bool) {
+	if ra, ok := r.Context().Value(actorCtxKey).(resolvedActor); ok {
+		return ra.actor, ra.ok
+	}
+	return s.resolveActor(r)
+}
+
+// resolveActor does the actual identity resolution: bearer token via the
+// registry; dev headers only when explicitly enabled. A bearer token that is
+// present but does not resolve counts as one auth failure against the
+// caller's IP (LLD-10 §4) — aggregated, not journaled per attempt (see
+// identity.Registry.RecordAuthFailure).
+func (s *Server) resolveActor(r *http.Request) (eventstore.Actor, bool) {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") && s.reg != nil {
 		info, err := s.reg.Authenticate(r.Context(), strings.TrimPrefix(h, "Bearer "))
 		if err != nil {
+			s.reg.RecordAuthFailure(r.Context(), clientIP(r))
 			return eventstore.Actor{}, false
 		}
 		a := eventstore.Actor{Type: info.Type, ID: info.ID, Role: info.Role}

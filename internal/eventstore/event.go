@@ -77,6 +77,17 @@ const (
 	ProjectionRebuilt  Kind = "projection.rebuilt"
 	CheckpointSealed   Kind = "checkpoint.sealed"
 
+	// NodeLockdown/NodeLockdownLifted (LLD-10 §3): an emergency curtain over
+	// Authenticate, not a mass token revoke — see internal/identity/lockdown.go.
+	// Written with SchemaV CurrentSchemaV, like the other operational-hardening
+	// kinds below.
+	NodeLockdown       Kind = "node.lockdown"
+	NodeLockdownLifted Kind = "node.lockdown_lifted"
+	// AuthThrottled (LLD-10 §4): one event per threshold CROSSING for a given
+	// IP, never one per failed attempt (that would itself be the journal-flood
+	// DoS this guards against, T6).
+	AuthThrottled Kind = "auth.throttled"
+
 	// The kinds below are the closed list introduced by docs/lld/
 	// LLD-01-journal-mechanics.md §1.2. All events of these kinds are written
 	// with SchemaV 1 (see CurrentSchemaV and hashEnvelope in chain.go).
@@ -109,6 +120,8 @@ var AllKinds = []Kind{
 	AutomationFailed, AutomationAbandoned,
 	EventEmitted,
 	IngestFlagged,
+	NodeLockdown, NodeLockdownLifted,
+	AuthThrottled,
 }
 
 // CurrentSchemaV is the highest envelope schema_v this binary understands.

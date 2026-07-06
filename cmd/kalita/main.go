@@ -9,8 +9,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/avangerus/kalita/internal/api"
@@ -19,6 +21,7 @@ import (
 	"github.com/avangerus/kalita/internal/eventstore"
 	"github.com/avangerus/kalita/internal/identity"
 	"github.com/avangerus/kalita/internal/mcp"
+	"github.com/avangerus/kalita/internal/secrets"
 	"github.com/avangerus/kalita/internal/webui"
 )
 
@@ -42,6 +45,8 @@ func main() {
 		userCmd(os.Args[2:])
 	case "verify":
 		verifyCmd(os.Args[2:])
+	case "lockdown":
+		lockdownCmd(os.Args[2:])
 	case "export":
 		exportCmd(os.Args[2:])
 	case "import":
@@ -60,7 +65,7 @@ func verifyCmd(args []string) {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	pub := fs.String("pub", "", "node.pub file for checkpoint verification")
 	_ = fs.Parse(args)
-	dsn := os.Getenv("KALITA_PG_DSN")
+	dsn := resolveDSN()
 	if dsn == "" {
 		log.Fatal("KALITA_PG_DSN is required")
 	}
@@ -120,7 +125,7 @@ func registerActor(args []string, typ eventstore.ActorType, what string) {
 	if *id == "" {
 		log.Fatal("--id is required")
 	}
-	dsn := os.Getenv("KALITA_PG_DSN")
+	dsn := resolveDSN()
 	if dsn == "" {
 		log.Fatal("KALITA_PG_DSN is required: identities live in the journal")
 	}
@@ -173,8 +178,86 @@ func usage() {
 	fmt.Println("usage:")
 	fmt.Println("  kalita serve --pack <dir>[,<dir>...] [--listen :8080]   run a node (KALITA_PG_DSN for postgres, else in-memory)")
 	fmt.Println("  kalita check --pack <dir>[,<dir>...]                    compile one or more packs together and print diagnostics")
+	fmt.Println("  kalita lockdown [lift] [--role Owner]           emergency brake: reject all tokens but a fresh emergency admin (LLD-10 §3)")
 	fmt.Println("  kalita product scaffold <pack>                generate a deploy skeleton (compose, status page, brand manifest)")
 	fmt.Println("  kalita version")
+}
+
+// resolveDSN resolves KALITA_PG_DSN through the secrets fallback chain fixed
+// by LLD-18 §1: a 0600 secrets file (path in KALITA_SECRETS_FILE), then a
+// docker/systemd secret file (KALITA_PG_DSN_FILE), then the bare environment
+// variable itself — which is allowed (does not break the existing
+// docker-compose dev flow) but logged as a warning, "not for prod". A
+// misconfigured secrets file (weak permissions) or an explicit but unreadable
+// _FILE path fails the process immediately (fail-fast) rather than silently
+// falling through to a weaker tier.
+func resolveDSN() string {
+	loader, err := secrets.NewLoader(os.Getenv("KALITA_SECRETS_FILE"))
+	if err != nil {
+		log.Fatalf("secrets: %v", err)
+	}
+	dsn, warn, err := loader.Resolve("KALITA_PG_DSN")
+	if err != nil {
+		log.Fatalf("secrets: %v", err)
+	}
+	if warn != "" {
+		log.Print("WARNING: " + warn)
+	}
+	return dsn
+}
+
+// lockdownCmd is the operator's one-command emergency brake (LLD-10 §3): stop
+// authentication cold except for a single freshly-minted admin token, printed
+// once — only its hash is journaled. `kalita lockdown lift` removes the
+// curtain again; previously issued tokens are accepted again immediately
+// because lockdown never revoked them (a mass revoke is a separate,
+// deliberate operation — see internal/identity/lockdown.go). Takes effect on
+// the running node without a restart: Authenticate polls the journal on
+// every call (Registry.all -> Store.Since), so this is a live journal write,
+// not a local file the running process would need to reload.
+func lockdownCmd(args []string) {
+	action := "apply"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		action = args[0]
+		args = args[1:]
+	}
+	fs := flag.NewFlagSet("lockdown "+action, flag.ExitOnError)
+	role := fs.String("role", "Owner", "role granted to the emergency admin token")
+	_ = fs.Parse(args)
+	if action != "apply" && action != "lift" {
+		fmt.Printf("usage: kalita lockdown [lift] [--role <Role>] (KALITA_PG_DSN required)\n")
+		os.Exit(1)
+	}
+
+	dsn := resolveDSN()
+	if dsn == "" {
+		log.Fatal("KALITA_PG_DSN is required: lockdown state lives in the journal")
+	}
+	ctx := context.Background()
+	store, err := eventstore.NewPGStore(ctx, dsn, os.Getenv("KALITA_PG_SCHEMA"), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.Close()
+	reg := identity.NewRegistry(store)
+	registrar := eventstore.Actor{Type: eventstore.ActorHuman, ID: "node-admin", Role: "Owner"}
+	basis := &eventstore.Basis{Type: "human", ID: "node-admin"}
+
+	switch action {
+	case "apply":
+		token, err := reg.Lockdown(ctx, registrar, *role, basis)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("LOCKDOWN ACTIVE: every bearer token is now rejected except the emergency admin below.")
+		fmt.Printf("emergency admin token (shown once, only its hash is journaled):\n%s\n", token)
+		fmt.Println("lift with: kalita lockdown lift")
+	case "lift":
+		if err := reg.LiftLockdown(ctx, registrar, basis); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("lockdown lifted: previously issued tokens are accepted again (lockdown never revoked them).")
+	}
 }
 
 // loadPack compiles a single pack directory's .dsl files into one model —
@@ -267,6 +350,7 @@ func serve(args []string) {
 	searchScope := fs.String("search-scope", "Workspace", "entity whose visible records bound a search")
 	searchLog := fs.String("search-log", "SearchQuery", "entity to journal each query into")
 	connectorEntity := fs.String("connector-entity", "Connector", "entity holding connector records (name→backend) for the /api/call capability proxy")
+	shutdownTimeout := fs.Duration("shutdown-timeout", 25*time.Second, "how long SIGTERM/SIGINT waits for in-flight requests to drain before forcing the listener closed")
 	_ = fs.Parse(args)
 
 	tls := *tlsCert != "" && *tlsKey != ""
@@ -290,9 +374,13 @@ func serve(args []string) {
 		log.Print("genesis: empty definition — the first pack arrives via propose_change + signature")
 	}
 
-	ctx := context.Background()
+	// ctx is cancelled on SIGTERM/SIGINT (below) so the background tick and
+	// checkpoint loops stop cleanly instead of firing mid-shutdown; one-shot
+	// boot operations above/below run before cancellation is ever possible.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var store eventstore.Store
-	if dsn := os.Getenv("KALITA_PG_DSN"); dsn != "" {
+	if dsn := resolveDSN(); dsn != "" {
 		pg, err := eventstore.NewPGStore(ctx, dsn, os.Getenv("KALITA_PG_SCHEMA"), nil)
 		if err != nil {
 			log.Fatalf("postgres: %v", err)
@@ -409,13 +497,19 @@ func serve(args []string) {
 	})
 
 	// the heartbeat: automation rules (schedules, stuck escalations, lease
-	// sweeps) fire here — a node without Tick is a node where nothing happens
+	// sweeps) fire here — a node without Tick is a node where nothing happens.
+	// Exits on ctx cancellation (SIGTERM/SIGINT below), not just process death.
 	go func() {
 		tick := time.NewTicker(time.Minute)
 		defer tick.Stop()
-		for range tick.C {
-			if err := eng.Tick(context.Background()); err != nil {
-				log.Printf("tick: %v", err)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				if err := eng.Tick(context.Background()); err != nil {
+					log.Printf("tick: %v", err)
+				}
 			}
 		}
 	}()
@@ -430,8 +524,13 @@ func serve(args []string) {
 		seal()
 		tick := time.NewTicker(time.Hour)
 		defer tick.Stop()
-		for range tick.C {
-			seal()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				seal()
+			}
 		}
 	}()
 
@@ -441,14 +540,57 @@ func serve(args []string) {
 	}
 	log.Printf("pack %s: %d entities, def_version %d", packName, len(eng.Model().Entities), eng.DefVersion())
 	log.Printf("listening on %s — UI + REST /api (bearer tokens: kalita user add) + MCP /mcp", *listen)
-	if tls {
-		log.Fatal(http.ListenAndServeTLS(*listen, *tlsCert, *tlsKey, handler))
-	}
-	if !isLoopback(*listen) {
+	if !tls && !isLoopback(*listen) {
 		log.Print("WARNING: serving plaintext HTTP on a non-loopback address — bearer tokens travel in the clear. " +
 			"Set --tls-cert/--tls-key, or terminate TLS in a reverse proxy in front of the node (SECURITY.md P0-2).")
 	}
-	log.Fatal(http.ListenAndServe(*listen, handler))
+
+	// Graceful shutdown: SIGTERM/SIGINT drains in-flight requests via
+	// http.Server.Shutdown (stops accepting new connections, waits for active
+	// ones) up to --shutdown-timeout, then forces the listener closed. store
+	// is closed cleanly by the `defer pg.Close()` above, which now actually
+	// runs — this function returns normally instead of exiting through
+	// log.Fatal (log.Fatal calls os.Exit, which would have skipped it).
+	srv := &http.Server{Addr: *listen, Handler: handler}
+	listenFn := srv.ListenAndServe
+	if tls {
+		listenFn = func() error { return srv.ListenAndServeTLS(*tlsCert, *tlsKey) }
+	}
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	gracefulServe(srv, listenFn, *shutdownTimeout, sigCh, cancel)
+	log.Print("kalita: stopped serving")
+}
+
+// gracefulServe runs listenFn (srv.ListenAndServe or ListenAndServeTLS,
+// already bound to srv) until either it returns on its own or a signal
+// arrives on stop. On a stop signal: onStop runs first (in serve(), this
+// cancels the background tick/checkpoint loops), then srv.Shutdown drains
+// in-flight requests up to timeout before forcing srv.Close(). Extracted out
+// of serve() so the drain/force-close mechanics are unit-testable against a
+// synthetic stop signal — sending a real SIGTERM/SIGINT to one's own test
+// process is not portable (Windows in particular has no such delivery path).
+func gracefulServe(srv *http.Server, listenFn func() error, timeout time.Duration, stop <-chan os.Signal, onStop func()) {
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- listenFn() }()
+
+	select {
+	case err := <-serveErr:
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("serve: %v", err)
+		}
+	case sig := <-stop:
+		log.Printf("received %s: draining in-flight requests (up to %s) before exit", sig, timeout)
+		if onStop != nil {
+			onStop()
+		}
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), timeout)
+		defer cancelShutdown()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("graceful shutdown did not finish in time, forcing listener closed: %v", err)
+			_ = srv.Close()
+		}
+	}
 }
 
 func splitComma(s string) []string {

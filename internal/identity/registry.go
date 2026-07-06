@@ -29,6 +29,15 @@ type Registry struct {
 	mu        sync.Mutex
 	watermark uint64
 	cache     map[string]*ActorInfo
+
+	// lockdown state (LLD-10 §3), folded from node.lockdown/node.lockdown_lifted
+	// under the same mu as the actor cache — see lockdown.go.
+	lockdown     bool
+	lockdownHash []byte
+	lockdownRole string
+
+	// authFails (LLD-10 §4) has its own lock — see authfail.go.
+	authFails authFailState
 }
 
 func NewRegistry(store eventstore.Store) *Registry {
@@ -176,12 +185,20 @@ func (r *Registry) List(ctx context.Context) ([]*ActorInfo, error) {
 	return out, nil
 }
 
-// Authenticate resolves a bearer token to an active actor.
+// Authenticate resolves a bearer token to an active actor. While the node is
+// in lockdown (LLD-10 §3), every token is checked against the emergency admin
+// only — normal actors, even valid ones, are refused until lockdown lifts.
 func (r *Registry) Authenticate(ctx context.Context, token string) (*ActorInfo, error) {
 	hash := sha256.Sum256([]byte(token))
 	infos, err := r.all(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if info, active := r.checkLockdown(hash[:]); active {
+		if info != nil {
+			return info, nil
+		}
+		return nil, ErrLockdown
 	}
 	for _, info := range infos {
 		if info.TokenHash != nil && subtle.ConstantTimeCompare(info.TokenHash, hash[:]) == 1 {
@@ -204,6 +221,11 @@ func (r *Registry) all(ctx context.Context) (map[string]*ActorInfo, error) {
 	}
 	for _, e := range events {
 		r.watermark = e.Seq
+		// node.lockdown/node.lockdown_lifted carry no Subject.ActorID — fold
+		// them before the actor-subject skip below would otherwise drop them.
+		if r.foldLockdown(e) {
+			continue
+		}
 		id := e.Subject.ActorID
 		if id == "" {
 			continue

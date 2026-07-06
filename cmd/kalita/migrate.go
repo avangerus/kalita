@@ -127,7 +127,7 @@ func importCmd(args []string) {
 }
 
 func mustPG(ctx context.Context) *eventstore.PGStore {
-	dsn := os.Getenv("KALITA_PG_DSN")
+	dsn := resolveDSN()
 	if dsn == "" {
 		log.Fatal("KALITA_PG_DSN is required")
 	}
