@@ -502,7 +502,14 @@ func serve(args []string) {
 		log.Printf("worker bootstrap enabled for roles %v", roles)
 	}
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcp.New(eng, reg))
+	// The search_perimeter node-tool shares REST /api/search's governance core
+	// (internal/api.SearchPerimeter), so it is wired from the SAME --search-*
+	// flags: an agent over MCP gets retrieval only when a human over REST does.
+	var mcpOpts []mcp.Option
+	if *searchBackend != "" {
+		mcpOpts = append(mcpOpts, mcp.WithRAGSearch(*searchBackend, *searchScope, *searchLog, "Searcher"))
+	}
+	mux.Handle("/mcp", mcp.New(eng, reg, mcpOpts...))
 	apiSrv := api.New(eng, reg, apiOpts...)
 	mux.Handle("/api/", apiSrv)
 	// liveness/readiness live on the API server's mux but must be reachable at

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/avangerus/kalita/internal/api"
 	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
 	"github.com/avangerus/kalita/internal/identity"
@@ -24,6 +25,14 @@ type Server struct {
 	eng *engine.Engine
 	reg *identity.Registry
 
+	// rag configures the search_perimeter node-tool (KNOWVAULT-INTEGRATION.md
+	// §2). nil means the tool is not enabled on this node — dispatch answers
+	// with NOT_CONFIGURED rather than a nil-pointer panic. Set via
+	// WithRAGSearch, the same four values api.WithRAGSearch takes, so a node
+	// that mounts both REST /api/search and the MCP tool configures identical
+	// backend/scope/log settings for both — one perimeter, two doors.
+	rag *api.RAGConfig
+
 	mu      sync.Mutex
 	windows map[string]*rateWindow
 	perMin  int
@@ -34,8 +43,25 @@ type rateWindow struct {
 	reset time.Time
 }
 
-func New(eng *engine.Engine, reg *identity.Registry) *Server {
-	return &Server{eng: eng, reg: reg, windows: map[string]*rateWindow{}, perMin: 240}
+// Option configures the Server. Mirrors internal/api's Option pattern.
+type Option func(*Server)
+
+// WithRAGSearch enables the search_perimeter MCP tool, delegating to the
+// exact same api.SearchPerimeter governance core the REST /api/search
+// endpoint uses (KNOWVAULT-INTEGRATION.md §1.2/§2) — pass the same
+// backend/scope/logEntity/role a co-located api.WithRAGSearch call uses.
+func WithRAGSearch(backend, scope, logEntity, role string) Option {
+	return func(s *Server) {
+		s.rag = &api.RAGConfig{Backend: backend, Scope: scope, LogEntity: logEntity, Role: role}
+	}
+}
+
+func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
+	s := &Server{eng: eng, reg: reg, windows: map[string]*rateWindow{}, perMin: 240}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // --- JSON-RPC plumbing --------------------------------------------------------

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/avangerus/kalita/internal/api"
 	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
@@ -93,6 +94,7 @@ var toolDefs = []map[string]any{
 	{"name": "dashboard", "description": "Compute one dashboard by name: each tile is an aggregate (count/sum/avg/min/max) over a whole table, optionally grouped. Totals respect your row-level permissions.", "inputSchema": schema(map[string]any{"name": str}, "name")},
 	{"name": "emit_event", "description": "Emit a domain event declared by the loaded pack(s) directly — for inbound connectors and cross-node bridges, outside any DSL transition. Requires an `emit [Name]` grant on your role; payload is validated against the event's own schema; subscribers run synchronously in the same cascade, exactly as if a transition's `emits` clause had fired it. Requires idempotency_key.", "inputSchema": schema(map[string]any{"name": str, "payload": obj, "idempotency_key": str}, "name", "idempotency_key")},
 	{"name": "flag_ingest", "description": "Journal a core ingest.flagged event (source, reasons, score) under a record you can read — the perimeter detector's tripwire signal (e.g. a KnowVault Source flagged for possible prompt injection in its extracted text). Never blocks or changes the record's state; it only makes the signal visible via read_journal on that record. Requires a `flag [ingest.flagged]` grant on your role (never inferred from create/update/act on the entity) and idempotency_key.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "source": str, "reasons": map[string]any{"type": "array", "items": str}, "score": num, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "source", "basis", "idempotency_key")},
+	{"name": "search_perimeter", "description": "RAG search over the configured search worker (e.g. KnowVault), through the SAME governance core as the human REST /api/search: results are filtered to the workspaces your role may read BEFORE they come back, and a SearchQuery record is journaled for provenance (skipped if the worker itself errors). Not configured on every node — a NOT_CONFIGURED error means this node has no search backend.", "inputSchema": schema(map[string]any{"query": str, "workspace": str, "limit": num}, "query")},
 }
 
 func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, args json.RawMessage) (any, any) {
@@ -102,7 +104,9 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		return s.describeSystem(actor), nil
 
 	case "describe_entity":
-		var a struct{ Entity string `json:"entity"` }
+		var a struct {
+			Entity string `json:"entity"`
+		}
 		_ = json.Unmarshal(args, &a)
 		return s.describeEntity(actor, a.Entity)
 
@@ -334,6 +338,25 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		}
 		return fact, nil
 
+	case "search_perimeter":
+		if s.rag == nil {
+			return nil, map[string]any{"code": "NOT_CONFIGURED",
+				"message":  "search_perimeter is not enabled on this node",
+				"fix_hint": "start the node with --search-backend (and mcp.WithRAGSearch wired to the same values) to enable it"}
+		}
+		var a struct {
+			Query     string `json:"query"`
+			Workspace string `json:"workspace"`
+			Limit     int    `json:"limit"`
+		}
+		_ = json.Unmarshal(args, &a)
+		// SAME governance core as REST /api/search (internal/api/ragproxy.go):
+		// permission-filtered by VisibleRecordIDs, journaled as SearchQuery,
+		// BUG-10 preserved (a worker error journals nothing). No second
+		// implementation of any of that lives here.
+		res, errObj := api.SearchPerimeter(ctx, s.eng, actor, *s.rag, a.Query, a.Workspace, a.Limit)
+		return res, errObj
+
 	case "read_comments":
 		var a struct {
 			Entity string `json:"entity"`
@@ -405,7 +428,9 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		return map[string]any{"types": dsl.FieldTypes()}, nil
 
 	case "validate_dsl":
-		var a struct{ Files map[string]string `json:"files"` }
+		var a struct {
+			Files map[string]string `json:"files"`
+		}
 		_ = json.Unmarshal(args, &a)
 		if len(a.Files) == 0 {
 			return nil, map[string]any{"code": "VALIDATION_ERROR", "message": "files is empty",
@@ -456,7 +481,9 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		return map[string]any{"dashboards": s.eng.Dashboards()}, nil
 
 	case "dashboard":
-		var a struct{ Name string `json:"name"` }
+		var a struct {
+			Name string `json:"name"`
+		}
 		_ = json.Unmarshal(args, &a)
 		res, e := s.eng.Dashboard(ctx, actor, a.Name)
 		if e != nil {

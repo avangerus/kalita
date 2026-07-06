@@ -4,17 +4,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
 
+	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
 )
 
-// RAG search proxy: gives the UI an HTTP search endpoint WITHOUT putting any
-// embedding/vector/LLM knowledge in the core. The node owns the two things a
-// worker must not be trusted with — the permission boundary and the audit —
-// and delegates the heavy lifting to a configured search worker.
+// RAG search proxy: gives the UI an HTTP search endpoint, and (via
+// SearchPerimeter below) internal/mcp's search_perimeter node-tool an agent
+// search capability — WITHOUT putting any embedding/vector/LLM knowledge in
+// the core. The node owns the two things a worker must not be trusted with —
+// the permission boundary and the audit — and delegates the heavy lifting to
+// a configured search worker.
 //
 // Flow: authenticate -> compute the record ids the actor may read of the
 // scope entity (e.g. Workspace) -> POST {question, scope_ids} to the worker
@@ -24,12 +28,32 @@ import (
 //   --search-backend  worker URL
 //   --search-scope    entity whose visible records bound the search (Workspace)
 //   --search-log      entity to journal each query into (SearchQuery)
+//
+// KNOWVAULT-INTEGRATION.md §1.2/§2 requires ONE governance core reachable
+// from both the human REST path and the agent MCP path — never two
+// implementations of the permission filter or the audit trail. SearchPerimeter
+// below is that core; the REST handler (search) is a thin HTTP wrapper over
+// it, and internal/mcp's search_perimeter tool calls the exact same function.
 
 type ragConfig struct {
-	Backend  string
-	Scope    string // entity bounding visibility (e.g. Workspace)
+	Backend   string
+	Scope     string // entity bounding visibility (e.g. Workspace)
 	LogEntity string // entity to record queries into (e.g. SearchQuery)
-	Role     string // role written into the log record
+	Role      string // role written into the log record
+}
+
+// RAGConfig is the exported mirror of ragConfig. internal/mcp lives in a
+// separate package and cannot reach the Server's unexported rag field, so its
+// search_perimeter tool is configured with its own RAGConfig (populated from
+// the same --search-backend/--search-scope/--search-log/role values as
+// api.WithRAGSearch) and passes it straight into SearchPerimeter. This is
+// still a single implementation — RAGConfig carries only configuration, all
+// the governance logic lives in SearchPerimeter itself.
+type RAGConfig struct {
+	Backend   string
+	Scope     string
+	LogEntity string
+	Role      string
 }
 
 func (s *Server) enableRAG(cfg ragConfig) {
@@ -40,6 +64,7 @@ func (s *Server) enableRAG(cfg ragConfig) {
 type searchRequest struct {
 	Question  string `json:"question"`
 	Workspace string `json:"workspace,omitempty"` // optional: scope to one project
+	Limit     int    `json:"limit,omitempty"`     // optional: cap the worker's result count
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
@@ -49,46 +74,105 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req searchRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Question == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR",
 			"message": "question is required", "fix_hint": `send {"question": "..."}`})
 		return
 	}
 
-	// permission boundary stays in core: only records this actor may read
-	scopeIDs, err := s.eng.VisibleRecordIDs(r.Context(), actor, s.rag.Scope)
-	if err != nil {
-		writeErr(w, err)
+	answer, errObj := SearchPerimeter(r.Context(), s.eng, actor, RAGConfig{
+		Backend: s.rag.Backend, Scope: s.rag.Scope, LogEntity: s.rag.LogEntity, Role: s.rag.Role,
+	}, req.Question, req.Workspace, req.Limit)
+	if errObj != nil {
+		writeRAGError(w, errObj)
 		return
+	}
+	writeJSON(w, http.StatusOK, answer)
+}
+
+// writeRAGError maps SearchPerimeter's error shape to HTTP status, preserving
+// the exact statuses the REST endpoint used before it was split out into a
+// shared core: an *engine.Err (e.g. PERMISSION_DENIED from the visibility
+// check) goes through the normal writeErr/statusByCode path used everywhere
+// else in this package; the worker/validation ad hoc codes are not core
+// errors and were never in statusByCode — VALIDATION_ERROR keeps its 400,
+// everything worker-side (SEARCH_UNAVAILABLE, SEARCH_WORKER_ERROR) keeps 502.
+func writeRAGError(w http.ResponseWriter, errObj any) {
+	switch e := errObj.(type) {
+	case *engine.Err:
+		writeErr(w, e)
+	case map[string]any:
+		status := http.StatusBadGateway
+		if e["code"] == "VALIDATION_ERROR" {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, e)
+	default:
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"code": "INTERNAL", "message": "unexpected error shape"})
+	}
+}
+
+// SearchPerimeter is the ONE governance core for perimeter RAG search
+// (KNOWVAULT-INTEGRATION.md §1.2, §2): filter to the actor's visible scope,
+// optionally narrow to one workspace within that scope, proxy the question to
+// the search worker, and journal a SearchQuery record — unless the worker
+// errored (BUG-10: a search error must never produce a spurious SearchQuery,
+// so it is logged distinctly from a valid empty result).
+//
+// Both the REST handler above (search) and internal/mcp's search_perimeter
+// tool call this exact function — there is no second implementation of the
+// permission boundary, the worker proxy, or the audit trail. The second
+// return value is nil on success; otherwise it is either an *engine.Err (a
+// real engine/permission error, e.g. from the visibility check) or a
+// map[string]any ad hoc error (VALIDATION_ERROR / SEARCH_UNAVAILABLE /
+// SEARCH_WORKER_ERROR) — callers type-switch on it exactly like
+// writeRAGError and internal/mcp's dispatch already do for every other tool.
+func SearchPerimeter(ctx context.Context, eng *engine.Engine, actor eventstore.Actor, cfg RAGConfig, question, workspace string, limit int) (map[string]any, any) {
+	if question == "" {
+		return nil, map[string]any{"code": "VALIDATION_ERROR",
+			"message":  "search text is required",
+			"fix_hint": "pass a non-empty question (REST /api/search) or query (MCP search_perimeter)"}
+	}
+
+	// permission boundary stays in core: only records this actor may read
+	scopeIDs, err := eng.VisibleRecordIDs(ctx, actor, cfg.Scope)
+	if err != nil {
+		var e *engine.Err
+		if errors.As(err, &e) {
+			return nil, e
+		}
+		return nil, map[string]any{"code": "INTERNAL", "message": err.Error()}
 	}
 	// search one project if asked — but only if it is among the visible scope,
 	// so a narrowed search can never reach beyond the actor's permissions
-	if req.Workspace != "" {
+	if workspace != "" {
 		narrowed := scopeIDs[:0]
 		for _, id := range scopeIDs {
-			if id == req.Workspace {
+			if id == workspace {
 				narrowed = append(narrowed, id)
 			}
 		}
 		scopeIDs = narrowed
 	}
 	if len(scopeIDs) == 0 {
-		writeJSON(w, http.StatusOK, map[string]any{"answer": "No accessible workspaces.", "sources": []any{}})
-		return
+		return map[string]any{"answer": "No accessible workspaces.", "sources": []any{}}, nil
 	}
 
 	// delegate the heavy lifting to the worker
-	body, _ := json.Marshal(map[string]any{"question": req.Question, "scope_ids": scopeIDs})
-	ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
+	payload := map[string]any{"question": question, "scope_ids": scopeIDs}
+	if limit > 0 {
+		payload["limit"] = limit
+	}
+	body, _ := json.Marshal(payload)
+	reqCtx, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
-	proxyReq, _ := http.NewRequestWithContext(ctx, "POST", s.rag.Backend+"/search", bytes.NewReader(body))
+	proxyReq, _ := http.NewRequestWithContext(reqCtx, "POST", cfg.Backend+"/search", bytes.NewReader(body))
 	proxyReq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(proxyReq)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"code": "SEARCH_UNAVAILABLE",
-			"message": "search worker not reachable: " + err.Error(),
-			"fix_hint": "the indexing/search service may be starting — try again shortly"})
-		return
+		return nil, map[string]any{"code": "SEARCH_UNAVAILABLE",
+			"message":  "search worker not reachable: " + err.Error(),
+			"fix_hint": "the indexing/search service may be starting — try again shortly"}
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
@@ -104,23 +188,23 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 			errMsg = m
 		}
 		// Do NOT create a SearchQuery journal record — this is not a valid query result.
-		writeJSON(w, http.StatusBadGateway, map[string]string{
+		return nil, map[string]any{
 			"code":     "SEARCH_WORKER_ERROR",
 			"message":  errMsg,
 			"fix_hint": "check the search service logs for details",
-		})
-		return
+		}
 	}
 
-	// journal the query as a record (provenance: who asked what)
-	if s.rag.LogEntity != "" {
+	// journal the query as a record (provenance: who asked what — same for a
+	// human via REST or an agent via MCP, actor.Role carries which)
+	if cfg.LogEntity != "" {
 		nResults := 0
 		if srcs, ok := answer["sources"].([]any); ok {
 			nResults = len(srcs)
 		}
-		_, _ = s.eng.Create(r.Context(), actor, s.rag.LogEntity, map[string]any{
-			"workspace": scopeIDs[0], "query": req.Question, "actor_role": actor.Role, "results": nResults,
+		_, _ = eng.Create(ctx, actor, cfg.LogEntity, map[string]any{
+			"workspace": scopeIDs[0], "query": question, "actor_role": actor.Role, "results": nResults,
 		}, &eventstore.Basis{Type: "human", ID: actor.ID}, "")
 	}
-	writeJSON(w, http.StatusOK, answer)
+	return answer, nil
 }
