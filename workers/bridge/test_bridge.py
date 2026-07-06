@@ -331,5 +331,46 @@ def test_source_pagination_continues_through_filtered_pages():
     assert [f["seq"] for f in facts] == [51]
 
 
+# --------------------------------------------------------------------------- #
+# LLD-21 PR-1 — bridge as subscribe.py's second consumer (test 4:
+# TestBridgeOnHarnessUnchanged). Every test ABOVE this line is unmodified and
+# still green on the Subscriber-backed Bridge — that IS the regression proof.
+# This test proves the one thing that changed for the better (§4): a governed
+# (permission-denied) rejection from the target no longer wedges the cursor
+# forever; it is absorbed (dead-lettered — best-effort, no emit grant wired
+# for bridge itself yet, see bridge.py's Bridge.__init__ comment) and the
+# cursor advances past it, so the NEXT fact in the stream still delivers.
+# --------------------------------------------------------------------------- #
+
+def test_bridge_governed_rejection_no_longer_wedges_the_cursor():
+    target = FakeTarget(allowed_events={"LeadMirrored"})
+    poison_fact = {
+        "seq": 7, "name": "site.LeadCaptured", "record_id": "lead-1",
+        "payload": {"name": "Ada Lovelace"},
+    }
+    ok_fact = {
+        "seq": 8, "name": "site.Signup", "record_id": "lead-2",
+        "payload": {"name": "Grace Hopper"},
+    }
+    subs = [
+        # poison: target_event NOT in the role's grant (PERMISSION_DENIED)
+        {"event": "site.LeadCaptured", "target_event": "NotGranted", "field_map": {"name": "name"}},
+        {"event": "site.Signup", "target_event": "LeadMirrored", "field_map": {"name": "name"}},
+    ]
+    source = FakeSource([poison_fact, ok_fact])
+    bridge = make_bridge(source, target, MemCursor())
+    bridge.by_event = {}  # rebuild the match table for this test's two subs
+    for sub in subs:
+        bridge.by_event[sub["event"]] = sub
+        bridge.by_event[sub["event"].rsplit(".", 1)[-1]] = sub
+
+    delivered = bridge.run_once()  # must NOT raise — the poison event is absorbed
+
+    assert delivered == 2, "both facts were handed to the target (one dead-lettered, one delivered)"
+    assert len(target.mirrors) == 1, "only the granted event actually produced an effect"
+    assert target.mirrors[0]["name"] == "Grace Hopper"
+    assert bridge.cursor.load() == 8, "cursor advanced past the poison AND the good event"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

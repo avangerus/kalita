@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Federation bridge (LLD-07, transport upgraded by LLD-08) — a Worker (T8),
-NOT core.
+"""Federation bridge (LLD-07, transport upgraded by LLD-08, reliability loop
+rebuilt on `workers/lib/subscribe.py` by LLD-21 PR-1) — a Worker (T8), NOT core.
 
 A bridge has TWO identities: a least-privilege governed actor on the SOURCE
 node (`tail [event.emitted]` ONLY — no per-record read at all, LLD-08 §4) and
@@ -50,121 +50,36 @@ O(new events) tail over the whole journal — not the old per-record
 free-standing `emit_event` calls (empty subject, unreachable from any record's
 per-record journal). Both limitations are gone: the bridge now sees every
 event.emitted on the node, transition-emitted or free-standing alike.
+
+LLD-21 PR-1 generalises this exact loop into `workers/lib/subscribe.py` and
+refactors the bridge to sit on top of it — the bridge is the library's proof
+of a second consumer (coverage_bot/KnowVault-sink come next). Nothing about
+the bridge's observable behaviour changes: the delivery key is still
+`bridge|<source_node_id>|<source_seq>` (Bridge picks
+`subscription_id = "bridge|<source_node_id>"`, so the library's generic
+`<subscription_id>|<source_seq>` key renders byte-for-byte identical to the
+pre-refactor key — no idempotency-key format change on any already-running
+bridge). The one behavioural IMPROVEMENT (§4, not exercised by any existing
+test — see test_bridge.py's own docstring): a governed rejection from the
+target (e.g. a poison event outside the BridgeEmitter role's grant) used to
+wedge the cursor forever; now the subscriber library dead-letters it and
+advances past it, same as every other library consumer.
 """
 import json
 import os
 import sys
 import time
-import urllib.request
-import urllib.error
 
-# Retry/backoff mirrors workers/bootstrap.py exactly (same strategy + constants):
-# a transient network failure (URLError/timeout) is retried on a fixed sleep; a
-# governed HTTP error is NOT retried (the node has spoken — surface it). We do
-# not invent a new backoff curve here.
-RETRY_ATTEMPTS = 30
-RETRY_SLEEP_SEC = 2
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, "..", "lib"))
+from subscribe import (  # noqa: E402
+    GovernedError, MCPClient, EventSource, FileCursor, Subscriber,
+)
 
-
-class GovernedError(Exception):
-    """The node rejected the call on its merits (permission/validation). Not
-    transient — retrying the same request cannot fix it, so it is never retried
-    and the cursor is never advanced past the offending event."""
-
-    def __init__(self, code, message):
-        super().__init__(f"{code}: {message}")
-        self.code = code
-        self.message = message
-
-
-# --------------------------------------------------------------------------- #
-# MCP transport (stdlib urllib), shaped exactly like workers/connectors/inbound.
-# --------------------------------------------------------------------------- #
-
-class MCPClient:
-    """One kalita node reached over its /mcp endpoint under one bearer token."""
-
-    def __init__(self, url, token):
-        self.url = url.rstrip("/")
-        self.token = token
-
-    def call(self, name, arguments):
-        """Invoke one MCP tool. Returns the decoded result payload. Retries a
-        transient network failure (bootstrap.py strategy); raises GovernedError
-        when the node itself reports the call as an error."""
-        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                           "params": {"name": name, "arguments": arguments}}).encode()
-        last_err = None
-        for attempt in range(RETRY_ATTEMPTS):
-            try:
-                req = urllib.request.Request(self.url + "/mcp", data=body, headers={
-                    "Authorization": "Bearer " + self.token, "Content-Type": "application/json"})
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    out = json.load(resp)
-                break
-            except (urllib.error.URLError, TimeoutError) as ex:
-                last_err = ex
-                if attempt < RETRY_ATTEMPTS - 1:
-                    time.sleep(RETRY_SLEEP_SEC)
-        else:
-            raise last_err
-        res = out.get("result", {})
-        content = res.get("content", [])
-        payload = json.loads(content[0]["text"]) if content else {}
-        if res.get("isError"):
-            raise GovernedError(payload.get("code", "REJECTED"),
-                                payload.get("message", "call rejected"))
-        return payload
-
-
-# --------------------------------------------------------------------------- #
-# Source: pull event.emitted facts since a cursor, node-wide (LLD-08 §1).
-# --------------------------------------------------------------------------- #
-
-class MCPSource:
-    """Reads `event.emitted` facts from a source node past a cursor via the
-    node-wide MCP tool `read_events` (LLD-08 §1) — one governed call per page,
-    O(new events), not O(records). Requires the source-side bridge actor to
-    hold `tail [event.emitted]` (LLD-08 §4, packs/site's BridgeReader role);
-    everything else on that role is denied."""
-
-    PAGE_LIMIT = 500
-
-    def __init__(self, client):
-        self.client = client
-
-    def read_since(self, last_seq):
-        """Return event.emitted facts with seq > last_seq, sorted by seq asc.
-        Each fact: {seq, name (canonical), payload, entity, record_id}. The
-        entity/record_id come from the event's subject when the event was
-        transition-emitted; a free-standing emit_event (LLD-08 test 2) has an
-        empty subject, so both are "" — the field_map lookups never need them
-        for that case, only origin-stamping uses record_id.
-
-        `last_seq` is the bridge's cursor convention: the seq already
-        confirmed delivered (exclusive — "give me anything newer"). read_events'
-        `since` is INCLUSIVE (LLD-08 §1: next_since = last examined seq + 1),
-        so the first page asks for last_seq + 1; every following page reuses
-        next_since from the previous response, which is already in that
-        inclusive form."""
-        facts = []
-        cursor = last_seq + 1
-        while True:
-            res = self.client.call("read_events", {
-                "since": cursor, "kinds": ["event.emitted"], "limit": self.PAGE_LIMIT})
-            for ev in res.get("events", []):
-                p = ev.get("payload") or {}
-                subj = ev.get("subject") or {}
-                facts.append({"seq": ev.get("seq", 0), "name": p.get("name", ""),
-                              "payload": p.get("payload") or {},
-                              "entity": subj.get("entity", ""),
-                              "record_id": subj.get("record_id", "")})
-            next_since = res.get("next_since", cursor)
-            if next_since <= cursor:
-                break  # cursor stopped advancing: the stream is exhausted
-            cursor = next_since
-        facts.sort(key=lambda f: f["seq"])
-        return facts
+# Bridge's read-side transport is exactly subscribe.py's EventSource; kept
+# under its historical name so `from bridge import MCPSource` (test_bridge.py)
+# keeps resolving without the test file changing.
+MCPSource = EventSource
 
 
 # --------------------------------------------------------------------------- #
@@ -183,38 +98,16 @@ class MCPTarget:
 
 
 # --------------------------------------------------------------------------- #
-# Cursor: persistent last-delivered source seq.
-# --------------------------------------------------------------------------- #
-
-class FileCursor:
-    """last_seq persisted to a JSON file. Advanced ONLY after a delivery is
-    confirmed, so a crash before persistence replays (idempotency absorbs it)."""
-
-    def __init__(self, path):
-        self.path = path
-
-    def load(self):
-        try:
-            with open(self.path, encoding="utf-8") as f:
-                return int(json.load(f).get("last_seq", 0))
-        except (FileNotFoundError, ValueError):
-            return 0
-
-    def save(self, seq):
-        tmp = self.path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"last_seq": int(seq)}, f)
-        os.replace(tmp, self.path)
-
-
-# --------------------------------------------------------------------------- #
-# Bridge core — transport-agnostic so tests inject fakes.
+# Bridge core — transport-agnostic so tests inject fakes. Now a thin adapter
+# over subscribe.Subscriber: the field-mapping/origin-stamping is bridge's own
+# (only custom) code, handed to the library as `handler(fact, act)`.
 # --------------------------------------------------------------------------- #
 
 class Bridge:
-    """The exactly-once loop of LLD-07 §2. `source` provides read_since,
-    `target` provides emit, `cursor` persists last_seq. `subscriptions` and
-    `source_node_id` come from config."""
+    """The exactly-once loop of LLD-07 §2, built on `subscribe.Subscriber`
+    (LLD-21 §2). `source` provides read_since, `target` provides emit,
+    `cursor` persists last_seq. `subscriptions` and `source_node_id` come
+    from config."""
 
     def __init__(self, source, target, cursor, subscriptions, source_node_id):
         self.source = source
@@ -228,6 +121,19 @@ class Bridge:
             ev = sub["event"]
             self.by_event[ev] = sub
             self.by_event[ev.rsplit(".", 1)[-1]] = sub
+        # subscription_id chosen so the library's generic `<sub>|<seq>` key
+        # renders exactly as the bridge's historical `bridge|<node>|<seq>` key
+        # (no format change on an already-running bridge, see module docstring).
+        self._subscriber = Subscriber(
+            source=source, cursor=cursor,
+            subscription_id=f"bridge|{source_node_id}",
+            events=self._match,       # predicate: matched sub dict, or None
+            handler=self._handle,
+            dead_letter=None,        # bridge keeps its existing two roles for
+                                      # PR-1 (no new emit grant introduced here);
+                                      # wiring subscription.failed for bridge is
+                                      # a governance question left to PR-2/3.
+        )
 
     def _match(self, name):
         if name in self.by_event:
@@ -236,7 +142,9 @@ class Bridge:
 
     def idem_key(self, seq):
         # deterministic from the source event (LLD-07 §2): a replay of the same
-        # source seq produces the same key and collapses on the target.
+        # source seq produces the same key and collapses on the target. Kept
+        # as a direct method (equals Act.idem_key() for the same seq) for any
+        # caller that still reaches for it directly.
         return f"bridge|{self.source_node_id}|{seq}"
 
     def _target_payload(self, sub, fact):
@@ -253,27 +161,21 @@ class Bridge:
             payload[id_field] = fact["record_id"]
         return payload
 
+    def _handle(self, fact, act):
+        """The bridge's only custom code, handed to Subscriber as `handler`:
+        map the fact to the target's payload shape and emit it under the
+        library's deterministic key. `act.idem_key()` for this fact and
+        subscription_id renders identically to the pre-refactor `idem_key()`."""
+        sub = self._match(fact["name"])
+        payload = self._target_payload(sub, fact)
+        self.target.emit(sub["target_event"], payload, act.idem_key())
+
     def run_once(self):
-        """One pull→deliver→advance pass. Returns the number of events
-        delivered. The cursor advances AFTER each confirmed delivery so a crash
-        mid-pass replays only undelivered (or idempotently-absorbed) events."""
-        last = self.cursor.load()
-        delivered = 0
-        for fact in self.source.read_since(last):
-            sub = self._match(fact["name"])
-            if sub is None:
-                # not subscribed — still advance past it so we do not rescan it
-                # forever (the cursor tracks "seen", the filter tracks "wanted").
-                self.cursor.save(fact["seq"])
-                continue
-            payload = self._target_payload(sub, fact)
-            key = self.idem_key(fact["seq"])
-            self.target.emit(sub["target_event"], payload, key)
-            # delivery confirmed (emit returned without GovernedError) — only
-            # now is it safe to advance the cursor past this seq.
-            self.cursor.save(fact["seq"])
-            delivered += 1
-        return delivered
+        """One pull→deliver→advance pass. Returns the number of events handed
+        to the target (matched facts only). The cursor advances AFTER each
+        fact is resolved (delivered, or dead-lettered) so a crash mid-pass
+        replays only unconfirmed (or idempotently-absorbed) events."""
+        return self._subscriber.run_once()
 
 
 # --------------------------------------------------------------------------- #
@@ -331,9 +233,12 @@ def main():
             if n:
                 print(f"[bridge] delivered {n} event(s)", flush=True)
         except GovernedError as ex:
-            # a poison event: the target rejected it on its merits. Do not
-            # advance past it; log and let the next poll retry (at-least-once).
-            print(f"[bridge] delivery rejected: {ex}", flush=True)
+            # a governed rejection from the SOURCE side itself (e.g. the read
+            # actor's tail grant was revoked) — Subscriber already absorbs a
+            # TARGET-side rejection internally (dead-letter + advance, §4);
+            # this is a defensive fallback for the read path, which sits
+            # outside handler() and so outside that internal handling.
+            print(f"[bridge] rejected: {ex}", flush=True)
         time.sleep(cfg["poll_sec"])
 
 
