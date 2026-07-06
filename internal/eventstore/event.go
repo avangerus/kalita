@@ -65,6 +65,15 @@ const (
 	// password never touches the journal.
 	ActorPasswordSet Kind = "actor.password_set"
 
+	// ActorCredentialRegistered/_Revoked/_Warning (LLD-02 §1): the WebAuthn/
+	// passkey credential registry for human non-repudiation. Only public
+	// material (COSE public key, credential id) ever lands in the journal —
+	// never a private key (I-4). Written with SchemaV CurrentSchemaV, like
+	// ActorPasswordSet: these are new kinds, not a pre-schema_v carryover.
+	ActorCredentialRegistered Kind = "actor.credential_registered"
+	ActorCredentialRevoked    Kind = "actor.credential_revoked"
+	ActorCredentialWarning    Kind = "actor.credential_warning"
+
 	InviteCreated  Kind = "invite.created"
 	InviteRedeemed Kind = "invite.redeemed"
 
@@ -73,9 +82,9 @@ const (
 
 	CommentPosted Kind = "comment.posted"
 
-	NodeStarted        Kind = "node.started"
-	ProjectionRebuilt  Kind = "projection.rebuilt"
-	CheckpointSealed   Kind = "checkpoint.sealed"
+	NodeStarted       Kind = "node.started"
+	ProjectionRebuilt Kind = "projection.rebuilt"
+	CheckpointSealed  Kind = "checkpoint.sealed"
 
 	// NodeLockdown/NodeLockdownLifted (LLD-10 §3): an emergency curtain over
 	// Authenticate, not a mass token revoke — see internal/identity/lockdown.go.
@@ -93,11 +102,21 @@ const (
 	// with SchemaV 1 (see CurrentSchemaV and hashEnvelope in chain.go).
 	OpBegin             Kind = "op.begin"             // brackets a multi-event operation (LLD-01 §2)
 	OpEnd               Kind = "op.end"               // closes the bracket
-	OpAborted           Kind = "op.aborted"            // written by startup recovery for an unclosed bracket
+	OpAborted           Kind = "op.aborted"           // written by startup recovery for an unclosed bracket
 	AutomationFailed    Kind = "automation.failed"    // a fireActions branch returned an error (LLD-01 §3)
 	AutomationAbandoned Kind = "automation.abandoned" // retries exhausted (LLD-01 §3)
 	EventEmitted        Kind = "event.emitted"        // DSL `event` primitive (LLD-01 §4, PR-4)
-	IngestFlagged       Kind = "ingest.flagged"        // perimeter detector (LLD-01 §6, PR-6)
+	IngestFlagged       Kind = "ingest.flagged"       // perimeter detector (LLD-01 §6, PR-6)
+
+	// The kinds below are LLD-03-upgrade-eras.md's closed additions. All
+	// events of these kinds are written with SchemaV CurrentSchemaV.
+	// NodeUpgraded/NodeDowngraded (§1) version-gate the running binary
+	// against the journal's high-water mark; EraGenesis/RecordImported (§4)
+	// are the destructive-migration ("era") procedure.
+	NodeUpgraded   Kind = "node.upgraded"   // written after a successful `kalita upgrade` (§2 step 7)
+	NodeDowngraded Kind = "node.downgraded" // written only via an explicit --force-downgrade (§1)
+	EraGenesis     Kind = "era.genesis"     // first event of a new era's journal, chains to the old era's manifest (§4)
+	RecordImported Kind = "record.imported" // NOT record.created: provenance differs, on-create automation must not fire (§4)
 )
 
 // AllKinds is the closed taxonomy in declaration order — the single source of
@@ -112,6 +131,7 @@ var AllKinds = []Kind{
 	ApprovalRequested, ApprovalGranted, ApprovalRejected,
 	TaskCreated, TaskTaken, TaskProgress, TaskCompleted, TaskFailed, TaskExpired,
 	ActorRegistered, ActorRoleChanged, ActorKeyRotated, ActorDisabled, ActorPasswordSet,
+	ActorCredentialRegistered, ActorCredentialRevoked, ActorCredentialWarning,
 	InviteCreated, InviteRedeemed,
 	LinkAdded, LinkRemoved,
 	CommentPosted,
@@ -122,6 +142,8 @@ var AllKinds = []Kind{
 	IngestFlagged,
 	NodeLockdown, NodeLockdownLifted,
 	AuthThrottled,
+	NodeUpgraded, NodeDowngraded,
+	EraGenesis, RecordImported,
 }
 
 // CurrentSchemaV is the highest envelope schema_v this binary understands.

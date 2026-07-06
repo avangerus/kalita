@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -51,6 +53,10 @@ func main() {
 		exportCmd(os.Args[2:])
 	case "import":
 		importCmd(os.Args[2:])
+	case "era":
+		eraCmd(os.Args[2:])
+	case "upgrade":
+		upgradeCmd(os.Args[2:])
 	case "product":
 		productCmd(os.Args[2:])
 	default:
@@ -180,6 +186,10 @@ func usage() {
 	fmt.Println("  kalita check --pack <dir>[,<dir>...]                    compile one or more packs together and print diagnostics")
 	fmt.Println("  kalita lockdown [lift] [--role Owner]           emergency brake: reject all tokens but a fresh emergency admin (LLD-10 §3)")
 	fmt.Println("  kalita product scaffold <pack>                generate a deploy skeleton (compose, status page, brand manifest)")
+	fmt.Println("  kalita export --pack <dir> --out era.jsonl      snapshot the journal for a manual era migration (LLD-03 §4)")
+	fmt.Println("  kalita import --pack <new dir> --in era.jsonl   start a NEW era from a transformed export (journal must be empty)")
+	fmt.Println("  kalita era verify --old <dsn|dump> --new <dsn>  prove the new era's genesis chains to the old era's sealed final state")
+	fmt.Println("  kalita upgrade --to <ver|latest> [--dry-run]    docker-compose upgrade with automatic rollback on failure (LLD-03 §2)")
 	fmt.Println("  kalita version")
 }
 
@@ -351,6 +361,7 @@ func serve(args []string) {
 	searchLog := fs.String("search-log", "SearchQuery", "entity to journal each query into")
 	connectorEntity := fs.String("connector-entity", "Connector", "entity holding connector records (name→backend) for the /api/call capability proxy")
 	shutdownTimeout := fs.Duration("shutdown-timeout", 25*time.Second, "how long SIGTERM/SIGINT waits for in-flight requests to drain before forcing the listener closed")
+	forceDowngrade := fs.Bool("force-downgrade", false, "start even though the journal was last run by a newer version (LLD-03 §1); events of kinds this binary does not recognize are skipped and counted in a warning, and a node.downgraded event is recorded")
 	_ = fs.Parse(args)
 
 	tls := *tlsCert != "" && *tlsKey != ""
@@ -392,6 +403,11 @@ func serve(args []string) {
 		store = eventstore.NewMemStore(nil)
 		log.Print("journal: IN-MEMORY (dev only, state is lost on exit; set KALITA_PG_DSN)")
 	}
+
+	// LLD-03 §1: refuse to start an older binary on a journal a newer one has
+	// already run against, unless the operator forces it — before anything
+	// else touches the journal (engine.New's own replay included).
+	enforceVersionGuard(ctx, store, *forceDowngrade)
 
 	reg := identity.NewRegistry(store)
 	eng, err := engine.New(ctx, model, store,

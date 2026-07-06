@@ -15,26 +15,31 @@ import (
 // Engine executes a compiled model over the journal. State is an in-memory
 // projection rebuilt by replay (ADR-001); the journal is the only truth.
 type Engine struct {
-	mu         sync.RWMutex
-	model      *dsl.Model
-	store      eventstore.Store
-	defVersion uint64
-	records    map[string]map[string]*Record // entity → id → record
-	approvals  map[string]*Approval
-	tasks      map[string]*Task
-	taskWake   chan struct{} // long-polling waiters, closed on new tasks
-	proposals  map[string]*Proposal
-	stateSince map[string]map[string]time.Time // entity → id → entered current state
-	links      map[string]linkPayload          // canonical link key → fact
-	comments   map[string][]*Comment           // entity|id → thread
-	taskTTL    time.Duration
+	mu          sync.RWMutex
+	model       *dsl.Model
+	store       eventstore.Store
+	defVersion  uint64
+	records     map[string]map[string]*Record // entity → id → record
+	approvals   map[string]*Approval
+	tasks       map[string]*Task
+	taskWake    chan struct{} // long-polling waiters, closed on new tasks
+	proposals   map[string]*Proposal
+	stateSince  map[string]map[string]time.Time // entity → id → entered current state
+	links       map[string]linkPayload          // canonical link key → fact
+	comments    map[string][]*Comment           // entity|id → thread
+	taskTTL     time.Duration
 	defApprover string // role whose human signature applies definitions
 	requireSig  bool   // enforce signatures on HITL decisions (WebAuthn era)
-	blobs      BlobStore
-	now        func() time.Time
-	cal        businessCalendar // working-time calendar for business_*_since
-	idxMu      sync.Mutex                // guards idxCache (built lazily under e.mu read side)
-	idxCache   map[string]*entityIndex   // entity → secondary index for permitted-set queries
+	// requireHumanSig enforces a verified WebAuthn human_signature
+	// specifically (LLD-02 §5) on every human HITL decision — stricter than
+	// requireSig, which only requires SOME signature verified by the
+	// generic Ed25519 `verify` hook above. See WithRequireHumanSignature.
+	requireHumanSig bool
+	blobs           BlobStore
+	now             func() time.Time
+	cal             businessCalendar        // working-time calendar for business_*_since
+	idxMu           sync.Mutex              // guards idxCache (built lazily under e.mu read side)
+	idxCache        map[string]*entityIndex // entity → secondary index for permitted-set queries
 	// verify checks an actor's signature (wired to identity.Registry by the
 	// node). When set, approval decisions REQUIRE a valid signature.
 	verify func(ctx context.Context, actorID string, msg, sig []byte) error
@@ -85,6 +90,14 @@ func WithBusinessCalendar(cal businessCalendar) Option { return func(e *Engine) 
 // allowed until passkeys are deployed.
 func WithRequireSignatures() Option { return func(e *Engine) { e.requireSig = true } }
 
+// WithRequireHumanSignature enforces a verified WebAuthn human_signature
+// (LLD-02 §5, DecideOption WithHumanSignature) on every HITL decision made
+// by a human actor. This is the production gate — "approve without a
+// passkey" — and is off by default so demo/dev nodes keep working exactly
+// as before (I-1). It is independent of WithRequireSignatures: a node can
+// run either, both, or neither.
+func WithRequireHumanSignature() Option { return func(e *Engine) { e.requireHumanSig = true } }
+
 // Record is the projected current state of one row.
 type Record struct {
 	ID     string         `json:"id"`
@@ -114,20 +127,20 @@ type updatedPayload struct {
 // New builds an engine over a model and journal, replaying existing events.
 func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...Option) (*Engine, error) {
 	e := &Engine{
-		model:      model,
-		store:      store,
-		defVersion: 1,
-		records:    map[string]map[string]*Record{},
-		approvals:  map[string]*Approval{},
-		tasks:      map[string]*Task{},
-		proposals:  map[string]*Proposal{},
-		stateSince: map[string]map[string]time.Time{},
-		links:      map[string]linkPayload{},
-		comments:   map[string][]*Comment{},
-		taskTTL:    time.Hour,
-		defApprover: "Owner",
-		now:        time.Now,
-		cal:        defaultCalendar(),
+		model:         model,
+		store:         store,
+		defVersion:    1,
+		records:       map[string]map[string]*Record{},
+		approvals:     map[string]*Approval{},
+		tasks:         map[string]*Task{},
+		proposals:     map[string]*Proposal{},
+		stateSince:    map[string]map[string]time.Time{},
+		links:         map[string]linkPayload{},
+		comments:      map[string][]*Comment{},
+		taskTTL:       time.Hour,
+		defApprover:   "Owner",
+		now:           time.Now,
+		cal:           defaultCalendar(),
 		failedActions: map[string]*actionFailState{},
 		openOps:       map[string]opInfo{},
 	}
@@ -168,6 +181,22 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		}
 		e.records[ev.Subject.Entity][ev.Subject.RecordID] = &Record{
 			ID: ev.Subject.RecordID, Entity: ev.Subject.Entity, Values: p.Values,
+		}
+		e.setStateSince(ev.Subject.Entity, ev.Subject.RecordID, ev.TS)
+	case eventstore.RecordImported:
+		// LLD-03 §4: folds exactly like RecordCreated (same projection shape)
+		// — the distinct kind exists for provenance and to keep on-create
+		// automation from firing on replay, not for a different projection.
+		// ImportRecord (below) is the only writer of this kind.
+		var ip eventstore.RecordImportedPayload
+		if json.Unmarshal(ev.Payload, &ip) != nil {
+			return
+		}
+		if e.records[ev.Subject.Entity] == nil {
+			e.records[ev.Subject.Entity] = map[string]*Record{}
+		}
+		e.records[ev.Subject.Entity][ev.Subject.RecordID] = &Record{
+			ID: ev.Subject.RecordID, Entity: ev.Subject.Entity, Values: ip.Values,
 		}
 		e.setStateSince(ev.Subject.Entity, ev.Subject.RecordID, ev.TS)
 	case eventstore.RecordUpdated:
@@ -374,8 +403,14 @@ func (e *Engine) Export(entity string) []*Record {
 // ImportRecord restores a record with its original id during an era import:
 // types are validated against the NEW definition, but permissions, ref
 // existence and the workflow-field guard are bypassed — the operator owns the
-// data, state is restored as-is, refs may arrive out of order.
-func (e *Engine) ImportRecord(ctx context.Context, actor eventstore.Actor, entity, id string, values map[string]any, basis *eventstore.Basis) error {
+// data, state is restored as-is, refs may arrive out of order. Written as
+// record.imported — NOT record.created (LLD-03 §4): provenance (origin) is
+// preserved, and because this method never calls runAutoTransitions /
+// runEventTriggers, on-create automation does not fire for restored rows,
+// whichever kind is used — the distinct kind is for audit distinguishability,
+// a locked design decision (LLD-03 §4), not a functional requirement of this
+// method's own behavior.
+func (e *Engine) ImportRecord(ctx context.Context, actor eventstore.Actor, entity, id string, values map[string]any, origin eventstore.RecordOrigin, basis *eventstore.Basis) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	decl, errr := e.entityOrErr(entity)
@@ -394,14 +429,15 @@ func (e *Engine) ImportRecord(ctx context.Context, actor eventstore.Actor, entit
 			}
 		}
 	}
-	payload, _ := json.Marshal(createdPayload{Values: values})
+	payload, _ := json.Marshal(eventstore.RecordImportedPayload{Values: values, Origin: origin})
 	ev, err := e.store.Append(ctx, eventstore.AppendInput{
 		Actor:      actor,
-		Kind:       eventstore.RecordCreated,
+		Kind:       eventstore.RecordImported,
 		Subject:    eventstore.Subject{Entity: entity, RecordID: id},
 		Payload:    payload,
 		Basis:      basis,
 		DefVersion: e.defVersion,
+		SchemaV:    eventstore.CurrentSchemaV,
 	})
 	if err != nil {
 		return err
@@ -413,6 +449,17 @@ func (e *Engine) ImportRecord(ctx context.Context, actor eventstore.Actor, entit
 	e.dropIndex(entity)
 	e.setStateSince(entity, id, ev.TS)
 	return nil
+}
+
+// StateSince returns when entity/id entered its current state (a workflow
+// transition, or its creation/import time if it has never transitioned). ok
+// is false if the record is unknown. Used by `kalita export` (LLD-03 §4) to
+// snapshot each row's state_since into era.jsonl.
+func (e *Engine) StateSince(entity, id string) (time.Time, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	t, ok := e.stateSince[entity][id]
+	return t, ok
 }
 
 func findFieldDecl(decl *dsl.EntityDecl, name string) *dsl.FieldDecl {
@@ -476,6 +523,17 @@ func (e *Engine) DefVersion() uint64 {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.defVersion
+}
+
+// HeadSeq returns the journal's current head seq (0 on an empty journal).
+// LLD-02 §2/§4 needs this: the approval-challenge endpoint captures it at
+// issuance time so the canonical string fixes "what the human saw" (state
+// as of head_seq), and Decide's verification later reconstructs the SAME
+// canonical from that captured value — never a value recomputed at decide
+// time, which could have moved on.
+func (e *Engine) HeadSeq(ctx context.Context) (uint64, error) {
+	seq, _, err := e.store.Head(ctx)
+	return seq, err
 }
 
 // entityOrErr resolves an entity declaration.
