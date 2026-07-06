@@ -16,30 +16,46 @@ severity: **P0** блокирует прод · **P1** мешает заявле
 
 ## Ядро: язык / компилятор (вскрыто фиксами паков 2026-07-02)
 
-- **P1 permissions не валидируют имена действий.** `act [foo]` / `approve [bar]`
-  с несуществующими именами компилируются молча — ложная защита (карточки
-  BUGS предлагали `deny approve X where…`, и это тихо стало бы мусором).
-  → семантическая проверка имён + E-код с fix_hint. Решение: LLD-01 §4c.
-  (2026-07-02, фиксы hr/servicedesk)
-- **P1 computed-агрегаты: `where` парсится одним `strings.Cut(cond, "=")`.**
-  Принимается только `reffield = $self`; составное `and status = Approved`
-  ломает разбор МОЛЧА (поле unresolved, check не ловит). Блокирует hr BUG-01
-  (квота отпусков считает Rejected/Draft) И contracts BUG-01 (`Contract.
-  open_findings` считает ВСЕ findings, включая Addressed/Waived — нужен
-  `where contract = $self and status = Open`). → полноценный where-парсер в
-  evalAggregate (переиспользовать evalWhere) + ошибка компиляции на
-  нераспознанное условие. (2026-07-02, engine/computed.go:357-429;
-  packs/contracts/entities.dsl `open_findings`, DEMO-0 hardening)
-- **P2 automation-действия create/update заявлены доками, отсутствуют в
-  грамматике.** Закрыт список agent|notify|webhook|escalate_to. Блокирует
-  eshop-склад, crm-convert. → LLD-01 §4b. (2026-07-02)
-- **P2 нет композиции полей (include/mixin) — блокер `core.fields`.** DSL
-  переиспользует СУЩНОСТИ через ref, но не ГРУППЫ ПОЛЕЙ. Значит «горизонтальный
-  сахар» стдлиба (`core.Auditable` created/updated·by, `core.Money` amount+
-  currency, `core.Address` вложенно) невыразим — каждый пак копипастит поля.
-  → L0-фича `entity X { include core.Auditable }` (компилятор инлайнит поля,
-  аддитивно I-1); отдельный LLD при постройке §core.fields (триггер — 2-й
-  потребитель сахара). См. DSL-CORE-LIB §4. (2026-07-02, устав core.*)
+- ~~**P1 permissions не валидируют имена действий.**~~ ЗАКРЫТО (проверено по
+  коду 2026-07-06): `internal/dsl/semantic_blocks.go` валидирует
+  act/approve (против workflow-переходов доступных роли сущностей, E028),
+  emit (против объявленных событий, E048), tail (закрытая таксономия, E049),
+  с did-you-mean хинтами; golden-тест `act [fly]` → E028.
+- **P2 computed-агрегаты: богаче формы `where` нет.** Тихая потеря поля
+  ЗАКРЫТА 2026-07-06: невыразимое условие — ошибка компиляции
+  `E052_BAD_AGGREGATE_WHERE` (один парсер `dsl.ParseAggregateBody` для
+  компилятора и рантайма). ОСТАЁТСЯ желание составных условий: hr BUG-01
+  (квота отпусков считает Rejected/Draft) и contracts BUG-01
+  (`open_findings` хочет `where contract = $self and status = Open`) — оба
+  пака сегодня в разрешённой форме, но семантически неполны. → расширение
+  формы через admission gate, когда пак реально упрётся (решение фаундера).
+  (2026-07-02; сужено 2026-07-06)
+- ~~**P2 automation-действия create/update отсутствуют.**~~ ЗАКРЫТО
+  (проверено по коду 2026-07-06): `internal/dsl/parser_blocks.go:387-422`
+  парсит, `internal/engine/automation.go` `execCreate`/`execUpdate` исполняют
+  с op-скобкой.
+- **P2 нет композиции полей (include/mixin) — блокер `core.fields`.**
+  Подтверждено по коду 2026-07-06 (ноль `include|mixin` в internal/dsl).
+  СПРОЕКТИРОВАНО: **LLD-22** (docs/lld/LLD-22-field-mixins-include.md) —
+  инлайн на семантической фазе, громкие коллизии, 4 seed-миксина по замеру
+  повторов (owner×14, name×26, email×13). Реализация — релизная очередь.
+  (2026-07-02; LLD 2026-07-06)
+
+## Ядро: подписки (LLD-21, PR-1 построен 2026-07-06)
+
+- **P1 dead-letter не подключаем к реальному узлу как есть.**
+  `workers/lib/subscribe.py`'s `DeadLetter.report` эмитит `subscription.failed`
+  с ВЛОЖЕННЫМ payload `{error:{code,message}}`, а схема паковых событий
+  допускает только скаляры+ref (LLD-01 §4.1); плюс событие должно быть
+  объявлено и роль воркера должна держать emit-грант. Сегодня безопасно
+  (bridge работает с dead_letter=None), но PR-4 (подключение dead-letter)
+  обязан: (a) уплощить payload (error_code/error_message строками) или
+  (b) завести core-kind для subscription.failed. НЕ подключать как есть —
+  упадёт валидацией на первом же ядовитом факте. (2026-07-06, ревью Fable PR-1)
+- **P3 `workers/knowvault_indexer` — 41 фейл при прогоне ВСЕГО workers/ разом.**
+  Тесты полагаются на порядок импорта (подмена bootstrap до import indexer);
+  по одному — зелёные. Preexisting, воспроизводится на чистом дереве. →
+  изолировать через conftest/fixture. (2026-07-06, вскрыто PR-1 LLD-21)
 
 ## Ядро: journal read / outbox (LLD-08)
 
@@ -311,6 +327,15 @@ LLM-вызовами agent_runner. Но пока его нет, дыры наш�
 
 ## Долг закрытый (для истории)
 
+- ~~Link/Unlink обходили row-level `deny update ... where` (false-allow)~~ —
+  закрыто `2089bae` 2026-07-06: гейт звал `can(...,"",nil)` с nil-записью,
+  условный deny не матчился (fail-closed «нет матча» на nil) — залоченную
+  (Signed) запись можно было связывать/развязывать. Теперь can() получает
+  rec.Values; регресс-тест `TestLinkUnlinkRespectRowLevelDenyLock`. Найдено
+  ревизией «заявлено vs код»; comments.go чист (передавал record всегда),
+  meta.go — UI-проба, не гейт.
+- ~~Тихая потеря computed-поля при невыразимом агрегатном `where`~~ — закрыто
+  2026-07-06 (`E052_BAD_AGGREGATE_WHERE`, один парсер для двух слоёв).
 - ~~Инкрементальная индексация KnowVault (skip unchanged / re-embed changed / drop deleted)~~ — закрыто `84f92ca`.
 - ~~Auto-reindex без ручного триггера~~ — закрыто `b822a03` (interval schedule + resync task).
 - ~~Born-agentic CRM (система действия)~~ — частично: SalesBot триажит новую Opportunity (квалификация + follow-up Activity + advance), HITL на close_won цел. Доказано вживую 2026-06-12.
