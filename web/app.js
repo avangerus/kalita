@@ -417,13 +417,39 @@ function CreateForm({ ent, onDone, initial, hide }) {
   </div>`;
 }
 
+// highlightTerms: split `text` on the words of `query` (>=2 chars) and wrap
+// the matches in <mark> — used by the Search hero's source cards (ENH-04b) to
+// show WHY a chunk matched, not just that it did. Builds an array of
+// strings/vnodes (never raw HTML), so untrusted snippet text is never parsed
+// as markup — safe by construction, not by escaping.
+function highlightTerms(text, query) {
+  if (!text) return text;
+  const terms = (query || '').split(/\s+/).map(t => t.trim()).filter(t => t.length > 1);
+  if (!terms.length) return text;
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp('(' + terms.map(esc).join('|') + ')', 'ig');
+  const termsLower = terms.map(t => t.toLowerCase());
+  return text.split(re).map((part, i) => termsLower.includes(part.toLowerCase())
+    ? html`<mark key=${i}>${part}</mark>` : part);
+}
+
 // Search: the product face of KnowVault — ask a question over the documents,
 // get an answer with sources. Backed by POST /api/search (node proxies a
 // search worker; the node already enforced what this actor may see).
+//
+// ENH-04b: the worker now returns `source_hits=[{file, anchor, snippet}]`
+// alongside the older `sources=[name,...]` (see workers/knowvault_search's
+// service.py — ragproxy.go forwards the whole body, no core change needed).
+// source_hits renders as clickable cards; clicking one expands a panel with
+// the retrieved chunk's snippet, matched terms highlighted. If an older
+// worker/response has no source_hits, this degrades to the original
+// name-chip rendering instead of showing nothing.
 function SearchView() {
   const [q, setQ] = useState(''); const [busy, setBusy] = useState(false);
   const [res, setRes] = useState(null); const [err, setErr] = useState(null);
   const [projects, setProjects] = useState([]); const [project, setProject] = useState('');
+  const [openHit, setOpenHit] = useState(null); // index of the expanded source card, or null
+  const [askedQ, setAskedQ] = useState(''); // the question actually answered (for highlight)
   // the projects (Workspaces) to scope a search to one of
   // BUG-06: after loading workspaces, default to the last (most recent) one so
   // the user searches a real scope, not the broad "All" catch-all.  "All" is
@@ -431,31 +457,141 @@ function SearchView() {
   useEffect(() => { api('/api/records/Workspace?limit=200').then(r => { const ws = r.records || []; setProjects(ws); if (ws.length > 0) setProject(ws[ws.length - 1].id); }).catch(() => {}); }, []);
   const ask = async () => {
     if (!q.trim()) return;
-    setBusy(true); setErr(null); setRes(null);
+    setBusy(true); setErr(null); setRes(null); setOpenHit(null);
     try {
       const body = { question: q };
       if (project) body.workspace = project;
-      setRes(await api('/api/search', { method: 'POST', body: JSON.stringify(body) }));
+      const r = await api('/api/search', { method: 'POST', body: JSON.stringify(body) });
+      setRes(r); setAskedQ(q);
     } catch (e) { setErr(e); }
     setBusy(false);
   };
-  return html`<div>
+  const hits = res?.source_hits?.length > 0 ? res.source_hits : null;
+  return html`<div class="narrow search-hero">
     <h2>Search documents</h2>
-    <div style="display:flex;gap:8px;align-items:flex-start;max-width:720px">
+    <div class="search-bar">
       ${projects.length > 0 && html`<select style="margin:0;max-width:200px" value=${project} onChange=${e => setProject(e.target.value)}>
         <option value="">All projects</option>${projects.map(p => html`<option value=${p.id}>${p.values.name || p.id.slice(0, 8)}</option>`)}</select>`}
-      <input style="margin:0" placeholder="Ask anything about your documents…"
+      <input style="margin:0;flex:1" placeholder="Ask anything about your documents…"
         value=${q} onInput=${e => setQ(e.target.value)}
         onKeyDown=${e => e.key === 'Enter' && ask()} />
       <button class="btn green" onClick=${ask} disabled=${busy}>${busy ? '…' : 'Ask'}</button>
     </div>
     ${err && html`<div class="err">${err.message || JSON.stringify(err)}</div>`}
-    ${res && html`<div class="card" style="max-width:720px;margin-top:14px">
-      <div style="white-space:pre-wrap;line-height:1.55">${res.answer}</div>
-      ${res.sources?.length > 0 && html`<div class="muted" style="margin-top:12px">
+    ${!res && !busy && !err && html`<div class="muted search-hint">Ask a question to get started — the answer will cite the documents it came from.</div>`}
+    ${busy && html`<div class="card" aria-busy="true" aria-live="polite">
+      <div class="skel" style="height:20px;width:70%;margin-bottom:12px"></div>
+      <div class="skel" style="height:14px;width:100%;margin-bottom:6px"></div>
+      <div class="skel" style="height:14px;width:94%;margin-bottom:6px"></div>
+      <div class="skel" style="height:14px;width:60%"></div>
+      <span class="sr-only">searching documents and composing an answer…</span>
+    </div>`}
+    ${res && html`<div class="card search-answer">
+      <div class="answer-text">${res.answer}</div>
+      ${hits ? html`<div class="source-hits">
+        <div class="muted">Sources · ${hits.length}</div>
+        ${hits.map((h, i) => html`<div class="source-hit">
+          <button type="button" class="source-hit-head" aria-expanded=${openHit === i ? 'true' : 'false'}
+            onClick=${() => setOpenHit(openHit === i ? null : i)}>
+            <span aria-hidden="true">📄</span>
+            <span class="source-hit-name">${h.file}</span>
+            ${typeof h.anchor === 'number' && html`<span class="source-hit-anchor">chunk ${h.anchor + 1}</span>`}
+            <span class="source-hit-chevron" aria-hidden="true">${openHit === i ? '▾' : '▸'}</span>
+          </button>
+          ${openHit === i && html`<div class="source-hit-body" role="region" aria-label=${`fragment of ${h.file}`}>
+            <p>${highlightTerms(h.snippet || '', askedQ)}</p>
+          </div>`}
+        </div>`)}
+      </div>`
+      : res.sources?.length > 0 && html`<div class="muted" style="margin-top:12px">
         Sources: ${res.sources.map(s => html`<span class="pill" style="margin-right:6px">${s}</span>`)}</div>`}
     </div>`}
-    ${busy && html`<div class="muted" style="margin-top:12px">searching documents and composing an answer…</div>`}
+  </div>`;
+}
+
+// UploadView: ENH-01 — drag N documents onto a zone, each goes through the
+// existing uploadFile() (multipart POST /api/files, same call FieldAtom's
+// FileAttachment uses), then a Source record is created the same way the
+// generic "+ Source" CreateForm would (POST /api/records/Source with
+// {workspace, kind, path, document, basis}) — no new upload endpoint. `kind`
+// uses the "Upload" value the pack's enum already reserves for this
+// (packs/knowvault/knowvault.dsl's Source.kind); `path` (required by that
+// same entity, normally filled via the files.list_dirs folder picker) is
+// filled with the dropped file's name since drag-drop deliberately skips
+// browsing a folder. Each file gets its own progress/error, independent of
+// the others.
+function UploadView({ meta }) {
+  const [projects, setProjects] = useState([]); const [project, setProject] = useState('');
+  const [items, setItems] = useState([]); // [{id, file, status: queued|uploading|creating|done|error, error}]
+  const [dragOver, setDragOver] = useState(false);
+  useEffect(() => { api('/api/records/Workspace?limit=200').then(r => { const ws = r.records || []; setProjects(ws); if (ws.length > 0) setProject(ws[ws.length - 1].id); }).catch(() => {}); }, []);
+
+  const patchItem = (id, patch) => setItems(list => list.map(it => (it.id === id ? { ...it, ...patch } : it)));
+
+  const processFile = async (item, ws) => {
+    patchItem(item.id, { status: 'uploading' });
+    try {
+      const ref = await uploadFile(item.file);
+      patchItem(item.id, { status: 'creating' });
+      await api('/api/records/Source', { method: 'POST', body: JSON.stringify({
+        values: { workspace: ws, kind: 'Upload', path: item.file.name, document: ref },
+        basis: basis(),
+      }) });
+      patchItem(item.id, { status: 'done' });
+    } catch (e) {
+      const msg = e?.message ? e.message + (e.fix_hint ? ` — ${e.fix_hint}` : '') : 'upload failed';
+      patchItem(item.id, { status: 'error', error: msg });
+    }
+  };
+
+  const addFiles = (fileList) => {
+    if (!project) return;
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const fresh = files.map(f => ({ id: Math.random().toString(36).slice(2), file: f, status: 'queued', error: null }));
+    setItems(list => [...list, ...fresh]);
+    fresh.forEach(it => processFile(it, project));
+  };
+
+  const clearDone = () => setItems(list => list.filter(it => it.status !== 'done'));
+  const openPicker = () => project && document.getElementById('kv-upload-input')?.click();
+
+  const STATUS_LABEL = { queued: 'queued', uploading: 'uploading…', creating: 'indexing…', done: '✓ done' };
+
+  return html`<div class="narrow">
+    <h2>Upload documents</h2>
+    <div class="muted" style="margin-bottom:10px">Drop files to add them as Sources in the selected workspace.</div>
+    <label>Workspace</label>
+    <select value=${project} onChange=${e => setProject(e.target.value)}>
+      <option value="">— choose workspace —</option>
+      ${projects.map(p => html`<option value=${p.id}>${p.values.name || p.id.slice(0, 8)}</option>`)}
+    </select>
+    <div class="dropzone ${dragOver ? 'drag-over' : ''} ${!project ? 'disabled' : ''}"
+      role="button" tabIndex=${project ? 0 : -1} aria-disabled=${!project ? 'true' : 'false'}
+      aria-label="Drop files here, or press Enter to choose files to upload"
+      onDragOver=${e => { e.preventDefault(); if (project) setDragOver(true); }}
+      onDragLeave=${() => setDragOver(false)}
+      onDrop=${e => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+      onClick=${openPicker}
+      onKeyDown=${e => { if (project && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openPicker(); } }}>
+      <div class="dropzone-icon" aria-hidden="true">⬆</div>
+      ${project ? html`<div>Drop files here, or click to choose</div>` : html`<div class="muted">choose a workspace first</div>`}
+      <input id="kv-upload-input" type="file" multiple style="display:none"
+        onChange=${e => { addFiles(e.target.files); e.target.value = ''; }} />
+    </div>
+    ${items.length > 0 && html`<div class="upload-list">
+      <div style="display:flex;align-items:center;gap:8px;margin:14px 0 6px">
+        <b style="flex:1">Files · ${items.length}</b>
+        <button class="btn" onClick=${clearDone}>Clear finished</button>
+      </div>
+      ${items.map(it => html`<div class="upload-row" key=${it.id}>
+        <span class="upload-row-name" title=${it.file.name}>${it.file.name}</span>
+        <span class="upload-row-size muted">${Math.round(it.file.size / 1024)} KB</span>
+        <span class="upload-row-status ${it.status === 'error' ? 'status-error' : it.status === 'done' ? 'status-done' : ''}">
+          ${it.status === 'error' ? `✕ ${it.error}` : STATUS_LABEL[it.status]}
+        </span>
+      </div>`)}
+    </div>`}
   </div>`;
 }
 
@@ -894,6 +1030,10 @@ function App() {
   const route = useRoute();
   const [meta, setMeta] = useState(null); const [err, setErr] = useState(null);
   const [inboxCount, setInboxCount] = useState(0);
+  // ENH-03: collapsible sidebar, persisted across reloads (pure UI state —
+  // no server round-trip, no domain knowledge).
+  const [collapsed, setCollapsed] = useState(() => localStorage.kalitaSidebarCollapsed === '1');
+  const toggleSidebar = () => setCollapsed(c => { localStorage.kalitaSidebarCollapsed = c ? '0' : '1'; return !c; });
   const refresh = async () => {
     try {
       const [a, p] = await Promise.all([api('/api/approvals'), api('/api/proposals')]);
@@ -904,12 +1044,27 @@ function App() {
 
   if (err) return html`<div class="login card"><div class="err">${err.message || 'node unreachable'}</div>
     <button class="btn" onClick=${() => { session.clear(); location.reload(); }}>Sign in again</button></div>`;
-  if (!meta) return html`<div class="login muted">connecting…</div>`;
+  // ENH-03 "states as design": a skeleton instead of literal "connecting…"
+  // text, with the same message kept for screen readers via aria-live.
+  if (!meta) return html`<div class="login card" aria-busy="true" aria-live="polite">
+    <div class="skel" style="height:22px;width:55%;margin-bottom:14px"></div>
+    <div class="skel" style="height:14px;width:90%;margin-bottom:8px"></div>
+    <div class="skel" style="height:14px;width:75%;margin-bottom:8px"></div>
+    <div class="skel" style="height:14px;width:65%"></div>
+    <span class="sr-only">Connecting…</span>
+  </div>`;
 
   const parts = route.split('/').filter(Boolean); // e.g. ["e","Card","id"]
   const ent = parts[0] === 'e' || parts[0] === 'board' ? meta.entities.find(x => x.name === parts[1]) : null;
+  // ENH-01: the Upload nav item is KnowVault-specific (Source is a pack
+  // entity, not core) — gated on the actor actually being able to create a
+  // Source, same check EntityList already makes for its own "+ Source"
+  // button, so a role without create rights never sees a dead-end page.
+  const sourceEnt = meta.entities.find(x => x.name === 'Source');
+  const canUpload = !!(sourceEnt && sourceEnt.can_create);
   let view = html`<${Inbox} meta=${meta} refresh=${refresh} />`;
   if (parts[0] === 'search') view = html`<${SearchView} />`;
+  else if (parts[0] === 'upload' && canUpload) view = html`<${UploadView} meta=${meta} />`;
   else if (parts[0] === 'dashboards') view = html`<${Dashboards} />`;
   else if (parts[0] === 'agent-board') view = html`<${AgentBoard} />`;
   else if (parts[0] === 'agents') view = html`<${AgentsView} meta=${meta} />`;
@@ -919,18 +1074,32 @@ function App() {
   else if (parts[0] === 'board' && ent) view = html`<${Board} ent=${ent} />`;
 
   return html`<div class="shell">
-    <div class="side">
-      <h1>${BRAND.name}</h1>
-      <div class="who">${meta.pack || '(genesis)'} · v${meta.def_version}<br/>${meta.actor_id} — ${meta.role}
-        <a style="display:block" onClick=${() => { session.clear(); location.reload(); }}>sign out</a></div>
-      <div class="nav">
-        ${meta.search && html`<a class=${route === '/search' ? 'on' : ''} onClick=${() => nav('/search')}>🔍 Search</a>`}
-        <a class=${route === '/inbox' ? 'on' : ''} onClick=${() => nav('/inbox')}>Inbox ${inboxCount > 0 && html`<span class="badge">${inboxCount}</span>`}</a>
-        <a class=${route === '/dashboards' ? 'on' : ''} onClick=${() => nav('/dashboards')}>📊 Dashboards</a>
-        <a class=${route === '/agent-board' ? 'on' : ''} onClick=${() => nav('/agent-board')}>🤖 Agent board</a>
-        ${meta.entities.map(e => html`<a class=${parts[1] === e.name ? 'on' : ''} onClick=${() => nav(`/e/${e.name}`)}>${elab(e)}</a>`)}
-        <a class=${route === '/agents' ? 'on' : ''} onClick=${() => nav('/agents')} style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">Agents</a>
+    <div class="side ${collapsed ? 'collapsed' : ''}">
+      <div class="side-head">
+        <h1>${BRAND.name}</h1>
+        <button type="button" class="side-toggle" onClick=${toggleSidebar}
+          aria-label=${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title=${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>${collapsed ? '»' : '«'}</button>
       </div>
+      <div class="who"><span class="lbl">${meta.pack || '(genesis)'} · v${meta.def_version}<br/>${meta.actor_id} — ${meta.role}</span>
+        <a href="#" class="lbl" style="display:block" onClick=${e => { e.preventDefault(); session.clear(); location.reload(); }}>sign out</a></div>
+      <nav class="nav" aria-label="Main navigation">
+        ${meta.search && html`<a href="#/search" class=${route === '/search' ? 'on' : ''} aria-current=${route === '/search' ? 'page' : undefined} title="Search">
+          <span aria-hidden="true">🔍</span><span class="navdot">S</span><span class="lbl">Search</span></a>`}
+        ${canUpload && html`<a href="#/upload" class=${route === '/upload' ? 'on' : ''} aria-current=${route === '/upload' ? 'page' : undefined} title="Upload">
+          <span aria-hidden="true">⬆</span><span class="navdot">U</span><span class="lbl">Upload</span></a>`}
+        <a href="#/inbox" class=${route === '/inbox' ? 'on' : ''} aria-current=${route === '/inbox' ? 'page' : undefined} title="Inbox">
+          <span aria-hidden="true">📥</span><span class="navdot">I</span><span class="lbl">Inbox</span>${inboxCount > 0 && html`<span class="badge">${inboxCount}</span>`}</a>
+        <a href="#/dashboards" class=${route === '/dashboards' ? 'on' : ''} aria-current=${route === '/dashboards' ? 'page' : undefined} title="Dashboards">
+          <span aria-hidden="true">📊</span><span class="navdot">D</span><span class="lbl">Dashboards</span></a>
+        <a href="#/agent-board" class=${route === '/agent-board' ? 'on' : ''} aria-current=${route === '/agent-board' ? 'page' : undefined} title="Agent board">
+          <span aria-hidden="true">🤖</span><span class="navdot">A</span><span class="lbl">Agent board</span></a>
+        ${meta.entities.map(e => html`<a href="#/e/${e.name}" class=${parts[1] === e.name ? 'on' : ''} aria-current=${parts[1] === e.name ? 'page' : undefined} title=${elab(e)}>
+          <span class="navdot" aria-hidden="true">${elab(e)[0]}</span><span class="lbl">${elab(e)}</span></a>`)}
+        <a href="#/agents" class=${route === '/agents' ? 'on' : ''} aria-current=${route === '/agents' ? 'page' : undefined} title="Agents & users"
+          style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+          <span aria-hidden="true">👤</span><span class="navdot">A</span><span class="lbl">Agents</span></a>
+      </nav>
     </div>
     <div class="main">${view}</div>
   </div>`;

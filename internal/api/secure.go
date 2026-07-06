@@ -15,7 +15,7 @@ import (
 // bytes → different hash) stays blocked. TestCSPImportMapHash locks this
 // constant to the actual file bytes: change the import map and the gate fails
 // until this hash is updated.
-const importMapHash = "sha256-wyITCvyurpMctSD/IIr1q6JXNxxFZV5LAWLemuQEQsE="
+const importMapHash = "sha256-mbpAbMGb6L7t2iqKuS8n+a6145fuLoaq3TQkL8+pYxM="
 
 // contentSecurityPolicy is the node's CSP. script-src stays strict: same-origin
 // external modules (the /app.js and /catalog.js renderers) plus the one hashed

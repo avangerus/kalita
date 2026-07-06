@@ -64,4 +64,13 @@
   /* --- elevation ----------------------------------------------------------- */
   --shadow-modal: 0 16px 60px #000c;
   --shadow-dropdown: 0 6px 20px #0008;
+  --shadow-card: 0 1px 2px #0004; /* ENH-03: subtle card lift, used by web/index.html's .card */
+
+  /* --- color: on-accent text -----------------------------------------------
+   * ENH-03 light-theme prep: text drawn on top of an --acc-colored surface
+   * (badges, primary buttons) needs its OWN token so a brand manifest that
+   * swaps --acc for a light color can also swap the text drawn on it,
+   * instead of a hex literal baked into web/index.html.
+   */
+  --acc-fg: #06121f;
 }
