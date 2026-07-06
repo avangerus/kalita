@@ -51,4 +51,12 @@ permissions:
         update [Contract.assessment, Contract.risk]
         create [Finding]
         act    [review]
+        # N4 depth gap A: a dedicated grant for the perimeter detector's
+        # tripwire on Contract.terms -- journaling ingest.flagged is a
+        # stronger surface than the `update [Contract.assessment, Contract.risk]`
+        # grant above and is NEVER inferred from it (internal/engine's canFlag /
+        # dsl's `flag` verb); only Legal, the sole role that ever runs the
+        # detector on contract review, holds it -- mirrors
+        # packs/knowvault/knowvault.dsl's Indexer grant.
+        flag   [ingest.flagged]
         deny   [delete *, act [address, waive, reopen]]

@@ -132,7 +132,13 @@ class TestHandleLegalParseFailure(unittest.TestCase):
 class TestHandleLegalPerimeter(unittest.TestCase):
     """DEMO-0 §3 test 2 / H4 layer 3: a poisoned contract (injection in
     `terms`) must be flagged by the perimeter detector -- reusing the
-    honeypot corpus, not a bespoke string (LLD-01 §6)."""
+    honeypot corpus, not a bespoke string (LLD-01 §6).
+
+    N4 depth gap A: the flag must now land on BOTH channels -- the internal
+    comment (pre-existing) AND the core ingest.flagged event via flag_ingest
+    (new), exactly like workers/knowvault_indexer/indexer.py's ingest path
+    (see test_perimeter_ingest.py's TestPerimeterIngestFlagsHoneypot, the
+    sibling of this test class)."""
 
     _REPO_ROOT = os.path.normpath(os.path.join(_HERE, "..", ".."))
     _POISONED_CONTRACT = os.path.join(_REPO_ROOT, "testdata", "honeypot", "atk",
@@ -156,6 +162,37 @@ class TestHandleLegalPerimeter(unittest.TestCase):
         self.assertEqual(len(flags), 1, "the poisoned contract must be flagged exactly once, got %r" % (calls,))
         self.assertIn("possible prompt injection", flags[0]["body"])
 
+    def test_poisoned_terms_also_journal_ingest_flagged_via_flag_ingest(self):
+        # N4 depth gap A (new): the comment above is not enough on its own --
+        # the SAME detection must ALSO journal the core event, exactly as
+        # KnowVault's ingest path does for Source, so the signal survives in
+        # the journal/audit trail, not only in the comment thread.
+        terms = self._poisoned_terms()
+        fake_mcp, calls = _recording_mcp({"title": "MSA", "terms": terms})
+        task = {"id": "t3", "entity": "Contract", "record_id": "c-3", "action": "review"}
+        with mock.patch.object(runner, "LLM_URL", "http://fake-llm"), \
+             mock.patch.object(runner, "llm", lambda messages, max_tokens=400: "[]"), \
+             mock.patch.object(runner, "mcp", fake_mcp):
+            ok, msg = runner.handle_legal("tok", task)
+        self.assertTrue(ok, msg)
+        flag_calls = [a for n, a in calls if n == "flag_ingest"]
+        self.assertEqual(len(flag_calls), 1,
+                         "the poisoned contract must trigger flag_ingest exactly once, got %r" % (calls,))
+        args = flag_calls[0]
+        self.assertEqual(args["entity"], "Contract")
+        self.assertEqual(args["id"], "c-3")
+        self.assertEqual(args["source"], "terms")
+        self.assertGreaterEqual(args["score"], runner.perimeter.THRESHOLD)
+        self.assertTrue(args["reasons"], "flag_ingest must carry the detector's reason tags")
+        self.assertIn("idempotency_key", args)
+        self.assertEqual(args["basis"], {"type": "task", "id": "t3"})
+        # both channels fire, and with DIFFERENT idempotency keys -- reusing
+        # the comment's key for flag_ingest would collide in the Store's
+        # global idempotency dedup and silently swallow one of the two events.
+        comment_calls = [a for n, a in calls if n == "comment" and a.get("internal")]
+        self.assertEqual(len(comment_calls), 1)
+        self.assertNotEqual(comment_calls[0]["idempotency_key"], args["idempotency_key"])
+
     def test_clean_terms_are_not_flagged(self):
         fake_mcp, calls = _recording_mcp(
             {"title": "MSA", "terms": "Liability capped at one month of fees."})
@@ -166,6 +203,8 @@ class TestHandleLegalPerimeter(unittest.TestCase):
             runner.handle_legal("tok", task)
         flags = [a for n, a in calls if n == "comment"]
         self.assertEqual(flags, [], "clean terms must not trigger a perimeter comment")
+        self.assertEqual([a for n, a in calls if n == "flag_ingest"], [],
+                         "clean terms must not trigger flag_ingest either")
 
     def test_perimeter_detector_itself_flags_the_honeypot_fixture(self):
         # the detector's own opinion, independent of the runner wiring above --

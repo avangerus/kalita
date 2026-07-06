@@ -282,6 +282,16 @@ def handle_legal(token, task):
     # flag must be visible, not silent (I-3): post it as an internal comment
     # on the record itself, so it is in the same audit trail a human already
     # watches -- no new core event kind needed to make the signal observable.
+    #
+    # N4 depth gap A: the comment alone left the signal living ONLY in the
+    # comment thread -- weaker for audit/SIEM/provenance than the KnowVault
+    # ingest path (workers/knowvault_indexer/indexer.py), which ALSO journals
+    # the core event itself via flag_ingest. Journal the same core event here,
+    # on top of (not instead of) the comment above -- both channels, exactly
+    # like KnowVault. source="terms": that is the field the counterparty wrote
+    # and the only one this detector ever runs against on Contract. Requires
+    # its own `flag [ingest.flagged]` grant on Legal (packs/contracts/security.dsl),
+    # never inferred from the `update [Contract.assessment, Contract.risk]` grant.
     terms_text = str(values.get("terms") or "")
     p_score, p_reasons = perimeter.score(terms_text)
     if p_score >= perimeter.THRESHOLD:
@@ -289,6 +299,9 @@ def handle_legal(token, task):
                                "body": "perimeter: possible prompt injection in terms (score=%.2f: %s)"
                                        % (p_score, ", ".join(p_reasons) or "unspecified"),
                                "idempotency_key": idem_key(task["id"], "perimeter-flag")})
+        mcp(token, "flag_ingest", {"entity": entity, "id": rid, "source": "terms",
+                                   "reasons": p_reasons, "score": p_score, "basis": basis,
+                                   "idempotency_key": idem_key(task["id"], "perimeter-flag-ingest")})
 
     ctx = resolve_context(token, desc, values)
     pb, _ = mcp(token, "query", {"entity": "Playbook"})
