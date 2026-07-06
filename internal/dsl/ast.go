@@ -57,8 +57,19 @@ type EntityDecl struct {
 	File        string
 	Line        int
 	Singleton   bool // at most one record (settings-style entities)
+	Includes    []IncludeDecl // `include core.<Mixin>` lines (LLD-22 §1), before any own field
 	Fields      []*FieldDecl
 	Constraints []ConstraintDecl
+}
+
+// IncludeDecl is one `include core.<Mixin>` line at the top of an entity body
+// (LLD-22 §1) — a field-mixin composition directive. The semantic phase
+// inlines the mixin's fields into EntityDecl.Fields (LLD-22 §2) before any
+// other check runs, so the resulting Model is indistinguishable from an
+// entity whose fields were written out by hand.
+type IncludeDecl struct {
+	Mixin string
+	Line  int
 }
 
 type ConstraintDecl struct {

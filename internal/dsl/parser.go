@@ -159,12 +159,57 @@ func (p *parser) entity(ln *Line) {
 		p.errs.add(EEmptyBlock, ln.File, ln.Num, "entity "+e.Name+" has no fields",
 			"add at least one field, e.g. `name: string required`")
 	}
+	sawField := false
 	for i := range body {
-		if f := p.fieldLine(&body[i]); f != nil {
+		b := &body[i]
+		if len(b.Toks) > 0 && b.Toks[0].Text == "include" {
+			if sawField {
+				p.errs.add(EIncludePosition, b.File, b.Num,
+					"include must appear before the first field in "+e.Name,
+					"move `include ...` lines to the top of the entity body, before any field")
+				continue
+			}
+			if inc := p.includeLine(b); inc != nil {
+				e.Includes = append(e.Includes, *inc)
+			}
+			continue
+		}
+		if f := p.fieldLine(b); f != nil {
 			e.Fields = append(e.Fields, f)
 		}
+		sawField = true
 	}
 	p.ast.Entities = append(p.ast.Entities, e)
+}
+
+// includeLine parses `include core.<Mixin>` — a field-mixin composition
+// directive (LLD-22 §1). Position (before the first field) is enforced by
+// the caller; this only parses the mixin name.
+func (p *parser) includeLine(ln *Line) *IncludeDecl {
+	t := ln.Toks
+	name, n, ok := dottedIdent(t[1:])
+	if !ok || n != len(t[1:]) {
+		p.errs.add(EBadInclude, ln.File, ln.Num,
+			"include must be `include core.Mixin`",
+			"write e.g. `include core.Named`")
+		return nil
+	}
+	return &IncludeDecl{Mixin: name, Line: ln.Num}
+}
+
+// dottedIdent parses a dotted identifier (core.Named, core.User, ...) with no
+// enclosing brackets, returning the joined name and tokens consumed.
+func dottedIdent(toks []Tok) (string, int, bool) {
+	if len(toks) == 0 || toks[0].Kind != TIdent {
+		return "", 0, false
+	}
+	name := toks[0].Text
+	i := 1
+	for i+1 < len(toks) && toks[i].Text == "." && toks[i+1].Kind == TIdent {
+		name += "." + toks[i+1].Text
+		i += 2
+	}
+	return name, i, true
 }
 
 // --- event -------------------------------------------------------------------

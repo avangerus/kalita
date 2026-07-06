@@ -80,6 +80,12 @@ const (
 	// vanished from results (internal/engine/computed.go's evalAggregate
 	// returns ok=false, withComputed drops the key). Now caught at compile time.
 	EBadAggregateWhere Code = "E052_BAD_AGGREGATE_WHERE" // aggregate where-clause is not `reffield = $self`
+
+	// LLD-22 §1/§2 (PR-1): `include core.<Mixin>` field-mixin composition.
+	EUnknownMixin        Code = "E053_UNKNOWN_MIXIN"         // include names a mixin outside the core.* registry
+	EMixinFieldCollision Code = "E054_MIXIN_FIELD_COLLISION" // a mixin field collides with an own field or another include
+	EIncludePosition     Code = "E055_INCLUDE_POSITION"      // include appears after the first field
+	EBadInclude          Code = "E056_BAD_INCLUDE"           // malformed `include` line
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)

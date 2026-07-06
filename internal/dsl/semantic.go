@@ -95,6 +95,11 @@ const corePrefix = "core."
 var coreEntities = coreEntityNames()
 
 func analyze(ast *AST, errs *Errors) *Model {
+	// Field-mixin inlining (LLD-22 §2) runs first, before any other semantic
+	// check: permissions, computed, unique and workflow must all see mixin
+	// fields as native entity fields.
+	inlineIncludes(ast.Entities, errs)
+
 	m := &Model{
 		Manifest:     ast.Manifest,
 		Product:      ast.Product,
@@ -428,6 +433,58 @@ func checkComputedAggregate(e *EntityDecl, f *FieldDecl, errs *Errors) {
 				fmt.Sprintf("%s.%s: unsupported aggregate condition %q", e.Name, f.Name, strings.TrimSpace(body)),
 				"aggregate where-clauses support only the form `reffield = $self` — rewrite the condition to a single equality against $self")
 		}
+	}
+}
+
+// inlineIncludes resolves each entity's `include core.<Mixin>` lines against
+// mixinRegistry and prepends the resulting fields to EntityDecl.Fields, in
+// include order, ahead of the entity's own fields (LLD-22 §2: deterministic
+// order for replay/golden/meta). Collisions — a mixin field sharing a name
+// with an own field, or with a field brought in by an earlier include — are
+// loud compile errors, never a silent merge or override; the offending field
+// is skipped so the later duplicate-field pass does not also fire for it.
+func inlineIncludes(entities []*EntityDecl, errs *Errors) {
+	registry := mixinRegistry()
+	for _, e := range entities {
+		if len(e.Includes) == 0 {
+			continue
+		}
+		ownLines := make(map[string]int, len(e.Fields))
+		for _, f := range e.Fields {
+			ownLines[f.Name] = f.Line
+		}
+		fromMixin := map[string]string{} // field name -> mixin that introduced it
+		var mixinFields []*FieldDecl
+		for _, inc := range e.Includes {
+			fields, known := registry[inc.Mixin]
+			if !known {
+				errs.add(EUnknownMixin, e.File, inc.Line,
+					fmt.Sprintf("entity %s includes unknown mixin %s", e.Name, inc.Mixin),
+					"available mixins: "+strings.Join(mixinNames(), ", "))
+				continue
+			}
+			for _, mf := range fields {
+				if line, dup := ownLines[mf.Name]; dup {
+					errs.add(EMixinFieldCollision, e.File, inc.Line,
+						fmt.Sprintf("include %s field %s collides with own field %s.%s (declared at line %d)",
+							inc.Mixin, mf.Name, e.Name, mf.Name, line),
+						"rename the field on the entity or remove the include")
+					continue
+				}
+				if otherMixin, dup := fromMixin[mf.Name]; dup {
+					errs.add(EMixinFieldCollision, e.File, inc.Line,
+						fmt.Sprintf("include %s field %s collides with field %s already brought in by include %s",
+							inc.Mixin, mf.Name, mf.Name, otherMixin),
+						"remove one of the includes — mixin fields may not be renamed or excluded in v1")
+					continue
+				}
+				fromMixin[mf.Name] = inc.Mixin
+				clone := *mf
+				clone.Line = inc.Line
+				mixinFields = append(mixinFields, &clone)
+			}
+		}
+		e.Fields = append(mixinFields, e.Fields...)
 	}
 }
 

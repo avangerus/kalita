@@ -1,5 +1,7 @@
 package dsl
 
+import "sort"
+
 // Built-in core entities — system reference data every node provides, merged
 // into every model so packs can ref them (ref[core.Calendar]) and the runtime
 // can CRUD/serve them. core.User stays virtual (identity-backed); the entities
@@ -55,4 +57,49 @@ func coreEntityNames() map[string]bool {
 		m[e.Name] = true
 	}
 	return m
+}
+
+// mixinRegistry is the closed set of field mixins available via `include
+// core.<Name>` inside an entity body (LLD-22 §1/§3). This is composition, not
+// inheritance: the compiler inlines these fields into EntityDecl.Fields on
+// the semantic phase, before any other check runs (LLD-22 §2) — permissions,
+// computed, unique and workflow all see them as native fields.
+//
+// v1 is exactly these four seed mixins, fixed by measured repeat count
+// across packs (LLD-22 §3: Assignable 14+8, Named 26, Contact 13+3, Period
+// 4+4). The list grows only by a second measured consumer (DSL-CORE-LIB §5)
+// — do not add to it speculatively.
+func mixinRegistry() map[string][]*FieldDecl {
+	str := TypeRef{Kind: TyScalar, Scalar: "string"}
+	date := TypeRef{Kind: TyScalar, Scalar: "date"}
+	userRef := TypeRef{Kind: TyRef, RefTarget: "core.User"}
+	return map[string][]*FieldDecl{
+		"core.Assignable": {
+			{Name: "owner", Type: userRef, Default: "$me", Label: "Owner"},
+			{Name: "assignee", Type: userRef, Label: "Assignee"},
+		},
+		"core.Named": {
+			{Name: "name", Type: str, Required: true, Label: "Name"},
+		},
+		"core.Contact": {
+			{Name: "email", Type: str, Label: "Email"},
+			{Name: "phone", Type: str, Label: "Phone"},
+		},
+		"core.Period": {
+			{Name: "from", Type: date, Label: "From"},
+			{Name: "to", Type: date, Label: "To"},
+		},
+	}
+}
+
+// mixinNames returns the sorted list of registered mixin names, used in the
+// "unknown mixin" error's fix hint so an agent sees the available choices.
+func mixinNames() []string {
+	reg := mixinRegistry()
+	names := make([]string, 0, len(reg))
+	for name := range reg {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
