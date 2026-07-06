@@ -29,6 +29,16 @@ type Registry struct {
 	mu        sync.Mutex
 	watermark uint64
 	cache     map[string]*ActorInfo
+	// tokenIndex is a secondary projection folded in lockstep with cache,
+	// under the same mu/watermark: string(tokenHash) -> actor id. Authenticate
+	// is on the hot path of every request (§7.5, RELEASE-1.0 N9/LLD-12 §2) —
+	// without this index it would have to linearly scan every actor's
+	// TokenHash, O(actors) per call. This index changes ONLY the lookup
+	// structure (a map instead of a scan); it never changes what Authenticate
+	// decides — same actor or same refusal, just found in O(1) instead of
+	// O(actors). Falls out of the journal exactly like cache: rebuilt by
+	// replaying actor.registered/actor.key_rotated, never itself journaled.
+	tokenIndex map[string]string
 
 	// lockdown state (LLD-10 §3), folded from node.lockdown/node.lockdown_lifted
 	// under the same mu as the actor cache — see lockdown.go.
@@ -44,7 +54,7 @@ type Registry struct {
 }
 
 func NewRegistry(store eventstore.Store) *Registry {
-	return &Registry{store: store, cache: map[string]*ActorInfo{}}
+	return &Registry{store: store, cache: map[string]*ActorInfo{}, tokenIndex: map[string]string{}}
 }
 
 // ActorMeta describes what stands behind an actor — for agents: which model,
@@ -201,36 +211,94 @@ func (r *Registry) List(ctx context.Context) ([]*ActorInfo, error) {
 // Authenticate resolves a bearer token to an active actor. While the node is
 // in lockdown (LLD-10 §3), every token is checked against the emergency admin
 // only — normal actors, even valid ones, are refused until lockdown lifts.
+//
+// Lookup is O(1) via tokenIndex (LLD-12 §2), not a scan of every actor: the
+// DECISION is unchanged from the previous linear-scan implementation (same
+// actor, same refusal, same constant-time comparison of the winning
+// candidate) — only the path used to FIND the candidate changed. The fold
+// (lookupByTokenHash's first step) still runs, and still runs BEFORE the
+// lockdown check, exactly as before: a lockdown event that arrived since this
+// Registry last folded must be visible to checkLockdown by the time it is
+// consulted, whether or not the token being authenticated turns out to
+// matter (it does not, while lockdown is active — lockdownInfo overrides).
 func (r *Registry) Authenticate(ctx context.Context, token string) (*ActorInfo, error) {
 	hash := sha256.Sum256([]byte(token))
-	infos, err := r.all(ctx)
+	info, err := r.lookupByTokenHash(ctx, hash[:])
 	if err != nil {
 		return nil, err
 	}
-	if info, active := r.checkLockdown(hash[:]); active {
-		if info != nil {
-			return info, nil
+	if lockdownInfo, active := r.checkLockdown(hash[:]); active {
+		if lockdownInfo != nil {
+			return lockdownInfo, nil
 		}
 		return nil, ErrLockdown
 	}
-	for _, info := range infos {
-		if info.TokenHash != nil && subtle.ConstantTimeCompare(info.TokenHash, hash[:]) == 1 {
-			if info.Disabled {
-				return nil, ErrActorDisabled
-			}
-			return info, nil
-		}
+	if info == nil {
+		return nil, ErrActorUnknown
 	}
-	return nil, ErrActorUnknown
+	if info.Disabled {
+		return nil, ErrActorDisabled
+	}
+	return info, nil
+}
+
+// lookupByTokenHash resolves hash to an actor via tokenIndex in O(1), after
+// folding any events newer than the watermark (bounded by events-since-last-
+// fold, not by actor count — the same bound all()/lookup() already had).
+// Returns (nil, nil) when no currently-registered actor holds this token
+// hash — the same "no match" outcome the old linear scan produced, just
+// reached without visiting every actor.
+//
+// The matched candidate is still re-checked with subtle.ConstantTimeCompare
+// (LLD-12 §2: "не деградировать безопасность ради скорости") rather than
+// trusted on map-key equality alone: map lookup used to find the CANDIDATE is
+// not a security boundary here (Go's map hashing is per-process-randomized
+// and the value compared is already a SHA-256 digest, not the secret token
+// itself), but the decisive accept/reject comparison stays constant-time on
+// principle, matching exactly what the previous per-actor scan did for its
+// winning candidate.
+func (r *Registry) lookupByTokenHash(ctx context.Context, hash []byte) (*ActorInfo, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.foldLocked(ctx); err != nil {
+		return nil, err
+	}
+	id, ok := r.tokenIndex[string(hash)]
+	if !ok {
+		return nil, nil
+	}
+	info, ok := r.cache[id]
+	if !ok || info.TokenHash == nil || subtle.ConstantTimeCompare(info.TokenHash, hash) != 1 {
+		return nil, nil
+	}
+	cp := *info
+	return &cp, nil
 }
 
 // all returns the directory, folding only events newer than the watermark.
 func (r *Registry) all(ctx context.Context) (map[string]*ActorInfo, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := r.foldLocked(ctx); err != nil {
+		return nil, err
+	}
+	// snapshot copy: callers iterate without holding the registry lock
+	out := make(map[string]*ActorInfo, len(r.cache))
+	for k, v := range r.cache {
+		cp := *v
+		out[k] = &cp
+	}
+	return out, nil
+}
+
+// foldLocked folds every event newer than the watermark into r.cache and
+// r.tokenIndex. Callers must hold r.mu. Split out of all() so
+// lookupByTokenHash can fold+index-lookup without paying for a full
+// map-of-every-actor snapshot copy on every Authenticate call (LLD-12 §2).
+func (r *Registry) foldLocked(ctx context.Context) error {
 	events, err := r.store.Since(ctx, r.watermark)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for _, e := range events {
 		r.watermark = e.Seq
@@ -256,7 +324,17 @@ func (r *Registry) all(ctx context.Context) (map[string]*ActorInfo, error) {
 			}
 			info.Type, info.Role, info.PublicKey = p.ActorType, p.Role, p.PublicKey
 			if p.TokenHash != nil {
+				// A re-issued token (EnsureActor re-registration,
+				// LoginWithPassword, key rotation carrying a fresh token)
+				// retires the OLD hash's index entry — otherwise a stale
+				// entry would keep resolving a revoked/replaced token to
+				// this actor forever (tokenIndex would silently diverge
+				// from "the token that currently authenticates this actor").
+				if info.TokenHash != nil {
+					delete(r.tokenIndex, string(info.TokenHash))
+				}
 				info.TokenHash = p.TokenHash
+				r.tokenIndex[string(p.TokenHash)] = id
 			}
 			if p.Meta != nil {
 				info.Meta = p.Meta
@@ -278,13 +356,7 @@ func (r *Registry) all(ctx context.Context) (map[string]*ActorInfo, error) {
 			info.PasswordHash = p.BcryptHash
 		}
 	}
-	// snapshot copy: callers iterate without holding the registry lock
-	out := make(map[string]*ActorInfo, len(r.cache))
-	for k, v := range r.cache {
-		cp := *v
-		out[k] = &cp
-	}
-	return out, nil
+	return nil
 }
 
 // RotateKey appends actor.key_rotated with the new public key.

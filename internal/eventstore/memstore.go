@@ -2,6 +2,7 @@ package eventstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -84,38 +85,57 @@ func (s *MemStore) Append(_ context.Context, in AppendInput) (*Event, error) {
 	return e, nil
 }
 
-// All returns the journal in order. Callers must not mutate the events.
+// All returns the journal in order. Every Event is a deep copy (§7.13):
+// mutating a returned Event, or a slice/map field on it, never reaches back
+// into the store. This is what makes MemStore behave like PGStore, which
+// always deserializes a brand-new Event per query and shares memory with
+// nothing — without the copy, MemStore would hand out *Event pointers
+// aliasing its own internal slice, so a caller mutating one would corrupt
+// the journal (and silently diverge from PGStore, which could never exhibit
+// that bug by construction). See cloneEvent.
 func (s *MemStore) All(_ context.Context) ([]*Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]*Event, len(s.events))
-	copy(out, s.events)
+	for i, e := range s.events {
+		out[i] = cloneEvent(e)
+	}
 	return out, nil
 }
 
-// ByIdemKey returns the event stored under the key, or nil.
+// ByIdemKey returns a deep copy of the event stored under the key, or nil
+// (§7.13 — same aliasing hazard as All: byIdemKey points at the same *Event
+// as the events slice, so this must not hand out the shared pointer either).
 func (s *MemStore) ByIdemKey(_ context.Context, key string) (*Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if e, ok := s.byIdemKey[key]; ok {
-		return e, nil
+		return cloneEvent(e), nil
 	}
 	return nil, nil
 }
 
-// Since returns events with seq > afterSeq.
+// Since returns deep copies of events with seq > afterSeq (§7.13, same
+// reasoning as All).
 func (s *MemStore) Since(_ context.Context, afterSeq uint64) ([]*Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if afterSeq >= uint64(len(s.events)) {
 		return nil, nil
 	}
-	out := make([]*Event, len(s.events)-int(afterSeq))
-	copy(out, s.events[afterSeq:])
+	tail := s.events[afterSeq:]
+	out := make([]*Event, len(tail))
+	for i, e := range tail {
+		out[i] = cloneEvent(e)
+	}
 	return out, nil
 }
 
-// Head returns the seq and hash of the last event.
+// Head returns the seq and hash of the last event. The hash is copied
+// (§7.13): last.Hash is a slice into the stored Event, so returning it
+// directly would let a caller mutating the returned []byte corrupt the
+// journal's own chain — the same aliasing hazard All/Since/ByIdemKey have,
+// just for one field instead of a whole Event.
 func (s *MemStore) Head(_ context.Context) (uint64, []byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -123,7 +143,46 @@ func (s *MemStore) Head(_ context.Context) (uint64, []byte, error) {
 		return 0, nil, nil
 	}
 	last := s.events[len(s.events)-1]
-	return last.Seq, last.Hash, nil
+	return last.Seq, append([]byte(nil), last.Hash...), nil
+}
+
+// cloneEvent returns a deep copy of e: every mutable reference field
+// (Payload, PrevHash, Hash, Signature, Basis, Actor.Attrs) is duplicated, not
+// shared. MemStore stores *Event pointers directly in its append-only slice
+// (no serialize/deserialize round-trip the way PGStore has by construction),
+// so every read path that hands one of those pointers to a caller must clone
+// it first — otherwise a caller mutating a returned Event reaches straight
+// into the store's own state, and the same journal behaves differently
+// depending on which Store backs it (§7.13).
+func cloneEvent(e *Event) *Event {
+	if e == nil {
+		return nil
+	}
+	cp := *e // EventID/Seq/TS/Kind/Subject/DefVersion/IdempotencyKey/SchemaV are plain values — copied for free
+	if e.Actor.Attrs != nil {
+		attrs := make(map[string]any, len(e.Actor.Attrs))
+		for k, v := range e.Actor.Attrs {
+			attrs[k] = v
+		}
+		cp.Actor.Attrs = attrs
+	}
+	if e.Payload != nil {
+		cp.Payload = append(json.RawMessage(nil), e.Payload...)
+	}
+	if e.Basis != nil {
+		b := *e.Basis
+		cp.Basis = &b
+	}
+	if e.PrevHash != nil {
+		cp.PrevHash = append([]byte(nil), e.PrevHash...)
+	}
+	if e.Hash != nil {
+		cp.Hash = append([]byte(nil), e.Hash...)
+	}
+	if e.Signature != nil {
+		cp.Signature = append([]byte(nil), e.Signature...)
+	}
+	return &cp
 }
 
 // Verify checks the integrity of the whole chain.

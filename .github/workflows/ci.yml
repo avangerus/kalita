@@ -57,10 +57,21 @@ jobs:
   # internal/eventstore/replay_bench_test.go. Deliberately NOT part of the
   # `test` job above: it never runs on push/pull_request (the `if:` below),
   # so it cannot block or slow a PR, and `continue-on-error` keeps a bad
-  # number from red-X'ing even a manual/nightly run — this job is informational,
-  # not a gate (nothing enforces the N6 ">20% regression" threshold yet). The
-  # existing PR-gate bench smoke step above (`-bench=Bench ./internal/engine`)
-  # is unaffected: these benchmarks are compiled only under -tags=passport.
+  # number from red-X'ing even a manual/nightly run — these ns/op lines are
+  # informational, not a gate (nothing enforces a ">20% regression" threshold
+  # on them yet). The existing PR-gate bench smoke step above
+  # (`-bench=Bench ./internal/engine`) is unaffected: these benchmarks are
+  # compiled only under -tags=passport.
+  #
+  # P3 at the 1M scale is the one exception: it additionally has a HARD,
+  # PR-gating budget test — TestReplayBudget1M (internal/eventstore/
+  # replay_budget_test.go, no build tag) — which runs as part of the ordinary
+  # `go test ./...` step in the `test` job above, on every push/PR, and fails
+  # the build if a 1,000,000-event engine.New() replay exceeds 5s (LLD-12 §4).
+  # That test is a fixed wall-clock budget with margin, not a %-regression
+  # comparison against a prior run (there is no stored baseline to diff
+  # against in CI) — deliberately simpler and cannot flap between runs on the
+  # same class of CI runner.
   passport:
     name: performance passport (informational)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
