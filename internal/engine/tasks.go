@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"time"
 
@@ -327,9 +328,20 @@ func (e *Engine) ensureWorkflowTasks(ctx context.Context, entity, id string) {
 		if tr.AssigneeRole == "" || tr.Auto || (tr.From != current && tr.From != "any") {
 			continue
 		}
-		_, _ = e.createTask(ctx, autoActor, Task{
+		if _, err := e.createTask(ctx, autoActor, Task{
 			Kind: TaskWorkflow, Role: tr.AssigneeRole, Entity: entity, RecordID: id, Action: tr.Action,
 		}, &eventstore.Basis{Type: "rule", ID: "workflow-assignee"},
-			fmt.Sprintf("wftask|%s|%s|%s|%s", entity, id, tr.Action, since))
+			fmt.Sprintf("wftask|%s|%s|%s|%s", entity, id, tr.Action, since)); err != nil {
+			// A real failure here (idempotent replay never reaches this branch —
+			// createTask returns the original id with a nil error for a dup, see
+			// the comment above) means the assignee silently never got a task
+			// and the workflow would hang unnoticed. Surface it the same way
+			// automation.go's cascade/abandon path does: a CRITICAL log line plus
+			// the shared journal-failure counter, so an operator or metrics
+			// exporter sees it instead of a workflow quietly stalling.
+			log.Printf("engine: CRITICAL could not create workflow-assignee task entity=%s record=%s action=%s assignee=%s: %v",
+				entity, id, tr.Action, tr.AssigneeRole, err)
+			AutomationJournalFailures.Add(1)
+		}
 	}
 }
