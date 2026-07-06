@@ -53,6 +53,11 @@ func TestBrokenSources(t *testing.T) {
 		{"stuck without workflow", "entity A:\n    s: enum[X, Y]\n\nroles:\n    Owner\n\nautomation:\n    on stuck A in X for 2d:\n        escalate_to Owner", EBadAutomation},
 		{"ui unknown field", "entity A:\n    x: int\n\nui A:\n    list: [x, ghost]", EUIUnknownField},
 		{"ui board unknown field", "entity A:\n    x: int\n\nui A:\n    board: by ghost", EUIUnknownField},
+		{"aggregate where not reffield=$self (compound and)",
+			"entity Finding:\n    status: string\n\nentity Contract:\n    n: int\n    open: int computed = count(Finding where contract = $self and status = Open)",
+			EBadAggregateWhere},
+		{"aggregate where reversed ($self on the left)", "entity B:\n    x: int\n\nentity A:\n    c: int computed = count(B where $self = x)", EBadAggregateWhere},
+		{"aggregate where missing", "entity B:\n    x: int\n\nentity A:\n    c: int computed = count(B)", EBadAggregateWhere},
 	}
 
 	for _, tc := range cases {

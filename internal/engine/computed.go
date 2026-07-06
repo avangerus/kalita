@@ -353,21 +353,14 @@ func (e *Engine) evalBusinessSince(path string, values map[string]any, unit stri
 }
 
 // evalAggregate computes count/sum/avg/min/max over records of a target entity
-// whose reffield equals selfID. body is "Entity[.field] where reffield = $self".
+// whose reffield equals selfID. body is "Entity[.field] where reffield = $self"
+// — parsed by dsl.ParseAggregateBody, the ONE parser for this form, shared
+// with the compiler's compile-time validation (dsl.checkComputedAggregate)
+// so an unsupported where-clause is a compile error, not a silently-dropped
+// field (I-3).
 func (e *Engine) evalAggregate(fn, body, selfID string) (any, bool) {
-	body = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(body), ")"))
-	target, cond, ok := strings.Cut(body, " where ")
+	entity, field, refField, ok := dsl.ParseAggregateBody(body)
 	if !ok {
-		return nil, false
-	}
-	entity, field, _ := strings.Cut(strings.TrimSpace(target), ".")
-	entity, field = strings.TrimSpace(entity), strings.TrimSpace(field)
-
-	// condition: reffield = $self
-	refField, want, ok := strings.Cut(cond, "=")
-	refField = strings.TrimSpace(refField)
-	want = strings.TrimSpace(want)
-	if !ok || want != "$self" {
 		return nil, false
 	}
 

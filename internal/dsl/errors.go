@@ -73,6 +73,13 @@ const (
 
 	// LLD-06 §1 (PK-2): the `product.mcp` manifest block (façade tool registry).
 	EBadProductMCP Code = "E051_BAD_PRODUCT_MCP" // malformed product.mcp block, tool or a second product.mcp block
+
+	// I-3 ("error is a signal, never silence"): a computed-field aggregate
+	// (count/sum/avg/min/max) whose where-clause is not the one form the
+	// runtime understands used to fail SILENTLY at read time — the field just
+	// vanished from results (internal/engine/computed.go's evalAggregate
+	// returns ok=false, withComputed drops the key). Now caught at compile time.
+	EBadAggregateWhere Code = "E052_BAD_AGGREGATE_WHERE" // aggregate where-clause is not `reffield = $self`
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)

@@ -173,6 +173,9 @@ func analyze(ast *AST, errs *Errors) *Model {
 						"use one of the declared enum values as default")
 				}
 			}
+			if f.Computed != "" {
+				checkComputedAggregate(e, f, errs)
+			}
 		}
 		for _, c := range e.Constraints {
 			for _, cf := range c.Fields {
@@ -407,6 +410,24 @@ func checkRefTarget(m *Model, e *EntityDecl, f *FieldDecl, errs *Errors) {
 		errs.add(EUnknownRef, e.File, f.Line,
 			fmt.Sprintf("%s.%s references undeclared entity %s", e.Name, f.Name, target),
 			"declare `entity "+target+":` in this pack or reference core.User")
+	}
+}
+
+// checkComputedAggregate validates every aggregate call (count/sum/avg/min/
+// max) inside a computed field's expression against the ONE where-condition
+// form the runtime actually understands (engine.evalAggregate, via the
+// shared ParseAggregateBody): `reffield = $self`. Any other form — a
+// compound `and`, a different operator, a right side that isn't $self —
+// used to fail SILENTLY at read time: the field simply vanished from
+// results, with no compile or runtime error (I-3: "error is a signal, never
+// silence"). It is a compile error instead.
+func checkComputedAggregate(e *EntityDecl, f *FieldDecl, errs *Errors) {
+	for _, body := range findAggregateCalls(f.Computed) {
+		if _, _, _, ok := ParseAggregateBody(body); !ok {
+			errs.add(EBadAggregateWhere, e.File, f.Line,
+				fmt.Sprintf("%s.%s: unsupported aggregate condition %q", e.Name, f.Name, strings.TrimSpace(body)),
+				"aggregate where-clauses support only the form `reffield = $self` — rewrite the condition to a single equality against $self")
+		}
 	}
 }
 
