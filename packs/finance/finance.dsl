@@ -5,7 +5,7 @@
 # from the pool, chases the client, and a human signs any write-off (HITL).
 
 entity Client "Client":
-    name:  string required label="Name"
+    include core.Named
     inn:   string label="Tax ID"
     email: email label="Email"
     owner: ref[core.User] default=$me label="Owner"

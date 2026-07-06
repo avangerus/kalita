@@ -14,7 +14,7 @@ entity Product "Product":
     published: bool default=false label="Published"
 
 entity Customer "Customer":
-    name:  string required label="Name"
+    include core.Named
     email: email label="Email"
     phone: phone label="Phone"
     user:  ref[core.User] label="Portal login"

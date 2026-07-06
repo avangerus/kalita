@@ -13,7 +13,7 @@
 # --- source half (node A) ----------------------------------------------------
 
 entity Lead "Lead":
-    name:    string required label="Name"
+    include core.Named
     company: string label="Company"
     email:   email label="Email"
     status:  enum[New, Captured] default=New label="Status"
@@ -33,7 +33,7 @@ workflow Lead on status:
 # reserved (layer 3).
 
 entity MirroredLead "Mirrored lead":
-    name:        string required label="Name"
+    include core.Named
     company:     string label="Company"
     email:       email label="Email"
     origin_node: string label="Origin node"

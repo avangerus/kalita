@@ -5,7 +5,7 @@
 # director (money) — before it is signed and goes live. Multi-party HITL, audited.
 
 entity Counterparty "Counterparty":
-    name:  string required label="Name"
+    include core.Named
     inn:   string label="Tax ID"
     email: email label="Email"
     kind:  enum[Client, Vendor, Partner] default=Client label="Type"
