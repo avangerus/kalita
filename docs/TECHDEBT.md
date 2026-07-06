@@ -9,8 +9,32 @@ severity: **P0** блокирует прод · **P1** мешает заявле
 
 ## Ядро: automation / schedule
 
-- **P1 schedule-парсинг минимальный.** `Tick` понимает только `every <dur>` (интервал) и fallback «раз в день». Форма `daily at 09:00` НЕ парсится в время суток — на каждом тике в новом дне-ведре сработает, время игнорируется. → реальный cron-парсер (минуты/часы/дни недели/время). (2026-06-12, при auto-reindex; engine/automation.go `scheduleInterval`)
-- **P1 неограниченный рост задач от schedule.** `on schedule every Nm` плодит task каждую интервал-ведро ВЕЧНО (resync KnowVault, regen сайта), даже если ничего не изменилось. In-memory `e.tasks` растёт без GC. → политика ретенции/прунинга завершённых задач; либо change-detection до создания task. (2026-06-12)
+- ~~**P1 schedule-парсинг минимальный.**~~ ЗАКРЫТО (2026-07-06):
+  `daily at HH:MM` теперь честно парсится в время суток и не срабатывает
+  раньше него в новом дне-ведре (`dsl.ParseSchedule`,
+  `internal/dsl/schedule.go` — ОДИН парсер для компилятора и рантайма,
+  ровно по образцу `E052`/`ParseAggregateBody`). Нераспознанная форма —
+  ошибка компиляции `E059_BAD_SCHEDULE_FORM`, не молчаливый fallback
+  «раз в день». Полный cron-парсер (дни недели и т.п.) сознательно НЕ
+  строился — закрытый список `every <dur>` / `daily [at HH:MM]` закрывает
+  заявленный сценарий; см. дневник ниже, если понадобится больше форм.
+  (engine/automation.go `scheduleBucket`/`scheduleInterval`)
+- ~~**P1 неограниченный рост задач от schedule.**~~ ЗАКРЫТО (2026-07-06):
+  (a) дедуп по правилу — `on schedule every Nm` больше не плодит новую task,
+  пока предыдущая от того же правила (+ entity/record) ещё open/taken
+  (`hasOpenRuleTask`); `daily`-правила сознательно НЕ участвуют в этом
+  дедупе (иначе одна незавершённая daily-задача навсегда блокирует все
+  последующие дни — хуже исходной проблемы). (b) ретеншн — завершённые
+  schedule-задачи старше `scheduleTaskRetention` (дефолт 20, конфигурируется
+  `WithScheduleTaskRetention`) чистятся из in-memory проекции
+  (`noteScheduleTaskFinished`), и при live-работе, и при replay — чистка
+  функция ТОЛЬКО от порядка fold (последовательности finish-событий в
+  журнале), никогда от `time.Now()`, так что replay воспроизводит ту же
+  проекцию побитово (I-5); журнал (append-only) не трогается — это чистка
+  проекции, не истории. Тест
+  `TestScheduleTaskRetentionIsDeterministicAcrossReplay` гоняет 30 циклов
+  против дефолтного ретеншена 20 и явно сверяет live-проекцию с
+  replay-проекцией с нуля.
 - **P2 automation не умеет напрямую дёргать workflow-переход.** Closed-list действий: agent/notify/webhook/escalate/create/update. Перевод статуса делаем обходом через `agent Role: task` + воркер зовёт `act`. → рассмотреть действие `transition X` в automation. (2026-06-12, knowvault reindex)
 - **P2 multi-line скобки в permissions не поддержаны.** `act [a, b,` с переносом строки парсится как новые verbs (E018). Длинные списки прав — только одной строкой. → парсер должен склеивать скобки через перенос. (2026-06-12, content-пак)
 

@@ -98,29 +98,38 @@ func (e *Engine) applyAutomationAbandoned(ev *eventstore.Event) {
 
 // Automation engine. Event triggers (create/update) fire inline after the
 // mutation; schedule and stuck rules fire on Tick, which the node calls every
-// minute. Schedule dedup is per rule (and record), keyed by an idempotency
-// bucket: interval forms ("every 5m") ARE parsed (scheduleInterval) and fire
-// once per interval window; wall-clock forms ("daily at 09:00") fire once per
-// day — the time-of-day is not yet parsed, so they trigger on the first Tick of
-// the day. A full cron / time-of-day parser is a v1 concern.
+// minute. A schedule trigger's raw text is validated at compile time against
+// the closed grammar dsl.ParseSchedule accepts (E059_BAD_SCHEDULE_FORM,
+// internal/dsl/schedule.go — same one-parser-two-layers discipline as
+// E052's aggregates): `every <dur>` fires once per interval window; `daily
+// [at HH:MM]` fires once per day, on the first Tick at or after that time of
+// day (defaulting to midnight) — not, as before, on the first Tick of the day
+// regardless of the wall clock. Schedule dedup is per rule (and record): the
+// idempotency bucket above prevents re-firing within the same window/day,
+// and hasOpenRuleTask (TECHDEBT "Ядро: automation / schedule" P1) additionally
+// skips firing at all while the previous firing's task is still open/taken —
+// the fix for `on schedule every 2m` piling up a fresh task every bucket
+// forever even when nothing has picked up the last one (KnowVault resync).
 
 // Tick evaluates schedule and stuck rules and sweeps expired leases.
 func (e *Engine) Tick(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	day := e.now().UTC().Format("2006-01-02")
+	now := e.now().UTC()
+	day := now.Format("2006-01-02")
 	for _, rule := range e.model.Automations {
 		key := fmt.Sprintf("%s:%d", rule.File, rule.Line)
 		switch rule.Trigger {
 		case "schedule":
-			// dedup bucket: wall-clock schedules ("daily at 09:00") fire once a
-			// day; interval schedules ("every 5m") fire once per interval window.
-			bucket := day
-			if iv, ok := scheduleInterval(rule.Schedule); ok {
-				bucket = "iv" + strconv.FormatInt(e.now().UTC().Unix()/int64(iv/time.Second), 10)
+			bucket, fire, dedupOpen := scheduleBucket(rule.Schedule, now, day)
+			if !fire {
+				continue
 			}
 			if rule.Entity == "" {
+				if dedupOpen && e.hasOpenRuleTask(key, "", "") {
+					continue
+				}
 				e.fireActions(ctx, rule, "", "", fmt.Sprintf("auto|%s|%s", key, bucket))
 				continue
 			}
@@ -129,6 +138,9 @@ func (e *Engine) Tick(ctx context.Context) error {
 				rec := e.records[rule.Entity][id]
 				full := e.withComputed(decl, rec.ID, rec.Values)
 				if rule.When != "" && !evalWhere(rule.When, e.ctxFor(rec.ID, eventstore.Actor{}, full)) {
+					continue
+				}
+				if dedupOpen && e.hasOpenRuleTask(key, rule.Entity, id) {
 					continue
 				}
 				e.fireActions(ctx, rule, rule.Entity, id, fmt.Sprintf("auto|%s|%s|%s", key, id, bucket))
@@ -490,19 +502,122 @@ func (e *Engine) findAutomationRule(ruleKey string) *dsl.AutomationRule {
 }
 
 // scheduleInterval parses an interval schedule ("every 5m", "every 2h") into a
-// duration. Wall-clock forms ("daily at 09:00") don't match and fall back to
-// per-day dedup. This is the seam where v0's carried-but-unparsed schedule text
-// grows real cadence: the kernel now honors "every <dur>" exactly.
+// duration. Wall-clock forms ("daily at 09:00") don't match. Delegates the
+// form check to dsl.ParseSchedule — the one parser shared with the compiler
+// (internal/dsl/schedule.go) — and only turns the accepted text into an
+// actual time.Duration here.
 func scheduleInterval(s string) (time.Duration, bool) {
-	f := strings.Fields(s)
-	if len(f) != 2 || f[0] != "every" {
+	form, ok := dsl.ParseSchedule(s)
+	if !ok || form.Kind != dsl.ScheduleEvery {
 		return 0, false
 	}
-	d, err := parseDuration(f[1])
+	d, err := parseDuration(form.Interval)
 	if err != nil || d <= 0 {
 		return 0, false
 	}
 	return d, true
+}
+
+// scheduleBucket decides, for one Tick, whether a schedule rule fires and
+// under what idempotency bucket — honoring the actual wall-clock time of day
+// for "daily at HH:MM" (TECHDEBT "Ядро: automation / schedule" P1) instead of
+// firing on the first Tick of the day regardless of the clock. now is the
+// engine clock (already e.now().UTC()); day is now formatted "2006-01-02".
+//
+//   - "every <dur>": always fires; bucket changes once per interval window.
+//   - "daily" (no time) or an unparseable schedule (a journal/model compiled
+//     by a binary older than E059_BAD_SCHEDULE_FORM validation): fires on the
+//     first Tick of the day — the exact v0 behavior, preserved as the
+//     defensive fallback.
+//   - "daily at HH:MM": fires only once the clock's time-of-day is at or
+//     after HH:MM; before that, the whole rule is skipped for this Tick (the
+//     next Tick within the same day re-checks, so it still fires the same
+//     day once the threshold passes — it does not wait for tomorrow).
+//
+// Either way the bucket is "day" for wall-clock forms, so once fired, the
+// per-bucket idempotency key (see fireActions' idemPrefix) keeps every later
+// Tick that same day from re-firing.
+//
+// dedupOpen tells the caller whether it should ALSO skip firing while the
+// previous firing's task is still open (hasOpenRuleTask) — true only for
+// "every <dur>", the form TECHDEBT's P1 #2 names as the actual growth
+// problem (a 2m/5m interval piles up fast if nothing drains it). A "daily"
+// rule is already bounded to at most one firing per day by its bucket, so it
+// deliberately does NOT get this extra gate: a daily rule must still fire
+// tomorrow even if yesterday's task is still sitting open — gating it too
+// would mean one slow/forgotten daily task silently cancels every future day
+// forever, trading a slow-growth problem for a worse silent-stop one.
+func scheduleBucket(schedule string, now time.Time, day string) (bucket string, fire, dedupOpen bool) {
+	form, ok := dsl.ParseSchedule(schedule)
+	if !ok {
+		return day, true, false
+	}
+	switch form.Kind {
+	case dsl.ScheduleEvery:
+		d, err := parseDuration(form.Interval)
+		if err != nil || d <= 0 {
+			return day, true, false // matches the pre-fix fallback for an internally inconsistent form
+		}
+		return "iv" + strconv.FormatInt(now.Unix()/int64(d/time.Second), 10), true, true
+	case dsl.ScheduleDaily:
+		nowMinutes := now.Hour()*60 + now.Minute()
+		wantMinutes := form.Hour*60 + form.Min
+		return day, nowMinutes >= wantMinutes, false
+	default:
+		return day, true, false
+	}
+}
+
+// hasOpenRuleTask reports whether an automation rule already has a task in
+// flight (open or taken) for this ruleKey (+ entity/record when the rule is
+// record-bound) — the dedup that keeps `on schedule every Nm` from piling up
+// a fresh task every bucket forever while the previous firing's task is
+// still being worked (TECHDEBT "Ядро: automation / schedule" P1). ruleKey is
+// the "file:line" identity fireActions stamps on every task it creates via
+// ruleBasis (Basis.Type=="rule"); entity/id=="" matches a rule-scoped
+// (non-record) firing. A rule whose actions never create a Task (only
+// create/update/emit) never has anything to find here, so this is a no-op
+// for it — unaffected by this dedup, exactly as before.
+func (e *Engine) hasOpenRuleTask(ruleKey, entity, id string) bool {
+	for _, t := range e.tasks {
+		if t.ruleKey == ruleKey && t.Entity == entity && t.RecordID == id &&
+			(t.Status == TaskOpen || t.Status == TaskTaken) {
+			return true
+		}
+	}
+	return false
+}
+
+// noteScheduleTaskFinished records a just-finished (completed/failed) task
+// against its schedule-rule lineage and prunes the oldest entries past
+// e.scheduleTaskRetention from the in-memory projection (TECHDEBT "Ядро:
+// automation / schedule" P1) — the journal is untouched (append-only); this
+// only bounds e.tasks. Called from both the live path (finishTask) and
+// replay (applyEvent's TaskCompleted/TaskFailed), so the eviction is a pure
+// function of fold ORDER — the sequence of finish-events as the journal
+// presents them — never of wall-clock time: replaying the same journal
+// prunes the exact same task IDs in the exact same order (I-5 determinism: offline replay).
+// A no-op for any task whose ruleKey doesn't resolve to a live `schedule`
+// rule (workflow-assignee tasks, escalations, or a rule the model no longer
+// has) — retention is scoped to the schedule-growth problem, not a general
+// task GC.
+func (e *Engine) noteScheduleTaskFinished(t *Task) {
+	if t.ruleKey == "" || e.scheduleTaskRetention <= 0 {
+		return
+	}
+	rule := e.findAutomationRule(t.ruleKey)
+	if rule == nil || rule.Trigger != "schedule" {
+		return
+	}
+	lineage := t.ruleKey + "|" + t.Entity + "|" + t.RecordID
+	hist := append(e.scheduleTaskHistory[lineage], t.ID)
+	if over := len(hist) - e.scheduleTaskRetention; over > 0 {
+		for _, id := range hist[:over] {
+			delete(e.tasks, id)
+		}
+		hist = hist[over:]
+	}
+	e.scheduleTaskHistory[lineage] = hist
 }
 
 // ParseDuration is the exported form of parseDuration (10d / 48h / 30m) for

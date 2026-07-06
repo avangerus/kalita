@@ -50,6 +50,19 @@ type Task struct {
 	LeaseUntil time.Time  `json:"lease_until,omitempty"`
 	Note       string     `json:"note,omitempty"`    // last progress note from the agent
 	NoteAt     *time.Time `json:"note_at,omitempty"` // timestamp of that note
+	// ruleKey is the "file:line" identity of the automation rule that created
+	// this task (from the event's Basis, Type=="rule" — see fireActions'
+	// ruleBasis), empty for tasks with no rule provenance (e.g. a workflow
+	// assignee task, whose Basis.ID is "workflow-assignee" instead — also
+	// carried here, just never matched by an automation rule lookup). Folded
+	// straight from ev.Basis on both the live path (createTask) and replay
+	// (applyEvent's TaskCreated), so it is a pure, deterministic function of
+	// the journal (TECHDEBT "Ядро: automation / schedule" P1 — schedule task
+	// dedup/retention). Deliberately unexported: it is an engine-internal
+	// bookkeeping detail, not part of the Task API — exporting it would leak
+	// into every JSON dump of a task (API responses, the golden fixtures)
+	// for a mechanism nothing outside this package needs to see.
+	ruleKey string
 }
 
 type taskPayload struct {
@@ -91,6 +104,9 @@ func (e *Engine) createTask(ctx context.Context, actor eventstore.Actor, t Task,
 	t.ID = ev.Subject.TaskID
 	if _, exists := e.tasks[t.ID]; !exists {
 		t.Status = TaskOpen
+		if basis != nil && basis.Type == "rule" {
+			t.ruleKey = basis.ID
+		}
 		cp := t
 		e.tasks[t.ID] = &cp
 		e.wakeTaskWaiters()
@@ -260,6 +276,7 @@ func (e *Engine) finishTask(ctx context.Context, actor eventstore.Actor, taskID 
 		return err
 	}
 	t.Status = status
+	e.noteScheduleTaskFinished(t)
 	return nil
 }
 

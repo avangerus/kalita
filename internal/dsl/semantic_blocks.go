@@ -73,6 +73,9 @@ func analyzeBlocks(ast *AST, m *Model, errs *Errors) {
 	}
 
 	for _, rule := range ast.Automations {
+		if rule.Trigger == "schedule" {
+			checkScheduleForm(errs, rule)
+		}
 		if rule.Trigger == "event" {
 			checkEventTrigger(m, errs, rule)
 		} else if rule.Entity != "" {
@@ -236,11 +239,44 @@ func analyzeBlocks(ast *AST, m *Model, errs *Errors) {
 							fmt.Sprintf("permissions of %s reference unknown kind %s", role, name),
 							hint)
 					}
+				case "flag":
+					for _, name := range item.Names {
+						if flaggableSet[name] {
+							continue
+						}
+						hint := "flag targets are the closed, narrower set of core-reserved kinds a dedicated MCP tool can Append, e.g. ingest.flagged"
+						if near := nearest(name, flaggableKindNames); near != "" {
+							hint = "did you mean " + near + "? " + hint
+						}
+						errs.add(EUnknownFlagKind, "", item.Line,
+							fmt.Sprintf("permissions of %s reference unknown flag target %s", role, name),
+							hint)
+					}
 				}
 			}
 		}
 	}
 }
+
+// flaggableKinds is the closed list of core-reserved eventstore.Kind values a
+// `flag [kind]` grant may name (TECHDEBT "Безопасность LLM-периметра" (b)):
+// unlike `tail`, which reads any kind in the full eventstore taxonomy, `flag`
+// grants the much stronger power to WRITE a core-reserved kind directly,
+// through its own dedicated engine method (engine.FlagIngest) rather than the
+// ordinary create/update/act mutation surface — so its target list is its own
+// closed set, deliberately not the whole taxonomy, and grows only when a new
+// core MCP tool is built to Append another reserved kind.
+var flaggableKinds = []string{string(eventstore.IngestFlagged)}
+
+var flaggableSet = func() map[string]bool {
+	m := make(map[string]bool, len(flaggableKinds))
+	for _, k := range flaggableKinds {
+		m[k] = true
+	}
+	return m
+}()
+
+var flaggableKindNames = append([]string(nil), flaggableKinds...)
 
 // scopedActions is the set of transition action names a role may name in
 // act/approve/deny lists: the transitions of every entity the role has any
@@ -365,6 +401,22 @@ func literalTypeMismatch(f *FieldDecl, expr string) string {
 		}
 	}
 	return ""
+}
+
+// checkScheduleForm validates an `on schedule ...` trigger's raw text against
+// the one closed form the runtime understands (engine.Tick, via the shared
+// ParseSchedule): `every <dur>` (10d/48h/30m) or `daily [at HH:MM]`. Any
+// other form — a bad duration unit, an out-of-range or malformed clock,
+// free-form cron text — used to compile silently and just fall back to
+// "fires once a day, time of day ignored" at runtime (TECHDEBT "Ядро:
+// automation / schedule" P1; I-3: "error is a signal, never silence"). It is
+// a compile error instead.
+func checkScheduleForm(errs *Errors, rule *AutomationRule) {
+	if _, ok := ParseSchedule(rule.Schedule); !ok {
+		errs.add(EBadSchedule, rule.File, rule.Line,
+			fmt.Sprintf("on schedule: unsupported schedule form %q", rule.Schedule),
+			"schedule triggers support only `every <dur>` (e.g. `every 5m`) or `daily [at HH:MM]` (e.g. `daily at 09:00`)")
+	}
 }
 
 // checkEventTrigger validates an `on event [pack.]Name` subscription (LLD-01

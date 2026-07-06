@@ -62,6 +62,13 @@ type Engine struct {
 	// so this never drives a record mutation and is not re-dispatched on replay.
 	emittedEvents []EmittedFact
 
+	// ingestFlags is the folded log of ingest.flagged facts (TECHDEBT
+	// "Безопасность LLM-периметра" (b), LLD-01 §6 PR-6): the perimeter
+	// detector's tripwire signal against ingested content. Observability
+	// only, exactly like emittedEvents — it never drives a record mutation on
+	// its own; the document is indexed regardless (tripwire, not a filter).
+	ingestFlags []IngestFlagged
+
 	// shadowRoles is the LLD-09 §1 shadow-mode overlay: the set of roles whose
 	// create/update/act/emit is redirected into a MutationProposal instead of
 	// applied directly. Folded from role.shadow_enabled/role.shadow_disabled.
@@ -70,6 +77,24 @@ type Engine struct {
 	// from mutation.proposed/approved/rejected — the record-mutation twin of
 	// e.proposals (which is definition-change proposals only).
 	mutationProposals map[string]*MutationProposal
+
+	// scheduleTaskHistory bounds the in-memory growth of tasks created by
+	// `on schedule` rules (TECHDEBT "Ядро: automation / schedule" P1: a
+	// recurring rule used to pile up one task per bucket forever). Keyed
+	// "ruleKey|entity|recordID" (the same lineage hasOpenRuleTask dedups on),
+	// it holds the finished (completed/failed) task IDs for that lineage in
+	// the order they finished. noteScheduleTaskFinished (automation.go)
+	// appends to it and evicts the oldest entries past
+	// scheduleTaskRetention — a function of fold ORDER (the sequence
+	// replay/live processing sees events in), never of wall-clock time, so
+	// replay reproduces the exact same projection (I-6 determinism).
+	scheduleTaskHistory map[string][]string
+	// scheduleTaskRetention is how many finished tasks per schedule-rule
+	// lineage stay in the in-memory projection; older ones are pruned (the
+	// journal itself is untouched — this is projection GC, not history loss).
+	// 0 disables pruning. Default set in New(); override with
+	// WithScheduleTaskRetention.
+	scheduleTaskRetention int
 }
 
 // Option configures the engine.
@@ -107,6 +132,15 @@ func WithRequireSignatures() Option { return func(e *Engine) { e.requireSig = tr
 // run either, both, or neither.
 func WithRequireHumanSignature() Option { return func(e *Engine) { e.requireHumanSig = true } }
 
+// WithScheduleTaskRetention overrides how many finished tasks per
+// schedule-rule lineage (ruleKey + entity + record) the in-memory projection
+// keeps before pruning the oldest (TECHDEBT "Ядро: automation / schedule"
+// P1). 0 disables pruning entirely — every finished schedule task stays in
+// memory forever, the pre-fix behavior. Default (set in New) is 20.
+func WithScheduleTaskRetention(n int) Option {
+	return func(e *Engine) { e.scheduleTaskRetention = n }
+}
+
 // Record is the projected current state of one row.
 type Record struct {
 	ID     string         `json:"id"`
@@ -143,24 +177,26 @@ type updatedPayload struct {
 // New builds an engine over a model and journal, replaying existing events.
 func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...Option) (*Engine, error) {
 	e := &Engine{
-		model:             model,
-		store:             store,
-		defVersion:        1,
-		records:           map[string]map[string]*Record{},
-		approvals:         map[string]*Approval{},
-		tasks:             map[string]*Task{},
-		proposals:         map[string]*Proposal{},
-		stateSince:        map[string]map[string]time.Time{},
-		links:             map[string]linkPayload{},
-		comments:          map[string][]*Comment{},
-		taskTTL:           time.Hour,
-		defApprover:       "Owner",
-		now:               time.Now,
-		cal:               defaultCalendar(),
-		failedActions:     map[string]*actionFailState{},
-		openOps:           map[string]opInfo{},
-		shadowRoles:       map[string]bool{},
-		mutationProposals: map[string]*MutationProposal{},
+		model:                 model,
+		store:                 store,
+		defVersion:            1,
+		records:               map[string]map[string]*Record{},
+		approvals:             map[string]*Approval{},
+		tasks:                 map[string]*Task{},
+		proposals:             map[string]*Proposal{},
+		stateSince:            map[string]map[string]time.Time{},
+		links:                 map[string]linkPayload{},
+		comments:              map[string][]*Comment{},
+		taskTTL:               time.Hour,
+		defApprover:           "Owner",
+		now:                   time.Now,
+		cal:                   defaultCalendar(),
+		failedActions:         map[string]*actionFailState{},
+		openOps:               map[string]opInfo{},
+		shadowRoles:           map[string]bool{},
+		mutationProposals:     map[string]*MutationProposal{},
+		scheduleTaskHistory:   map[string][]string{},
+		scheduleTaskRetention: 20,
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -267,10 +303,14 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return
 		}
-		e.tasks[ev.Subject.TaskID] = &Task{
+		t := &Task{
 			ID: ev.Subject.TaskID, Kind: p.Kind, Role: p.Role, Entity: p.Entity,
 			RecordID: p.RecordID, Action: p.Action, Args: p.Args, Status: TaskOpen,
 		}
+		if ev.Basis != nil && ev.Basis.Type == "rule" {
+			t.ruleKey = ev.Basis.ID
+		}
+		e.tasks[ev.Subject.TaskID] = t
 	case eventstore.TaskTaken:
 		var p taskPayload
 		_ = json.Unmarshal(ev.Payload, &p)
@@ -283,10 +323,12 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 	case eventstore.TaskCompleted:
 		if t, ok := e.tasks[ev.Subject.TaskID]; ok {
 			t.Status = TaskCompleted
+			e.noteScheduleTaskFinished(t)
 		}
 	case eventstore.TaskFailed:
 		if t, ok := e.tasks[ev.Subject.TaskID]; ok {
 			t.Status = TaskFailed
+			e.noteScheduleTaskFinished(t)
 		}
 	case eventstore.TaskExpired:
 		if t, ok := e.tasks[ev.Subject.TaskID]; ok {
@@ -364,7 +406,12 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		// re-dispatch — it only records that the emit happened.
 		e.applyEventEmitted(ev)
 	case eventstore.IngestFlagged:
-		// PR-6 (LLD-01 §6): perimeter detector marks the source record.
+		// PR-6 (LLD-01 §6): perimeter detector tripwire. Folds into the
+		// audit-only ingestFlags projection (see applyIngestFlagged in
+		// ingest_flag.go) — the flagged record itself is untouched (the
+		// event lives in ITS journal via Subject, which is the visible
+		// signal: read_journal on the record surfaces it directly).
+		e.applyIngestFlagged(ev)
 
 	// --- LLD-09 §1: shadow mode ---------------------------------------------
 	case eventstore.RoleShadowEnabled:

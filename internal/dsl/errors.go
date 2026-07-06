@@ -93,6 +93,24 @@ const (
 	// covers a malformed block/trigger/sink, a name declared twice, and (once
 	// PR-3 lands the egress whitelist) an undeclared external sink domain.
 	EBadSubscription Code = "E057_BAD_SUBSCRIPTION"
+
+	// TECHDEBT "Безопасность LLM-периметра" (b): the `flag` permission verb —
+	// the mirror-image WRITE counterpart of `tail`'s read. Its target list is
+	// its own closed, deliberately narrower set (flaggableKinds in
+	// semantic_blocks.go), not the whole eventstore taxonomy `tail` accepts,
+	// because a `flag [kind]` grant is the power to Append a core-reserved
+	// kind directly, bypassing the normal create/update/act mutation surface.
+	EUnknownFlagKind Code = "E058_UNKNOWN_FLAG_KIND" // flag [kind] grant names a kind outside the closed flaggable set
+
+	// TECHDEBT "Ядро: automation / schedule" (P1): `on schedule ...` trigger
+	// text used to be carried as free-form, unvalidated text — the runtime
+	// (engine.Tick) understood only `every <dur>` and silently treated
+	// anything else (including a typo'd `daily at 9:0` or outright garbage)
+	// as "fires once a day", exactly the silent-degradation shape E052 closed
+	// for aggregates (I-3: "error is a signal, never silence"). Now caught at
+	// compile time by the same one-parser-two-layers discipline:
+	// dsl.ParseSchedule / engine.Tick share the parser (see schedule.go).
+	EBadSchedule Code = "E059_BAD_SCHEDULE_FORM" // schedule trigger is not `every <dur>` or `daily [at HH:MM]`
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)

@@ -58,6 +58,9 @@ func TestBrokenSources(t *testing.T) {
 			EBadAggregateWhere},
 		{"aggregate where reversed ($self on the left)", "entity B:\n    x: int\n\nentity A:\n    c: int computed = count(B where $self = x)", EBadAggregateWhere},
 		{"aggregate where missing", "entity B:\n    x: int\n\nentity A:\n    c: int computed = count(B)", EBadAggregateWhere},
+		{"schedule bad duration unit", "automation:\n    on schedule every 5x:\n        escalate_to Owner", EBadSchedule},
+		{"schedule bad clock", "automation:\n    on schedule daily at 25:00:\n        escalate_to Owner", EBadSchedule},
+		{"schedule garbage cron text", "automation:\n    on schedule 0 9 * * 1-5:\n        escalate_to Owner", EBadSchedule},
 	}
 
 	for _, tc := range cases {
