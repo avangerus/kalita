@@ -780,3 +780,155 @@ func bracketContents(toks []Tok) []string {
 	}
 	return out
 }
+
+// --- subscription ---------------------------------------------------------
+//
+//	subscription CoverageSync:
+//	    on event OutOfOffice, EmployeeDeactivated
+//	    sink worker CoverageBot
+//	    # or: sink endpoint "https://..."
+//
+// LLD-21 §5 (PR-2): a durable, born-governed event subscription. Additive to
+// the grammar (I-1) — a pack without any `subscription` block compiles
+// exactly as before. This compiler only captures and validates the
+// declaration (event names exist, sink target is present and, for a worker
+// sink, names a declared role); the delivery mechanism itself is PR-1's
+// workers/lib/subscribe.py, and the egress whitelist for `sink endpoint` is
+// PR-3 — here an endpoint sink is only marked External.
+
+func (p *parser) subscription(ln *Line) {
+	p.pos++
+	t := ln.Toks
+	if len(t) != 3 || t[1].Kind != TIdent || t[2].Text != ":" {
+		p.errs.add(EBadSubscription, ln.File, ln.Num,
+			"subscription declaration must be `subscription Name:`",
+			"write e.g. `subscription CoverageSync:`")
+		p.skipChildren(ln.Indent)
+		return
+	}
+	decl := &SubscriptionDecl{Name: t[1].Text, File: ln.File, Line: ln.Num}
+	body := p.children(ln.Indent)
+	if len(body) == 0 {
+		p.errs.add(EEmptyBlock, ln.File, ln.Num, "subscription "+decl.Name+" has no body",
+			`add "on event <Name>[, <Name2>, ...]" and "sink worker <Role>" (or sink endpoint "https://...")`)
+	}
+	for i := range body {
+		b := &body[i]
+		bt := b.Toks
+		switch bt[0].Text {
+		case "on":
+			p.subscriptionOnEvent(decl, b)
+		case "sink":
+			p.subscriptionSink(decl, b)
+		default:
+			p.errs.add(EBadSubscription, b.File, b.Num,
+				"unknown subscription field "+bt[0].Text,
+				`allowed: "on event <Name, ...>", "sink worker <Role>", "sink endpoint \"https://...\""`)
+		}
+	}
+	if len(decl.Events) == 0 {
+		p.errs.add(EBadSubscription, ln.File, ln.Num,
+			"subscription "+decl.Name+" has no `on event` line",
+			"add `on event <Name>[, <Name2>, ...]`")
+	}
+	if decl.SinkKind == "" {
+		p.errs.add(EBadSubscription, ln.File, ln.Num,
+			"subscription "+decl.Name+" has no sink",
+			`add "sink worker <Role>" or sink endpoint "https://..."`)
+	}
+	p.ast.Subscriptions = append(p.ast.Subscriptions, decl)
+}
+
+func (p *parser) subscriptionOnEvent(decl *SubscriptionDecl, b *Line) {
+	bt := b.Toks
+	if len(bt) < 3 || bt[1].Text != "event" {
+		p.errs.add(EBadSubscription, b.File, b.Num,
+			"subscription trigger must be `on event Name[, Name2, ...]`",
+			"write e.g. `on event OutOfOffice, EmployeeDeactivated`")
+		return
+	}
+	if len(decl.Events) > 0 {
+		p.errs.add(EBadSubscription, b.File, b.Num,
+			"subscription "+decl.Name+" already has an `on event` line",
+			"list every event on the one `on event A, B` line")
+		return
+	}
+	names, ok := parseEventList(bt[2:])
+	if !ok || len(names) == 0 {
+		p.errs.add(EBadSubscription, b.File, b.Num,
+			"on event requires at least one event name",
+			"write e.g. `on event OutOfOffice, EmployeeDeactivated`")
+		return
+	}
+	decl.Events = names
+}
+
+func (p *parser) subscriptionSink(decl *SubscriptionDecl, b *Line) {
+	bt := b.Toks
+	if decl.SinkKind != "" {
+		p.errs.add(EBadSubscription, b.File, b.Num,
+			"subscription "+decl.Name+" already has a sink",
+			"a subscription has exactly one sink")
+		return
+	}
+	if len(bt) < 3 {
+		p.errs.add(EBadSubscription, b.File, b.Num,
+			`sink requires a target: "sink worker <Role>" or sink endpoint "https://..."`,
+			"write e.g. `sink worker CoverageBot`")
+		return
+	}
+	switch bt[1].Text {
+	case "worker":
+		if bt[2].Kind != TIdent {
+			p.errs.add(EBadSubscription, b.File, b.Num,
+				"sink worker requires a role name",
+				"write e.g. `sink worker CoverageBot`")
+			return
+		}
+		decl.SinkKind = "worker"
+		decl.SinkWorker = bt[2].Text
+	case "endpoint":
+		if bt[2].Kind != TStr {
+			p.errs.add(EBadSubscription, b.File, b.Num,
+				`sink endpoint requires a quoted URL`,
+				`write e.g. sink endpoint "https://example.com/hook"`)
+			return
+		}
+		decl.SinkKind = "endpoint"
+		decl.SinkURL = bt[2].Text
+		decl.External = true
+	default:
+		p.errs.add(EBadSubscription, b.File, b.Num,
+			"unknown sink kind "+bt[1].Text,
+			`sink is "worker <Role>" or endpoint "https://..."`)
+	}
+}
+
+// parseEventList parses a comma-separated `on event` name list. Each name may
+// be short (own pack) or pack-qualified (`pack.Name`), mirroring automation's
+// `on event` grammar (LLD-01 §4.1/§4.2). Returns ok=false on a malformed
+// token stream (e.g. a trailing comma or a non-identifier where a name is
+// expected).
+func parseEventList(t []Tok) ([]string, bool) {
+	var names []string
+	i := 0
+	for i < len(t) {
+		if t[i].Kind != TIdent {
+			return names, false
+		}
+		name := t[i].Text
+		i++
+		if i+1 < len(t) && t[i].Text == "." && t[i+1].Kind == TIdent {
+			name += "." + t[i+1].Text
+			i += 2
+		}
+		names = append(names, name)
+		if i < len(t) {
+			if t[i].Text != "," {
+				return names, false
+			}
+			i++
+		}
+	}
+	return names, true
+}

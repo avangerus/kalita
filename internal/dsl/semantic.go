@@ -8,20 +8,21 @@ import (
 // Semantic model: the compiler's output, consumed by the runtime engines.
 
 type Model struct {
-	Manifest     *Manifest
-	Product      *ProductDecl    // product{} manifest section (LLD-05 §3), nil if absent
-	ProductMCP   *ProductMCPDecl // product.mcp{} tool registry (LLD-06 §1), nil if absent
-	Entities     map[string]*EntityDecl
-	Order        []string // entity declaration order
-	Events       map[string]*EventDecl // by short name (own pack)
-	Roles        map[string]*RoleDecl
-	Perms        map[string]*PermBlock    // by role
-	Workflows    map[string]*WorkflowDecl // by entity (one workflow per entity in v0)
-	Automations  []*AutomationRule
-	UIs          []*UIDecl
-	Links        []*LinkDecl
-	Dashboards   []*DashboardDecl
-	Integrations map[string]*IntegrationDecl // by connector name
+	Manifest      *Manifest
+	Product       *ProductDecl    // product{} manifest section (LLD-05 §3), nil if absent
+	ProductMCP    *ProductMCPDecl // product.mcp{} tool registry (LLD-06 §1), nil if absent
+	Entities      map[string]*EntityDecl
+	Order         []string              // entity declaration order
+	Events        map[string]*EventDecl // by short name (own pack)
+	Roles         map[string]*RoleDecl
+	Perms         map[string]*PermBlock    // by role
+	Workflows     map[string]*WorkflowDecl // by entity (one workflow per entity in v0)
+	Automations   []*AutomationRule
+	UIs           []*UIDecl
+	Links         []*LinkDecl
+	Dashboards    []*DashboardDecl
+	Integrations  map[string]*IntegrationDecl // by connector name
+	Subscriptions []*SubscriptionDecl         // subscription{} blocks (LLD-21 §5), empty if the pack declares none
 }
 
 // PackName is this model's pack namespace (Manifest.Name), used to resolve
@@ -259,6 +260,7 @@ func analyze(ast *AST, errs *Errors) *Model {
 	analyzeBlocks(ast, m, errs)
 	analyzeLinks(ast, m, errs)
 	analyzeIntegrations(ast, m, errs)
+	analyzeSubscriptions(ast, m, errs)
 	return m
 }
 

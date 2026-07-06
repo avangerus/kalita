@@ -18,7 +18,7 @@
 #   которого нет в декларативном automation-блоке.
 
 entity Employee "Employee":
-    name:    string required label="Name"
+    include core.Named
     email:   email label="Email"
     status:  enum[Active, Inactive] default=Active label="Status"
     # самоссылка: руководитель — тоже Employee. on_delete=set_null — увольнение

@@ -12,9 +12,9 @@ const (
 	TyEnum
 	TyRef
 	TyArrayRef
-	TyTags       // array[string] — free labels
-	TyMultiEnum  // array[enum[...]] — components/multiselect
-	TyArrayFile  // array[file] — multiple attachments
+	TyTags      // array[string] — free labels
+	TyMultiEnum // array[enum[...]] — components/multiselect
+	TyArrayFile // array[file] — multiple attachments
 )
 
 // scalarTypes is the closed list of scalar field types. The rich ones
@@ -56,7 +56,7 @@ type EntityDecl struct {
 	Label       string // human label (i18n), "" = use the entity name
 	File        string
 	Line        int
-	Singleton   bool // at most one record (settings-style entities)
+	Singleton   bool          // at most one record (settings-style entities)
 	Includes    []IncludeDecl // `include core.<Mixin>` lines (LLD-22 §1), before any own field
 	Fields      []*FieldDecl
 	Constraints []ConstraintDecl
@@ -121,8 +121,8 @@ type TransitionDecl struct {
 	// assignee=agent(Role) → AssigneeAgent=true; assignee=Role → human role
 	AssigneeAgent bool
 	AssigneeRole  string
-	ApprovalRole  string // requires approval(Role)
-	Label         string // human button label (i18n), "" = humanized action name
+	ApprovalRole  string       // requires approval(Role)
+	Label         string       // human button label (i18n), "" = humanized action name
 	Emits         []EmitClause // `emits Event(...)` tail(s) (LLD-01 §4)
 	Line          int
 }
@@ -315,18 +315,43 @@ type ProductMCPDecl struct {
 	Line  int
 }
 
+// SubscriptionDecl is a `subscription Name:` top-level block (LLD-21 §5): a
+// durable, born-governed declaration that a worker or external endpoint
+// reacts to node events. The event-subscription DURABILITY mechanism itself
+// (at-least-once delivery, idempotent effect, courier/retry/dead-letter) is
+// PR-1's workers/lib/subscribe.py — this block is pure governance surface:
+// who reacts to what, visible at compile time, not buried in worker config.
+//
+//	subscription CoverageSync:
+//	    on event OutOfOffice, EmployeeDeactivated
+//	    sink worker CoverageBot            # internal — governed by the role's ABAC (I-2)
+//	    # sink endpoint "https://..."      # external — EGRESS, whitelist gate is PR-3
+type SubscriptionDecl struct {
+	Name   string
+	Events []string // event names as written: short (own pack) or "pack.Name" (LLD-01 §4.2 form)
+
+	SinkKind   string // "worker" | "endpoint" | "" if malformed/absent
+	SinkWorker string // sink worker <Role>, "" unless SinkKind == "worker"
+	SinkURL    string // sink endpoint "<url>", "" unless SinkKind == "endpoint"
+	External   bool   // true iff SinkKind == "endpoint" — marks this an egress (SECURITY rule 3, whitelist enforcement is PR-3)
+
+	File string
+	Line int
+}
+
 type AST struct {
-	Manifest     *Manifest
-	Product      *ProductDecl
-	ProductMCP   *ProductMCPDecl
-	Entities     []*EntityDecl
-	Events       []*EventDecl
-	Roles        []*RoleDecl
-	Permissions  []*PermBlock
-	Workflows    []*WorkflowDecl
-	Automations  []*AutomationRule
-	UIs          []*UIDecl
-	Links        []*LinkDecl
-	Dashboards   []*DashboardDecl
-	Integrations []*IntegrationDecl
+	Manifest      *Manifest
+	Product       *ProductDecl
+	ProductMCP    *ProductMCPDecl
+	Entities      []*EntityDecl
+	Events        []*EventDecl
+	Roles         []*RoleDecl
+	Permissions   []*PermBlock
+	Workflows     []*WorkflowDecl
+	Automations   []*AutomationRule
+	UIs           []*UIDecl
+	Links         []*LinkDecl
+	Dashboards    []*DashboardDecl
+	Integrations  []*IntegrationDecl
+	Subscriptions []*SubscriptionDecl
 }

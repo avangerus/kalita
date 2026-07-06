@@ -71,10 +71,12 @@ func (p *parser) run() {
 			p.dashboard(ln)
 		case "integration":
 			p.integration(ln)
+		case "subscription":
+			p.subscription(ln)
 		default:
 			p.errs.add(EUnknownBlock, ln.File, ln.Num,
 				"unknown top-level block "+head,
-				"allowed: pack, version, requires, depends, product, entity, event, constraints, workflow, link, roles, permissions, automation, ui, dashboard, integration")
+				"allowed: pack, version, requires, depends, product, entity, event, constraints, workflow, link, roles, permissions, automation, ui, dashboard, integration, subscription")
 			p.pos++
 			p.skipChildren(0)
 		}
@@ -831,4 +833,3 @@ func (p *parser) integrationParams(toks []Tok, ln *Line) ([]IntegrationParam, bo
 	}
 	return out, true
 }
-

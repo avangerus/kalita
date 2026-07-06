@@ -11,7 +11,7 @@ import (
 // Semantic analysis of workflow / automation / ui blocks (week 4 gate).
 
 func analyzeBlocks(ast *AST, m *Model, errs *Errors) {
-	actions := map[string]bool{}          // global action names (did-you-mean fallback)
+	actions := map[string]bool{}           // global action names (did-you-mean fallback)
 	entityActions := map[string][]string{} // entity → its transition action names (LLD-01 §4c)
 
 	for _, wf := range ast.Workflows {
@@ -533,6 +533,52 @@ func min3(a, b, c int) int {
 		a = c
 	}
 	return a
+}
+
+// analyzeSubscriptions validates every `subscription` block (LLD-21 §5,
+// additive — I-1): each `on event` name must resolve exactly like an
+// automation's `on event` (own-pack event exists, or the emitting pack of a
+// qualified reference is part of this build — LLD-01 §4.1/§4.2); a `sink
+// worker <Role>` must name a role declared with the `agent` marker (the real
+// barrier is the worker's own least-privilege ABAC role, I-2); a `sink
+// endpoint "..."` is external egress — only marked External here, the
+// whitelist gate itself is PR-3 (SECURITY rule 3). A duplicate subscription
+// name is rejected, not silently merged.
+func analyzeSubscriptions(ast *AST, m *Model, errs *Errors) {
+	seen := map[string]int{}
+	for _, sub := range ast.Subscriptions {
+		if prev, dup := seen[sub.Name]; dup {
+			errs.add(EBadSubscription, sub.File, sub.Line,
+				fmt.Sprintf("subscription %s already declared at line %d", sub.Name, prev),
+				"merge the declarations or rename one subscription")
+			continue
+		}
+		seen[sub.Name] = sub.Line
+
+		for _, ref := range sub.Events {
+			decl, _, own := m.EventByRef(ref)
+			if !own {
+				errs.add(EEventPackAbsent, sub.File, sub.Line,
+					"subscription "+sub.Name+": pack "+packOf(ref)+" is not part of this build",
+					"install/compose the emitting pack, or subscribe to an event declared here")
+				continue
+			}
+			if decl == nil {
+				errs.add(EUnknownEvent, sub.File, sub.Line,
+					"subscription "+sub.Name+": on event references unknown event "+ref,
+					"declare `event "+shortName(ref)+":` or fix the name")
+			}
+		}
+
+		if sub.SinkKind == "worker" {
+			checkRole(m, errs, sub.File, sub.Line, sub.SinkWorker, true)
+		}
+		// sub.SinkKind == "endpoint": External is already set by the parser;
+		// the egress whitelist check is PR-3. sub.SinkKind == "": the parser
+		// already raised EBadSubscription for the missing sink.
+
+		m.Subscriptions = append(m.Subscriptions, sub)
+	}
 }
 
 func checkRole(m *Model, errs *Errors, file string, line int, role string, mustBeAgent bool) {
