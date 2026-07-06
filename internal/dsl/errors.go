@@ -122,6 +122,29 @@ const (
 	// there would brick the node on every future boot, not just crash one
 	// request. See compile.go.
 	EInternalPanic Code = "E060_INTERNAL_COMPILER_ERROR"
+
+	// Governance-security hole, same defect class as knowvault BUG-11 (a rule
+	// that silently means the opposite of what it reads): children() collects
+	// subsequent physical lines by indentation and hands each one to a
+	// per-line parser as an independent statement. A bracketed list (e.g. a
+	// permission `deny [...]`) whose `[` opens on one physical line and whose
+	// matching `]` lands on the next (wrapped) line was silently split into
+	// two rules — the continuation re-parses as a fresh grant, which can flip
+	// a deny into a GRANT of the very verbs it meant to forbid, while `kalita
+	// check` stayed green (each fragment was locally valid). Now rejected at
+	// parse time before either fragment reaches the AST.
+	EUnclosedList Code = "E061_UNCLOSED_LIST" // a [...] list is not closed on its own physical line
+
+	// TECHDEBT "P2 multi-line скобки в permissions" residual (closed
+	// 2026-07-06): E061 above closed the hazard for `[...]` lists but left the
+	// SAME silent-split hazard open for `(...)` — a wrapped `create
+	// Entity(...)`, `assignee=agent(...)`, `requires approval(...)`, `emits
+	// Event(...)`, `notify email(...)` etc. whose closing `)` lands on the
+	// next physical line. children() rejects any line with a net `(`/`)`
+	// imbalance the same way it already rejects a net `[`/`]` imbalance; a
+	// sibling code (not E061) because "list" would misdescribe a call/
+	// approval/assignment construct.
+	EUnclosedCall Code = "E062_UNCLOSED_CALL" // a (...) construct is not closed on its own physical line
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)

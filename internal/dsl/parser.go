@@ -92,15 +92,71 @@ func isProductMCPHeader(t []Tok) bool {
 }
 
 // children returns subsequent lines with indent greater than parentIndent,
-// advancing the cursor past them.
+// advancing the cursor past them. Every returned line is parsed independently
+// as one statement by the caller, so each must be self-contained: a
+// bracketed list ([...]) or a parenthesized construct ((...)) whose closing
+// ]/) lands on the NEXT physical line would otherwise split silently into two
+// statements, the second of which can coincidentally re-parse as a valid —
+// and wrong — rule (e.g. a wrapped `deny [...]` handing out the very verbs it
+// meant to forbid, or a wrapped `create Entity(...)` whose continuation
+// re-parses as its own action) while `kalita check` stays green (see
+// E061_UNCLOSED_LIST / E062_UNCLOSED_CALL). children() rejects any line with
+// a net [ / ] or ( / ) imbalance instead of handing the fragment to the
+// caller.
 func (p *parser) children(parentIndent int) []Line {
 	var out []Line
 	for p.cur() != nil && p.cur().Indent > parentIndent {
-		out = append(out, *p.cur())
+		ln := *p.cur()
 		p.pos++
+		if bracketDepth(ln.Toks) != 0 {
+			p.errs.add(EUnclosedList, ln.File, ln.Num,
+				"bracketed list [...] is not closed on this physical line",
+				"keep the entire [...] list on one physical line; do not wrap it across lines")
+			continue
+		}
+		if parenDepth(ln.Toks) != 0 {
+			p.errs.add(EUnclosedCall, ln.File, ln.Num,
+				"a (...) construct is not closed on this physical line",
+				"keep the entire (...) construct (e.g. create Entity(...), assignee=agent(...), requires approval(...)) on one physical line; do not wrap it across lines")
+			continue
+		}
+		out = append(out, ln)
 	}
 	return out
 }
+
+// netBalance returns the net open/close balance of a token stream for one
+// bracket pair. bracketDepth and parenDepth are thin named views over it (one
+// generalized mechanism, two call sites) so each keeps its own name and can
+// carry its own error code at the call site in children().
+func netBalance(toks []Tok, open, close string) int {
+	depth := 0
+	for _, t := range toks {
+		switch t.Text {
+		case open:
+			depth++
+		case close:
+			depth--
+		}
+	}
+	return depth
+}
+
+// bracketDepth returns the net [ / ] balance of a line's tokens. Every valid
+// single-physical-line grammar construct in this DSL opens and closes its own
+// brackets (enum[...], ref[...], array[...], deny [...], tail [...], call
+// [...], list [...], ...), so a well-formed line always nets to zero.
+func bracketDepth(toks []Tok) int { return netBalance(toks, "[", "]") }
+
+// parenDepth returns the net ( / ) balance of a line's tokens — the same
+// generalization as bracketDepth, for the OTHER bracket shape the DSL uses to
+// wrap a construct on one physical line (create Entity(...), assignee=
+// agent(...), requires approval(...), emits Event(...)/emit Event(...),
+// integration `read fn(...)` signatures, product.mcp `tool ...(...)`
+// composition steps, ...). A well-formed line always nets to zero here too;
+// verified empty across every packs/testdata/tests/examples .dsl fixture in
+// this repo before this check was added (docs/TECHDEBT.md).
+func parenDepth(toks []Tok) int { return netBalance(toks, "(", ")") }
 
 func (p *parser) skipChildren(parentIndent int) { p.children(parentIndent) }
 
