@@ -440,7 +440,13 @@ func serve(args []string) {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.New(eng, reg))
-	mux.Handle("/api/", api.New(eng, reg, apiOpts...))
+	apiSrv := api.New(eng, reg, apiOpts...)
+	mux.Handle("/api/", apiSrv)
+	// liveness/readiness live on the API server's mux but must be reachable at
+	// the bare top-level paths orchestrators probe (GET /healthz, GET /readyz) —
+	// without this they fell through to the UI catch-all and probes got HTML.
+	mux.Handle("/healthz", apiSrv)
+	mux.Handle("/readyz", apiSrv)
 	// UI source, by ADR-004: --ui-dir (disk, no rebuild) > embedded (build tag) > API-only
 	var ui http.Handler
 	switch {
