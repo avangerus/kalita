@@ -65,6 +65,8 @@ func main() {
 		egressReportCmd(os.Args[2:])
 	case "shadow":
 		shadowCmd(os.Args[2:])
+	case "mcp":
+		mcpCmd(os.Args[2:])
 	default:
 		usage()
 	}
@@ -218,6 +220,7 @@ func usage() {
 	fmt.Println("  kalita report --since 7d [--role R] [--format md|html] [--pack <dir>]   \"week in numbers\": a pure fold over the journal, zero writes (LLD-09 §2)")
 	fmt.Println("  kalita egress-report --since 7d [--format md|html]                      what left the perimeter: declared whitelist vs egress.called facts (LLD-09 §3)")
 	fmt.Println("  kalita shadow enable|disable --role R --pack <dir>                      toggle shadow mode for a role (LLD-09 §1) — restart the node to pick up the change (v0)")
+	fmt.Println("  kalita mcp contract > docs/MCP-CONTRACT-v1.md                           print the MCP tool contract, generated from internal/mcp/tools.go (RELEASE-1.0 N8)")
 	fmt.Println("  kalita version")
 }
 

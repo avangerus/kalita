@@ -42,6 +42,7 @@
 | [EVENT-STORE-v0.md](EVENT-STORE-v0.md) | Append-only, hash-chain, детерминированный replay, чекпойнты |
 | [SECURITY.md](SECURITY.md) | Threat model T1–T6, что держим/не держим, P0–P2 |
 | [MCP-CONTRACT-v0.md](MCP-CONTRACT-v0.md) | MCP: no anonymous agents, всё через права, всё в журнал |
+| [MCP-CONTRACT-v1.md](MCP-CONTRACT-v1.md) | Сгенерирован `kalita mcp contract` из `internal/mcp/tools.go` (LLD-11 §3) — счётчик/имена тулов гейтятся `TestMcpContractMatchesCode`, не пишутся руками |
 
 ## LLD (детали механики — реализация Sonnet по спеке, ревью Fable на крипте/правах)
 

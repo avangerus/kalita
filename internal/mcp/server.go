@@ -17,6 +17,7 @@ import (
 	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
 	"github.com/avangerus/kalita/internal/identity"
+	"github.com/avangerus/kalita/internal/transport"
 )
 
 const protocolVersion = "2025-06-18"
@@ -169,11 +170,7 @@ func (s *Server) authenticate(r *http.Request) (eventstore.Actor, map[string]any
 			"code": "AUTH_REQUIRED", "message": "token does not resolve to an active actor",
 			"fix_hint": "the token may be revoked; ask the node admin to re-issue it"}
 	}
-	a := eventstore.Actor{Type: info.Type, ID: info.ID, Role: info.Role}
-	if info.Meta != nil {
-		a.Attrs = info.Meta.Attrs
-	}
-	return a, nil
+	return transport.ActorFromInfo(info), nil
 }
 
 func (s *Server) allowRate(actorID string) bool {

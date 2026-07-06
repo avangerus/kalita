@@ -9,6 +9,7 @@ import (
 	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
 	"github.com/avangerus/kalita/internal/identity"
+	"github.com/avangerus/kalita/internal/transport"
 )
 
 // Handlers backing the generated UI (week 7): per-actor meta, workflow
@@ -29,19 +30,13 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, withCaps)
 }
 
-type actRequest struct {
-	Action         string            `json:"action"`
-	Basis          *eventstore.Basis `json:"basis"`
-	IdempotencyKey string            `json:"idempotency_key,omitempty"`
-}
-
 func (s *Server) act(w http.ResponseWriter, r *http.Request) {
 	actor, ok := s.actor(r)
 	if !ok {
 		writeAuthRequired(w)
 		return
 	}
-	var req actRequest
+	var req transport.ActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR", "message": "bad json"})
 		return

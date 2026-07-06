@@ -17,10 +17,14 @@
 > путь DoD 1–7 зелёный (WebAuthn enforced, GuardStart вшит в serve, каскады
 > журналируются, lockdown/секреты/shadow/report/egress работают, golden цел).
 > Honeypot Decide-пути покрыт (TestDogfoodContractsPoisonedTermsCannotSelfApprove),
-> runbook — docs/OPERATIONS.md. **В 1.1:** WASM (N5), goreleaser signed
+> runbook — docs/OPERATIONS.md. **Достроено после rc1 (укрепление релиза,
+> 2026-07-06):** KnowVault 1.0 (search_perimeter, продуктовый UI), класс-гейт
+> «белый экран» (import-map/Dockerfile), N8 §7.7 panic-safety компилятора
+> (защита от отравления журнала), **N8 transport-parity** (общий
+> internal/transport, parity-тест байт-идентичности REST↔MCP, `kalita mcp
+> contract` из кода — 31 тул). **В 1.1:** WASM (N5), goreleaser signed
 > releases, N4-глубина периметра (трипвайр+ABAC-бэкстоп уже доказаны),
-> PACK-AUTHOR/WORKER-гайды, CONTRIBUTING, transport-parity тест (N8),
-> tiered storage по порогу ADR-002.
+> PACK-AUTHOR/WORKER-гайды, CONTRIBUTING, tiered storage по порогу ADR-002.
 
 ## 0. Определение релиза (не пересматриваем)
 

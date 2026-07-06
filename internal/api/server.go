@@ -14,6 +14,7 @@ import (
 	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
 	"github.com/avangerus/kalita/internal/identity"
+	"github.com/avangerus/kalita/internal/transport"
 )
 
 // Server wraps the engine with HTTP. Identity: bearer tokens resolved through
@@ -232,11 +233,7 @@ func (s *Server) resolveActor(r *http.Request) (eventstore.Actor, bool) {
 			s.reg.RecordAuthFailure(r.Context(), clientIP(r))
 			return eventstore.Actor{}, false
 		}
-		a := eventstore.Actor{Type: info.Type, ID: info.ID, Role: info.Role}
-		if info.Meta != nil {
-			a.Attrs = info.Meta.Attrs
-		}
-		return a, true
+		return transport.ActorFromInfo(info), true
 	}
 	if s.devAuth {
 		a := eventstore.Actor{
@@ -255,12 +252,6 @@ func (s *Server) resolveActor(r *http.Request) (eventstore.Actor, bool) {
 }
 
 // --- payloads -------------------------------------------------------------------
-
-type mutateRequest struct {
-	Values         map[string]any    `json:"values"`
-	Basis          *eventstore.Basis `json:"basis"`
-	IdempotencyKey string            `json:"idempotency_key,omitempty"`
-}
 
 type describeEntity struct {
 	Name   string   `json:"name"`
@@ -374,7 +365,7 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		writeAuthRequired(w)
 		return
 	}
-	var req mutateRequest
+	var req transport.MutationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, &engine.Err{Code: engine.CodeValidation,
 			Message: "request body is not valid JSON", FixHint: "send {\"values\": {...}, \"basis\": {...}}"})
@@ -394,7 +385,7 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request) {
 		writeAuthRequired(w)
 		return
 	}
-	var req mutateRequest
+	var req transport.MutationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, &engine.Err{Code: engine.CodeValidation,
 			Message: "request body is not valid JSON", FixHint: "send {\"values\": {...}, \"basis\": {...}}"})

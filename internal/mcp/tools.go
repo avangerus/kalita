@@ -11,6 +11,7 @@ import (
 	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
+	"github.com/avangerus/kalita/internal/transport"
 )
 
 // Tool definitions and dispatch. Closed list (MCP-CONTRACT-v0); propose_change
@@ -168,11 +169,13 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		return rec, toolErr(err)
 
 	case "create_record":
+		// Values/Basis/IdempotencyKey are transport.MutationRequest, promoted
+		// into this struct's own JSON unmarshal by embedding — the SAME wire
+		// shape REST's create handler decodes (internal/api/server.go), so the
+		// two transports cannot drift on this field set (RELEASE-1.0 N8).
 		var a struct {
-			Entity         string            `json:"entity"`
-			Values         map[string]any    `json:"values"`
-			Basis          *eventstore.Basis `json:"basis"`
-			IdempotencyKey string            `json:"idempotency_key"`
+			Entity string `json:"entity"`
+			transport.MutationRequest
 		}
 		_ = json.Unmarshal(args, &a)
 		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
@@ -182,12 +185,12 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		return rec, toolErr(err)
 
 	case "update_record":
+		// See create_record above: transport.MutationRequest embedded, same
+		// field set REST's update handler decodes.
 		var a struct {
-			Entity         string            `json:"entity"`
-			ID             string            `json:"id"`
-			Values         map[string]any    `json:"values"`
-			Basis          *eventstore.Basis `json:"basis"`
-			IdempotencyKey string            `json:"idempotency_key"`
+			Entity string `json:"entity"`
+			ID     string `json:"id"`
+			transport.MutationRequest
 		}
 		_ = json.Unmarshal(args, &a)
 		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
@@ -197,12 +200,12 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		return rec, toolErr(err)
 
 	case "act":
+		// Action/Basis/IdempotencyKey are transport.ActionRequest, embedded —
+		// same field set REST's act handler (internal/api/handlers_ui.go) decodes.
 		var a struct {
-			Entity         string            `json:"entity"`
-			ID             string            `json:"id"`
-			Action         string            `json:"action"`
-			Basis          *eventstore.Basis `json:"basis"`
-			IdempotencyKey string            `json:"idempotency_key"`
+			Entity string `json:"entity"`
+			ID     string `json:"id"`
+			transport.ActionRequest
 		}
 		_ = json.Unmarshal(args, &a)
 		if terr := requireIdemKey(a.IdempotencyKey); terr != nil { // PR-5: idempotency_key mandatory (LLD-01 §5)
