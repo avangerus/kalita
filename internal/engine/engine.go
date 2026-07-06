@@ -61,6 +61,15 @@ type Engine struct {
 	// observability only: subscriber effects are journaled as their own events,
 	// so this never drives a record mutation and is not re-dispatched on replay.
 	emittedEvents []EmittedFact
+
+	// shadowRoles is the LLD-09 §1 shadow-mode overlay: the set of roles whose
+	// create/update/act/emit is redirected into a MutationProposal instead of
+	// applied directly. Folded from role.shadow_enabled/role.shadow_disabled.
+	shadowRoles map[string]bool
+	// mutationProposals is the shadow proposal projection (LLD-09 §1), folded
+	// from mutation.proposed/approved/rejected — the record-mutation twin of
+	// e.proposals (which is definition-change proposals only).
+	mutationProposals map[string]*MutationProposal
 }
 
 // Option configures the engine.
@@ -108,6 +117,13 @@ type Record struct {
 	// action clears it), never itself journaled — "состояние выводимо". While
 	// set, mutations are rejected with RECORD_INCONSISTENT.
 	Inconsistent bool `json:"inconsistent,omitempty"`
+	// ShadowProposalID is set instead of ID when the actor's role is in shadow
+	// mode (LLD-09 §1): this create/update was NOT applied — Values is what
+	// the actor asked for, held as a MutationProposal for a human to grant or
+	// reject, not the record's real journaled state. Empty on every ordinary
+	// call, so existing callers see no behavior change (I-1) until shadow
+	// mode is explicitly turned on for their role.
+	ShadowProposalID string `json:"shadow_proposal_id,omitempty"`
 }
 
 type createdPayload struct {
@@ -127,22 +143,24 @@ type updatedPayload struct {
 // New builds an engine over a model and journal, replaying existing events.
 func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...Option) (*Engine, error) {
 	e := &Engine{
-		model:         model,
-		store:         store,
-		defVersion:    1,
-		records:       map[string]map[string]*Record{},
-		approvals:     map[string]*Approval{},
-		tasks:         map[string]*Task{},
-		proposals:     map[string]*Proposal{},
-		stateSince:    map[string]map[string]time.Time{},
-		links:         map[string]linkPayload{},
-		comments:      map[string][]*Comment{},
-		taskTTL:       time.Hour,
-		defApprover:   "Owner",
-		now:           time.Now,
-		cal:           defaultCalendar(),
-		failedActions: map[string]*actionFailState{},
-		openOps:       map[string]opInfo{},
+		model:             model,
+		store:             store,
+		defVersion:        1,
+		records:           map[string]map[string]*Record{},
+		approvals:         map[string]*Approval{},
+		tasks:             map[string]*Task{},
+		proposals:         map[string]*Proposal{},
+		stateSince:        map[string]map[string]time.Time{},
+		links:             map[string]linkPayload{},
+		comments:          map[string][]*Comment{},
+		taskTTL:           time.Hour,
+		defApprover:       "Owner",
+		now:               time.Now,
+		cal:               defaultCalendar(),
+		failedActions:     map[string]*actionFailState{},
+		openOps:           map[string]opInfo{},
+		shadowRoles:       map[string]bool{},
+		mutationProposals: map[string]*MutationProposal{},
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -347,6 +365,18 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		e.applyEventEmitted(ev)
 	case eventstore.IngestFlagged:
 		// PR-6 (LLD-01 §6): perimeter detector marks the source record.
+
+	// --- LLD-09 §1: shadow mode ---------------------------------------------
+	case eventstore.RoleShadowEnabled:
+		e.applyShadowRoleEvent(ev, true)
+	case eventstore.RoleShadowDisabled:
+		e.applyShadowRoleEvent(ev, false)
+	case eventstore.MutationProposed:
+		e.applyMutationProposed(ev)
+	case eventstore.MutationApproved:
+		e.applyMutationDecided(ev, ProposalApplied)
+	case eventstore.MutationRejected:
+		e.applyMutationDecided(ev, ProposalRejected)
 	}
 }
 

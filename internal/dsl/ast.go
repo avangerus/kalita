@@ -82,6 +82,17 @@ type RoleDecl struct {
 	Name    string
 	Line    int
 	IsAgent bool
+	// Rate/Hours are the LLD-09 §2 "week in numbers" cost-estimation
+	// attributes: an hourly rate and a normo-hours-per-action figure declared
+	// on the role (`rate <number>` / `hours <number>`, either order, either
+	// optional). `kalita report` multiplies action-count × Hours for an
+	// estimated workload and × Rate for an estimated cost; a role missing
+	// either declares nothing and the report omits that figure with a note
+	// (I-3 spirit: explicit, not silent) rather than assuming a default.
+	Rate     float64
+	HasRate  bool
+	Hours    float64
+	HasHours bool
 }
 
 // PermItem is one target inside a permission rule:

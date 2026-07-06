@@ -117,6 +117,22 @@ const (
 	NodeDowngraded Kind = "node.downgraded" // written only via an explicit --force-downgrade (§1)
 	EraGenesis     Kind = "era.genesis"     // first event of a new era's journal, chains to the old era's manifest (§4)
 	RecordImported Kind = "record.imported" // NOT record.created: provenance differs, on-create automation must not fire (§4)
+
+	// The kinds below are LLD-09-deployment-product.md §1's closed additions
+	// (shadow mode). All events of these kinds are written with SchemaV
+	// CurrentSchemaV. RoleShadowEnabled/Disabled toggle a role's membership in
+	// the shadow set (a runtime overlay, not a new execution path — I-2). A
+	// shadow actor's create/update/act/emit is redirected into a
+	// MutationProposed instead of its normal record.created/updated/action/
+	// event.emitted — MutationApproved applies the SAME validated mutation
+	// through the ordinary path (any HITL gate the mutation itself carries,
+	// e.g. an act's approval(Role), still applies — shadow defers, never
+	// bypasses); MutationRejected discards it.
+	RoleShadowEnabled  Kind = "role.shadow_enabled"
+	RoleShadowDisabled Kind = "role.shadow_disabled"
+	MutationProposed   Kind = "mutation.proposed"
+	MutationApproved   Kind = "mutation.approved"
+	MutationRejected   Kind = "mutation.rejected"
 )
 
 // AllKinds is the closed taxonomy in declaration order — the single source of
@@ -144,6 +160,8 @@ var AllKinds = []Kind{
 	AuthThrottled,
 	NodeUpgraded, NodeDowngraded,
 	EraGenesis, RecordImported,
+	RoleShadowEnabled, RoleShadowDisabled,
+	MutationProposed, MutationApproved, MutationRejected,
 }
 
 // CurrentSchemaV is the highest envelope schema_v this binary understands.

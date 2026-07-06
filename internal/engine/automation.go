@@ -505,6 +505,13 @@ func scheduleInterval(s string) (time.Duration, bool) {
 	return d, true
 }
 
+// ParseDuration is the exported form of parseDuration (10d / 48h / 30m) for
+// callers outside the package — `kalita report --since`/`egress-report
+// --since` (LLD-09 §2/§3) reuse the exact same closed unit set the DSL's
+// `for <dur>` stuck-clause already parses, instead of inventing a second
+// duration grammar.
+func ParseDuration(s string) (time.Duration, error) { return parseDuration(s) }
+
 // parseDuration: 10d / 48h / 30m (closed list, days are the unit that matters).
 func parseDuration(s string) (time.Duration, error) {
 	if s == "" {

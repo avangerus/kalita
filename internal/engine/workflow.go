@@ -74,9 +74,16 @@ type Approval struct {
 
 // ActResult reports what happened: applied, or parked for a signature.
 type ActResult struct {
-	Status     string  `json:"status"` // applied | pending_approval
+	Status     string  `json:"status"` // applied | pending_approval | shadow_proposed
 	ApprovalID string  `json:"approval_id,omitempty"`
 	Record     *Record `json:"record,omitempty"`
+	// ShadowProposalID is set (Status "shadow_proposed") when the actor's role
+	// is in shadow mode (LLD-09 §1): the transition was NOT applied and no
+	// approval.requested was raised either — it is held as a MutationProposal.
+	// Approving it re-runs Act for real, so a transition that itself requires
+	// approval(Role) still parks in HITL at that point (the two gates do not
+	// collapse into one).
+	ShadowProposalID string `json:"shadow_proposal_id,omitempty"`
 }
 
 const approvalDomain = "kalita-approval-v1"
@@ -95,7 +102,18 @@ func (e *Engine) Act(ctx context.Context, actor eventstore.Actor, entity, id, ac
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.actCore(ctx, actor, entity, id, action, basis, idemKey, true)
+}
 
+// actCore is Act's body, assumed to run under e.mu. See createCore for what
+// checkShadow means and why DecideMutationProposal calls this directly
+// (already holding the lock) instead of the public, lock-taking Act. Because
+// the shadow redirect happens AFTER the transition/guard are resolved but
+// BEFORE the approval-vs-apply branch, re-running actCore for real on an
+// approved proposal independently re-decides that branch — a transition
+// declared `requires approval(Role)` still parks in real HITL at that point
+// (LLD-09 §1 test 2: the two gates do not collapse).
+func (e *Engine) actCore(ctx context.Context, actor eventstore.Actor, entity, id, action string, basis *eventstore.Basis, idemKey string, checkShadow bool) (*ActResult, error) {
 	decl, errr := e.entityOrErr(entity)
 	if errr != nil {
 		return nil, errr
@@ -132,6 +150,14 @@ func (e *Engine) Act(ctx context.Context, actor eventstore.Actor, entity, id, ac
 				Message: fmt.Sprintf("guard `%s` is false for %s %s", tr.When, entity, id),
 				FixHint: "the transition exists but its condition does not hold for this record"}
 		}
+	}
+
+	if checkShadow && e.isShadow(actor.Role) {
+		mp, err := e.proposeMutation(ctx, actor, MutationAct, entity, id, action, "", nil, basis, idemKey)
+		if err != nil {
+			return nil, err
+		}
+		return &ActResult{Status: "shadow_proposed", ShadowProposalID: mp.ID}, nil
 	}
 
 	if tr.ApprovalRole != "" {

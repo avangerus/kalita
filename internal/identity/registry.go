@@ -58,6 +58,16 @@ type ActorMeta struct {
 	// Attrs are ABAC attributes (region, department, clearance…) carried on the
 	// actor and exposed to permissions as $me.<attr>.
 	Attrs map[string]any `json:"attrs,omitempty"`
+	// EgressDomains is the worker's OWN declared whitelist of external domains
+	// it may call (LLD-09 §3: "самодекларация воркера", not a network
+	// intercept — the kernel cannot and does not inspect the worker's actual
+	// traffic, T8). `kalita egress-report` reconciles this declaration
+	// against the egress.called facts the worker itself journals via
+	// emit_event: a call to a domain outside this list is flagged an anomaly,
+	// and a worker with NO declaration here is treated as fully undeclared
+	// (every one of its calls is an anomaly) — the honest "lite" boundary
+	// this LLD fixes, not a guarantee against a hostile worker.
+	EgressDomains []string `json:"egress_domains,omitempty"`
 }
 
 // actorPayload is the payload of actor.registered / actor.key_rotated events.

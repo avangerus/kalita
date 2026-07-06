@@ -59,6 +59,12 @@ func main() {
 		upgradeCmd(os.Args[2:])
 	case "product":
 		productCmd(os.Args[2:])
+	case "report":
+		reportCmd(os.Args[2:])
+	case "egress-report":
+		egressReportCmd(os.Args[2:])
+	case "shadow":
+		shadowCmd(os.Args[2:])
 	default:
 		usage()
 	}
@@ -144,6 +150,7 @@ func registerActor(args []string, typ eventstore.ActorType, what string) {
 	owner := fs.String("owner", "", "who answers for this actor")
 	desc := fs.String("desc", "", "description")
 	password := fs.String("password", "", "set a password credential (LLD-05 PK-4, humans only) — a UX wrapper over the same bearer token, not a new identity model")
+	egressDomains := fs.String("egress-domains", "", "comma-separated whitelist of external domains this worker may call (LLD-09 §3): its OWN self-declaration, reconciled later by `kalita egress-report` against the egress.called facts it journals — not enforced by the kernel")
 	_ = fs.Parse(args[1:])
 	if *id == "" {
 		log.Fatal("--id is required")
@@ -175,8 +182,9 @@ func registerActor(args []string, typ eventstore.ActorType, what string) {
 		log.Fatal("--role is required for add")
 	}
 	var meta *identity.ActorMeta
-	if *model != "" || *endpoint != "" || *owner != "" || *desc != "" {
-		meta = &identity.ActorMeta{Model: *model, Endpoint: *endpoint, Owner: *owner, Description: *desc}
+	if *model != "" || *endpoint != "" || *owner != "" || *desc != "" || *egressDomains != "" {
+		meta = &identity.ActorMeta{Model: *model, Endpoint: *endpoint, Owner: *owner, Description: *desc,
+			EgressDomains: splitComma(*egressDomains)}
 	}
 	token, err := reg.RegisterWithToken(ctx, registrar, *id, typ, *role, nil, meta, basis)
 	if err != nil {
@@ -207,6 +215,9 @@ func usage() {
 	fmt.Println("  kalita import --pack <new dir> --in era.jsonl   start a NEW era from a transformed export (journal must be empty)")
 	fmt.Println("  kalita era verify --old <dsn|dump> --new <dsn>  prove the new era's genesis chains to the old era's sealed final state")
 	fmt.Println("  kalita upgrade --to <ver|latest> [--dry-run]    docker-compose upgrade with automatic rollback on failure (LLD-03 §2)")
+	fmt.Println("  kalita report --since 7d [--role R] [--format md|html] [--pack <dir>]   \"week in numbers\": a pure fold over the journal, zero writes (LLD-09 §2)")
+	fmt.Println("  kalita egress-report --since 7d [--format md|html]                      what left the perimeter: declared whitelist vs egress.called facts (LLD-09 §3)")
+	fmt.Println("  kalita shadow enable|disable --role R --pack <dir>                      toggle shadow mode for a role (LLD-09 §1) — restart the node to pick up the change (v0)")
 	fmt.Println("  kalita version")
 }
 

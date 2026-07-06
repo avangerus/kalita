@@ -33,6 +33,12 @@ type EmittedFact struct {
 	Name    string
 	Payload map[string]any
 	Seq     uint64
+	// ShadowProposalID is set when the emitting actor's role is in shadow
+	// mode (LLD-09 §1): the event was NOT journaled as event.emitted (no
+	// subscriber ran) — Seq is the mutation.proposed event's seq instead, and
+	// Name/Payload are what the actor asked to emit, held as a
+	// MutationProposal for a human to grant or reject.
+	ShadowProposalID string `json:"shadow_proposal_id,omitempty"`
 }
 
 // applyEventEmitted folds event.emitted (LLD-01 §4). Records the fact; does not
@@ -203,7 +209,14 @@ func shortEventName(ref string) string {
 func (e *Engine) EmitEvent(ctx context.Context, actor eventstore.Actor, name string, payload map[string]any, idemKey string) (*EmittedFact, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.emitCore(ctx, actor, name, payload, idemKey, true)
+}
 
+// emitCore is EmitEvent's body, assumed to run under e.mu. See createCore
+// (records.go) for what checkShadow means and why DecideMutationProposal
+// calls this directly (already holding the lock) instead of the public,
+// lock-taking EmitEvent.
+func (e *Engine) emitCore(ctx context.Context, actor eventstore.Actor, name string, payload map[string]any, idemKey string, checkShadow bool) (*EmittedFact, error) {
 	if idemKey != "" {
 		if prior, _ := e.store.ByIdemKey(ctx, idemKey); prior != nil {
 			if prior.Kind != eventstore.EventEmitted {
@@ -235,6 +248,14 @@ func (e *Engine) EmitEvent(ctx context.Context, actor eventstore.Actor, name str
 	}
 	if err := e.validateEventPayload(decl, payload); err != nil {
 		return nil, err
+	}
+
+	if checkShadow && e.isShadow(actor.Role) {
+		mp, err := e.proposeMutation(ctx, actor, MutationEmit, "", "", "", canonical, payload, mcpEmitBasis, idemKey)
+		if err != nil {
+			return nil, err
+		}
+		return &EmittedFact{Name: canonical, Payload: payload, ShadowProposalID: mp.ID}, nil
 	}
 
 	// a free-standing emit plus its subscriber dispatch is a multi-event

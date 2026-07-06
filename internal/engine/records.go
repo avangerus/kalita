@@ -24,7 +24,19 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.createCore(ctx, actor, entity, values, basis, idemKey, true)
+}
 
+// createCore is Create's body, assumed to run under e.mu (held by the public
+// Create, or by DecideMutationProposal re-applying an approved shadow
+// proposal). checkShadow gates the LLD-09 §1 redirect: false ONLY when this
+// call IS that approved application — the shadow gate was already discharged
+// by the human decision, so re-checking it here would either loop forever
+// (the actor's role is very likely still in the shadow set) or silently
+// re-propose instead of ever applying. Every other check (permission,
+// validation, refs, unique) runs exactly as it would for a direct call — I-2
+// is deferred, never bypassed.
+func (e *Engine) createCore(ctx context.Context, actor eventstore.Actor, entity string, values map[string]any, basis *eventstore.Basis, idemKey string, checkShadow bool) (*Record, error) {
 	// idempotent retry short-circuits ahead of validation: the original
 	// mutation already passed every check
 	if idemKey != "" {
@@ -68,6 +80,14 @@ func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity stri
 	}
 	if err := e.checkUnique(decl, vals, ""); err != nil {
 		return nil, err
+	}
+
+	if checkShadow && e.isShadow(actor.Role) {
+		mp, err := e.proposeMutation(ctx, actor, MutationCreate, entity, "", "", "", values, basis, idemKey)
+		if err != nil {
+			return nil, err
+		}
+		return &Record{Entity: entity, Values: vals, ShadowProposalID: mp.ID}, nil
 	}
 
 	id, err := uuid.NewV7()
@@ -323,7 +343,13 @@ func (e *Engine) Update(ctx context.Context, actor eventstore.Actor, entity, id 
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.updateCore(ctx, actor, entity, id, values, basis, idemKey, true)
+}
 
+// updateCore is Update's body, assumed to run under e.mu. See createCore for
+// what checkShadow means and why DecideMutationProposal calls this directly
+// (already holding the lock) instead of the public, lock-taking Update.
+func (e *Engine) updateCore(ctx context.Context, actor eventstore.Actor, entity, id string, values map[string]any, basis *eventstore.Basis, idemKey string, checkShadow bool) (*Record, error) {
 	decl, errr := e.entityOrErr(entity)
 	if errr != nil {
 		return nil, errr
@@ -374,6 +400,22 @@ func (e *Engine) Update(ctx context.Context, actor eventstore.Actor, entity, id 
 	if len(changes) == 0 {
 		return rec, nil
 	}
+
+	if checkShadow && e.isShadow(actor.Role) {
+		mp, err := e.proposeMutation(ctx, actor, MutationUpdate, entity, id, "", "", values, basis, idemKey)
+		if err != nil {
+			return nil, err
+		}
+		preview := make(map[string]any, len(rec.Values))
+		for k, v := range rec.Values {
+			preview[k] = v
+		}
+		for _, ch := range changes {
+			preview[ch.Field] = ch.New
+		}
+		return &Record{ID: id, Entity: entity, Values: preview, ShadowProposalID: mp.ID}, nil
+	}
+
 	payload, _ := json.Marshal(updatedPayload{Changes: changes})
 	if _, err := e.store.Append(ctx, eventstore.AppendInput{
 		Actor:          actor,

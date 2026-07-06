@@ -2,6 +2,7 @@ package dsl
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -555,8 +556,39 @@ func (p *parser) roles(ln *Line) {
 	for i := range body {
 		b := &body[i]
 		r := &RoleDecl{Name: b.Toks[0].Text, Line: b.Num}
-		if len(b.Toks) > 1 && b.Toks[1].Text == "agent" {
-			r.IsAgent = true
+		// `RoleName [agent] [rate <number>] [hours <number>]`, in any order
+		// after the name (LLD-09 §2: rate/hours are the report's cost-estimation
+		// inputs — a plain bareword keyword followed by a number, mirroring how
+		// `agent` is a plain bareword keyword, so existing single-word role
+		// lines (`Owner`, `Collector agent`) parse identically to before, I-1).
+		for j := 1; j < len(b.Toks); j++ {
+			switch b.Toks[j].Text {
+			case "agent":
+				r.IsAgent = true
+			case "rate", "hours":
+				if j+1 >= len(b.Toks) || b.Toks[j+1].Kind != TNum {
+					p.errs.add(EBadModifier, b.File, b.Num,
+						b.Toks[j].Text+" requires a number, e.g. `"+b.Toks[j].Text+" 1500`",
+						"write the "+b.Toks[j].Text+" as a plain number right after the keyword")
+					continue
+				}
+				v, err := strconv.ParseFloat(b.Toks[j+1].Text, 64)
+				if err != nil {
+					p.errs.add(EBadModifier, b.File, b.Num, "cannot parse "+b.Toks[j].Text+" value "+b.Toks[j+1].Text,
+						"write a plain number, e.g. `"+b.Toks[j].Text+" 1500`")
+					j++
+					continue
+				}
+				if b.Toks[j].Text == "rate" {
+					r.Rate, r.HasRate = v, true
+				} else {
+					r.Hours, r.HasHours = v, true
+				}
+				j++
+			default:
+				p.errs.add(EBadModifier, b.File, b.Num, "unknown role modifier "+b.Toks[j].Text,
+					"roles accept `agent`, `rate <number>` and `hours <number>`")
+			}
 		}
 		p.ast.Roles = append(p.ast.Roles, r)
 	}
