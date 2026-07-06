@@ -519,6 +519,15 @@ func (e *Engine) canEmit(role, name string) bool { return e.canNamed(role, "emit
 // explicitly hold `tail [kind]` for the kind's own eventstore.Kind name.
 func (e *Engine) canTail(role, kind string) bool { return e.canNamed(role, "tail", kind) }
 
+// canFlag is the Permission Engine check for the `flag` verb (TECHDEBT
+// "Безопасность LLM-периметра" (b)): Appending a core-reserved kind
+// (ingest.flagged) directly is a stronger surface than any ordinary
+// create/update/act grant on the subject entity, so it is never inferred from
+// them — a role must explicitly hold `flag [kind]` for the kind's own
+// eventstore.Kind name, exactly mirroring how canEmit/canTail gate their own
+// stronger surfaces.
+func (e *Engine) canFlag(role, kind string) bool { return e.canNamed(role, "flag", kind) }
+
 func (e *Engine) canNamed(role, verb, name string) bool {
 	pb, ok := e.model.Perms[role]
 	if !ok {

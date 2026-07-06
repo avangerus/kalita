@@ -599,7 +599,7 @@ func (p *parser) roles(ln *Line) {
 var permVerbs = map[string]bool{
 	"read": true, "create": true, "update": true, "delete": true,
 	"act": true, "approve": true, "full": true, "deny": true,
-	"call": true, "emit": true, "tail": true,
+	"call": true, "emit": true, "tail": true, "flag": true,
 }
 
 func (p *parser) permissions(ln *Line) {
@@ -629,7 +629,7 @@ func (p *parser) permRule(ln *Line) *PermRule {
 	verb := ln.Toks[0].Text
 	if !permVerbs[verb] {
 		p.errs.add(EBadVerb, ln.File, ln.Num, "unknown permission verb "+verb,
-			"allowed verbs: read, create, update, delete, act, approve, full, deny, call, emit, tail")
+			"allowed verbs: read, create, update, delete, act, approve, full, deny, call, emit, tail, flag")
 		return nil
 	}
 	rule := &PermRule{Verb: verb, Line: ln.Num}
@@ -715,9 +715,12 @@ func parsePermItem(toks []Tok, outerVerb string, ln *Line, errs *Errors) *PermIt
 		}
 		return item
 	}
-	if item.Verb == "tail" {
+	if item.Verb == "tail" || item.Verb == "flag" {
 		// kind names are dotted (eventstore.Kind, e.g. event.emitted) — same
 		// token-joining shape as `call`, one kind per list group (LLD-08 §2).
+		// `flag` reuses the exact same dotted-name grammar as `tail` (TECHDEBT
+		// "Безопасность LLM-периметра"): it grants WRITING a core-reserved
+		// kind directly, the mirror-image counterpart of tail's read.
 		var sb strings.Builder
 		for _, t := range toks[i:] {
 			if t.Kind == TIdent || t.Text == "." {

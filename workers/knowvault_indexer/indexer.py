@@ -30,6 +30,8 @@ sys.path.insert(0, os.path.dirname(__file__))            # local extract module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from bootstrap import get_token  # noqa: E402
 import extract  # noqa: E402  (text extraction for the document zoo)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "perimeter"))
+import detector as perimeter  # noqa: E402  (H4 layer 3, ingest-detection tripwire, LLD-01 §6)
 
 NODE = os.environ.get("KALITA_URL", "http://127.0.0.1:8095")
 TOKEN = get_token()
@@ -65,6 +67,17 @@ def http_bytes(url):
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
     with urllib.request.urlopen(req, timeout=120) as resp:
         return resp.read()
+
+
+def idem_key(task_id, *parts):
+    """The idempotency_key for one mutating MCP call within one task attempt
+    (LLD-01 §5), mirroring workers/agent_runner/runner.py's idem_key: a pure,
+    deterministic function of the task id plus a call-site label (uuid5, no
+    randomness) — re-deriving it on a retry of the same task attempt (same
+    task id, same file, same fingerprint) reproduces the identical key, so
+    the Store dedups the retry to exactly one event instead of a double-apply."""
+    name = str(task_id) + "|" + "|".join(str(p) for p in parts)
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
 
 
 def tool(name, args=None):
@@ -585,6 +598,26 @@ def sync_source(sid, src, basis, tid, force_rebuild=False):
         text = load()
         if not text or not text.strip():
             continue
+        # TECHDEBT "Безопасность LLM-периметра" (a): run the perimeter tripwire
+        # on the raw extracted text BEFORE it is chunked/embedded/searched --
+        # the same H4 layer-3 pattern already used by handle_legal (runner.py)
+        # for Contract.terms. This NEVER blocks or skips the document (it is a
+        # tripwire, not a filter -- the real backstop is ABAC on whatever the
+        # indexed content later feeds); it only makes the flag visible in TWO
+        # places: (1) an internal comment on the Source, exactly like legal,
+        # and (2) the core ingest.flagged event itself (flag_ingest), so the
+        # signal lives in the journal, not only in the comment thread (LLD-01
+        # §6 -- the gap PR-6/(b) closes).
+        p_score, p_reasons = perimeter.score(text)
+        if p_score >= perimeter.THRESHOLD:
+            reasons_text = ", ".join(p_reasons) or "unspecified"
+            tool("comment", {"entity": "Source", "id": sid, "basis": basis, "internal": True,
+                             "body": "perimeter: possible prompt injection in %s (score=%.2f: %s)"
+                                     % (fname, p_score, reasons_text),
+                             "idempotency_key": idem_key(tid, "perimeter-comment", fname, fp)})
+            tool("flag_ingest", {"entity": "Source", "id": sid, "source": fname,
+                                 "reasons": p_reasons, "score": p_score, "basis": basis,
+                                 "idempotency_key": idem_key(tid, "perimeter-flag", fname, fp)})
         pieces = chunk(text, chunk_size)
         if not pieces:
             continue
