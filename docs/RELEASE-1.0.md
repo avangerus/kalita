@@ -12,6 +12,15 @@
 > - Построено к 1.0 сверх исходной карты: durable-подписки (LLD-21 PR-1),
 >   include/миксины (LLD-22), lockdown/секреты/graceful/rate-limit (LLD-10/18),
 >   E052-агрегаты, LLD-20 права, links.go row-lock фикс, /healthz routing.
+>
+> **v1.0-rc1 (2026-07-06):** контрольная приёмка по коду пройдена — критический
+> путь DoD 1–7 зелёный (WebAuthn enforced, GuardStart вшит в serve, каскады
+> журналируются, lockdown/секреты/shadow/report/egress работают, golden цел).
+> Honeypot Decide-пути покрыт (TestDogfoodContractsPoisonedTermsCannotSelfApprove),
+> runbook — docs/OPERATIONS.md. **В 1.1:** WASM (N5), goreleaser signed
+> releases, N4-глубина периметра (трипвайр+ABAC-бэкстоп уже доказаны),
+> PACK-AUTHOR/WORKER-гайды, CONTRIBUTING, transport-parity тест (N8),
+> tiered storage по порогу ADR-002.
 
 ## 0. Определение релиза (не пересматриваем)
 
