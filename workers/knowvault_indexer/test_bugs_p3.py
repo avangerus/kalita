@@ -309,17 +309,23 @@ class TestBug10SearchErrorPropagation(unittest.TestCase):
 
     def test_ragproxy_does_not_journal_worker_errors(self):
         """ragproxy.go must NOT create a SearchQuery journal entry for worker errors.
-        The early-return block on error must precede the Create (journal) call."""
+        The early-return block on error must precede the Create (journal) call.
+
+        The governance core now lives in SearchPerimeter (REST and MCP share it);
+        the journal Create there is keyed on `cfg.LogEntity`, so that is the marker
+        for the journal block. `s.rag.LogEntity` also appears earlier, but only in
+        the thin REST wrapper that passes the config into SearchPerimeter — it is
+        not the journal call. The behavioral proof of this invariant is
+        internal/mcp/search_perimeter_test.go (a worker error journals no
+        SearchQuery); this positional check is a cheap source-level guard."""
         with open(_RAGPROXY_PATH, encoding="utf-8") as f:
             source = f.read()
-        # Use the function-level reference "s.rag.LogEntity" (not the struct field "LogEntity string")
-        # so we find the journal block in the search() function, not the struct definition.
         error_pos = source.find("SEARCH_WORKER_ERROR")
-        journal_pos = source.find("s.rag.LogEntity")
+        journal_pos = source.find("cfg.LogEntity")
         self.assertGreater(error_pos, 0, "SEARCH_WORKER_ERROR string not found in ragproxy.go")
-        self.assertGreater(journal_pos, 0, "s.rag.LogEntity not found in ragproxy.go")
+        self.assertGreater(journal_pos, 0, "cfg.LogEntity (journal block) not found in ragproxy.go")
         self.assertGreater(journal_pos, error_pos,
-                           "journal (s.rag.LogEntity) block must appear AFTER the error early-return — "
+                           "journal (cfg.LogEntity) block must appear AFTER the error early-return — "
                            "worker errors must not create SearchQuery records (BUG-10)")
 
 
