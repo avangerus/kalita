@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -97,7 +98,39 @@ var toolDefs = []map[string]any{
 	{"name": "search_perimeter", "description": "RAG search over the configured search worker (e.g. KnowVault), through the SAME governance core as the human REST /api/search: results are filtered to the workspaces your role may read BEFORE they come back, and a SearchQuery record is journaled for provenance (skipped if the worker itself errors). Not configured on every node — a NOT_CONFIGURED error means this node has no search backend.", "inputSchema": schema(map[string]any{"query": str, "workspace": str, "limit": num}, "query")},
 }
 
-func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, args json.RawMessage) (any, any) {
+// panicOnDispatchForTest, when equal to a tool name, makes dispatch panic
+// once right before running that tool's body — a fault-injection seam so
+// TestDispatchRecoversToolPanic (dispatch_panic_test.go) can prove the
+// recover barrier below without depending on a real bug existing in any
+// tool. Always empty in production; unexported, so nothing outside this
+// package can reach it, and even if it were somehow set the recover in
+// dispatch still catches the resulting panic — this seam cannot be used to
+// make dispatch actually crash anything.
+var panicOnDispatchForTest string
+
+// dispatch runs one MCP tool call and returns (result, toolError). It must
+// never panic into its HTTP caller (RELEASE-1.0 N8 §7.7): net/http's own
+// per-connection recover would keep the process alive, but the agent making
+// the call would see the connection drop instead of a structured error —
+// worse UX than any other tool failure, and indistinguishable from a network
+// blip, so an agent cannot even self-correct. The recover below converts any
+// panic from a tool's own logic into the same error shape toolErr already
+// produces for an unexpected engine error (a map with "code":"INTERNAL"),
+// and the server keeps serving the next request normally.
+func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, args json.RawMessage) (result any, terr any) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			result = nil
+			terr = map[string]any{
+				"code":    "INTERNAL",
+				"message": fmt.Sprintf("tool %q panicked: %v", name, rec),
+				"fix_hint": "this is a server bug, not a mistake in your call; retrying with the same arguments is unlikely to help — report it",
+			}
+		}
+	}()
+	if panicOnDispatchForTest != "" && panicOnDispatchForTest == name {
+		panic("mcp: injected test panic for tool " + name)
+	}
 	ctx := r.Context()
 	switch name {
 	case "describe_system":

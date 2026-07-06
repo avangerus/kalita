@@ -222,6 +222,28 @@ func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...
 	return e, nil
 }
 
+// dslCompile indirects dsl.Compile purely so tests can simulate a panic
+// reaching the DefinitionApplied fold case below (RELEASE-1.0 N8 §7.7) — in
+// production dsl.Compile can never panic (it recovers internally, see
+// internal/dsl/compile.go) so this is always the real thing here. Unexported:
+// nothing outside this package can substitute it.
+var dslCompile = dsl.Compile
+
+// compileDefinitionSafely runs dslCompile for the fold path and additionally
+// recovers a panic locally — defense in depth on top of dsl.Compile's own
+// barrier, scoped to the one call that runs on every node restart. ok=false
+// for an ordinary compile error OR a recovered panic; either way the caller
+// leaves e.model untouched, exactly as it already did for compile errors.
+func compileDefinitionSafely(files map[string]string) (next *dsl.Model, ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			next, ok = nil, false
+		}
+	}()
+	m, errs := dslCompile(files)
+	return m, len(errs) == 0
+}
+
 // applyEvent folds one journal event into the projection.
 func (e *Engine) applyEvent(ev *eventstore.Event) {
 	switch ev.Kind {
@@ -375,9 +397,21 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		e.applyCommentEvent(ev)
 	case eventstore.DefinitionApplied:
 		// definitions replay from the journal: the pack directory is only the
-		// genesis seed
+		// genesis seed. This runs on EVERY node restart (fold from genesis),
+		// so it is the single most catastrophic panic surface in the system
+		// (RELEASE-1.0 N8 §7.7): dsl.Compile already recovers any internal
+		// panic on its own (internal/dsl/compile.go), which is what actually
+		// prevents a poisoned journal entry from bricking the node forever —
+		// compileDefinitionSafely below adds a second, local recover purely
+		// as belt-and-suspenders for this one call, and exists mainly so the
+		// "replay survives a panicking definition" contract is directly
+		// testable (see engine_panic_test.go) without weakening
+		// dsl.Compile's own barrier. Either way, a failed compile (error or
+		// recovered panic) degrades exactly like it always has: the model is
+		// left untouched, the proposal is still marked applied, and
+		// def_version still advances — replay does not stall.
 		if p, ok := e.proposals[ev.Subject.ProposalID]; ok && len(p.Files) > 0 {
-			if next, errs := dsl.Compile(p.Files); len(errs) == 0 {
+			if next, ok := compileDefinitionSafely(p.Files); ok {
 				e.model = next
 			}
 			p.Status = ProposalApplied

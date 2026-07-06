@@ -111,6 +111,17 @@ const (
 	// compile time by the same one-parser-two-layers discipline:
 	// dsl.ParseSchedule / engine.Tick share the parser (see schedule.go).
 	EBadSchedule Code = "E059_BAD_SCHEDULE_FORM" // schedule trigger is not `every <dur>` or `daily [at HH:MM]`
+
+	// RELEASE-1.0 N8 §7.7 (panic-safety): an internal compiler panic recovered
+	// inside Compile itself. This is NOT a DSL-authoring mistake — it means a
+	// bug in the lexer/parser/analyzer crashed instead of returning a normal
+	// diagnostic. It exists so Compile can never propagate a panic to its
+	// callers, one of which is engine fold-replay: every node restart replays
+	// eventstore.DefinitionApplied events (the pack directory is only the
+	// genesis seed, definitions live in the journal), so an unrecovered panic
+	// there would brick the node on every future boot, not just crash one
+	// request. See compile.go.
+	EInternalPanic Code = "E060_INTERNAL_COMPILER_ERROR"
 )
 
 // Error is a single compile diagnostic. FixHint tells an agent (or a human)
