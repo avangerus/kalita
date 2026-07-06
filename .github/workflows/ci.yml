@@ -51,6 +51,36 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
+  # Data-race gate: internal/identity Registry (mutex + tokenIndex),
+  # internal/eventstore MemStore, and the net/http servers in internal/api /
+  # internal/mcp are all concurrent code that the `test` job above never
+  # exercises under -race — release hygiene, not optional.
+  #
+  # `-short` is required here, not decorative: TestReplayBudget1M
+  # (internal/eventstore/replay_budget_test.go) is a WALL-CLOCK timing
+  # budget (1M-event replay must fold in <5s), and TestPermittedSetNarrowsAtScale
+  # / TestRefPathPermittedSetNarrows (internal/engine/scale_test.go) each seed
+  # 20k records — all three already carry a `testing.Short()` skip guard
+  # (checked in prior commits) for exactly this reason: under -race,
+  # instrumentation can slow single-threaded/heavy-seed code several-fold,
+  # which would either flake the timing budget or waste minutes re-seeding
+  # data with nothing concurrent to race on. None of the three are
+  # concurrency tests, so skipping them under -race loses no race coverage.
+  # Ordinary functional tests are NOT short-guarded and still run here.
+  #
+  # No `continue-on-error`: a race found here must fail the build, or the
+  # gate is theater. `-timeout=10m` gives -race's slowdown real headroom
+  # while still catching a genuine hang.
+  race:
+    name: race detector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -race -short -count=1 -timeout=10m ./...
+
   # Node performance passport (docs/HLD-V1.md §H10, docs/RELEASE-1.0.md N6/N9):
   # P1 pilot mix, P2 bulk create, P3 journal replay, P4 auth storm — see
   # `make passport` / internal/engine/passport_bench_test.go /
