@@ -40,8 +40,16 @@ func (e *Engine) Link(ctx context.Context, actor eventstore.Actor, entity, id, n
 		return &Err{Code: CodeValidation, Message: fmt.Sprintf("%s has no link named %s", entity, name),
 			FixHint: "declare `link ... as " + name + " / ...` or use an existing link name"}
 	}
-	// permission: the actor must be able to update the side they act on
-	if d := e.can(actor, "update", entity, "", nil); !d.allowed {
+	// permission: the actor must be able to update the side they act on,
+	// evaluated against the ACTUAL record so row-level `deny ... where` locks
+	// apply. Passing nil here silently skipped conditional denies — a
+	// `deny update X where status=Signed` did NOT block linking a signed
+	// record (whereMatchesForDeny fails closed to "no match" on nil record).
+	rec, ok := e.records[entity][id]
+	if !ok {
+		return &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
+	}
+	if d := e.can(actor, "update", entity, "", rec.Values); !d.allowed {
 		return denied(actor.Role, "update", entity, d.rule)
 	}
 	// canonical orientation: from = decl.From record, to = decl.To record
@@ -82,7 +90,12 @@ func (e *Engine) Unlink(ctx context.Context, actor eventstore.Actor, entity, id,
 	if !ok {
 		return &Err{Code: CodeValidation, Message: fmt.Sprintf("%s has no link named %s", entity, name)}
 	}
-	if d := e.can(actor, "update", entity, "", nil); !d.allowed {
+	// same record-level lock check as Link (row-level `deny ... where`)
+	rec, ok := e.records[entity][id]
+	if !ok {
+		return &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
+	}
+	if d := e.can(actor, "update", entity, "", rec.Values); !d.allowed {
 		return denied(actor.Role, "update", entity, d.rule)
 	}
 	fromID, toID := id, otherID
