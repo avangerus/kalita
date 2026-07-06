@@ -15,6 +15,12 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 COPY examples /opt/kalita/examples
 COPY packs /opt/kalita/packs
 COPY web /opt/kalita/web
+# packages/ (kalita-ui/*.js) is a SIBLING of web/, not inside it: the buildless
+# UI imports preact+htm and the atoms/molecules from /packages/... (see the
+# import map in web/index.html and the /packages/ mount in cmd/kalita/main.go
+# gated on --ui-dir). Without this copy the node serves index.html but every
+# /packages/kalita-ui/*.js 404s → the module graph never loads → white screen.
+COPY packages /opt/kalita/packages
 USER kalita
 WORKDIR /opt/kalita
 EXPOSE 8443
