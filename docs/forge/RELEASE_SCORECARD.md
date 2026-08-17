@@ -34,10 +34,10 @@
 | D · Business Expert Layer | 🔴 не начат | после A–C |
 | E · Self-Building Experience | 🔴 не начат | — |
 | F · Operability | 🟢 в основном готов | graceful shutdown (main.go:666-708 + shutdown_test), /healthz /readyz (healthz_test), /metrics Prometheus (metrics_test), backup/restore/verify (backup_test), version guard + schema_v (safe startup), crash-recovery op-скобки. Остаточные: structured JSON-логи (сейчас log.Printf), tracing (single-node), OPS-3 upgrade publish (gated) |
-| G · Security Review (adversarial) | ⏸ перед RC | — |
+| G · Security Review (adversarial) | 🟢 ACCEPT | THREAT_MODEL.md (24 поверхности): Security Pro → «RELEASE CANDIDATE ACCEPT»; новых P0/P1 нет; остаточные P1 — KNOWN LIMITATION/accepted exception |
 | H · Performance & Resilience | 🟢 измерено (baseline v1.0) | Create 6.6µs, Get+computed 1.3µs, Query-10k 18.8ms, Auth-10k 44.8µs, PermittedSet-index 317µs (vs full-scan 116ms, ~365x), Replay-1M 1.30s (budget 5s). Limits: single-node, in-memory проекции, один мутекс — вертикальный масштаб, НЕ hyperscale; Query/агрегаты O(n) — ok до десятков тысяч записей (permitted-set index снимает ABAC-скан). |
-| I · Release Experience (clean-room) | ⏸ перед RC | — |
-| J · Pilot Acceptance (3 сценария) | ⏸ перед RC | — |
+| I · Release Experience (clean-room) | 🟡 готов чеклист | CLEAN_ROOM_ACCEPTANCE.md (16 шагов); НЕ запущен — требует чистой среды + независимого агента |
+| J · Pilot Acceptance (3 сценария) | 🟢 dogfood-covered | AP (ap_dogfood + webhook reference), Service Desk (servicedesk_dogfood ×2), Agent employee (devtrack_dogfood + people_dogfood) |
 
 ## Сводка
 
