@@ -7,10 +7,9 @@ automation:
         escalate_to GeneralDirector
     # the "system Y" egress seam: the send_to_payment transition emits
     # InvoiceSentToPayment, and this rule turns the fact into the declared
-    # webhook egress task (engine journals intent as TaskWebhook).
-    # KNOWN GAP: the node-side webhook delivery runner does not exist yet
-    # (DECISIONS.md) — until then the task is the auditable hand-off point,
-    # and the event is the bridge-ready seam. URL is per-deployment.
+    # webhook egress task (engine journals intent as TaskWebhook). The node's
+    # webhook runner (Cycle-B1, D-017) delivers it under KALITA_EGRESS_DOMAINS
+    # (fail-closed, at-least-once + idempotent effect); URL is per-deployment.
     on event InvoiceSentToPayment:
         webhook out "https://payments.example.com/incoming-invoice"
 
