@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,74 @@ import (
 
 // CRUD over the projection. Every mutation: permission check → validation →
 // journal append → projection update, under one lock. No basis, no mutation.
+
+// sealPII encrypts every declared `pii subject=…` field in values before the
+// journal append, so the hash chain covers ciphertext (LLD-16 §1/§3). The
+// subject is the value of the subject ref field, taken from values, else from
+// the existing record (an update that does not restate the subject).
+func (e *Engine) sealPII(decl *dsl.EntityDecl, values, existing map[string]any) error {
+	if e.pii == nil {
+		return nil
+	}
+	for _, f := range decl.Fields {
+		if f.PII == "" {
+			continue
+		}
+		v, present := values[f.Name]
+		if !present {
+			continue
+		}
+		subject, _ := values[f.PII].(string)
+		if subject == "" && existing != nil {
+			subject, _ = existing[f.PII].(string)
+		}
+		if subject == "" {
+			return &Err{Code: CodeValidation,
+				Message: fmt.Sprintf("%s.%s: pii subject %s has no value", decl.Name, f.Name, f.PII),
+				FixHint: "set the subject ref field before writing a pii field"}
+		}
+		plain, ok := v.(string)
+		if !ok {
+			continue // non-string pii value: stored as-is (validation already passed)
+		}
+		sealed, err := e.pii.Seal(subject, []byte(plain))
+		if err != nil {
+			return err
+		}
+		values[f.Name] = sealed
+	}
+	return nil
+}
+
+// openPII decrypts sealed pii fields in a read projection; a shredded subject
+// becomes an explicit tombstone (LLD-16 §2), never an error.
+func (e *Engine) openPII(decl *dsl.EntityDecl, values map[string]any) {
+	if e.pii == nil {
+		return
+	}
+	for _, f := range decl.Fields {
+		if f.PII == "" {
+			continue
+		}
+		v, present := values[f.Name]
+		if !present {
+			continue
+		}
+		if pt, ok := e.pii.Open(v); ok {
+			values[f.Name] = string(pt)
+			continue
+		}
+		values[f.Name] = piiTombstone(v)
+	}
+}
+
+func piiTombstone(v any) string {
+	id := ""
+	if m, ok := v.(map[string]any); ok {
+		id, _ = m["key_id"].(string)
+	}
+	return "[shredded: " + id + "]"
+}
 
 // Create inserts a record on behalf of actor.
 func (e *Engine) Create(ctx context.Context, actor eventstore.Actor, entity string, values map[string]any, basis *eventstore.Basis, idemKey string) (*Record, error) {
@@ -94,6 +163,9 @@ func (e *Engine) createCore(ctx context.Context, actor eventstore.Actor, entity 
 	if err != nil {
 		return nil, err
 	}
+	if err := e.sealPII(decl, vals, nil); err != nil {
+		return nil, err
+	}
 	payload, _ := json.Marshal(createdPayload{Values: vals})
 	ev, err := e.store.Append(ctx, eventstore.AppendInput{
 		Actor:          actor,
@@ -124,7 +196,9 @@ func (e *Engine) createCore(ctx context.Context, actor eventstore.Actor, entity 
 	// unreadable fields masked — so a caller sees its serial number and any
 	// computed values immediately, not a bare echo of what it sent.
 	full := e.withComputed(decl, rec.ID, rec.Values)
-	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full), Inconsistent: rec.Inconsistent}, nil
+	masked := e.maskFields(actor, entity, full)
+	e.openPII(decl, masked)
+	return &Record{ID: rec.ID, Entity: entity, Values: masked, Inconsistent: rec.Inconsistent}, nil
 }
 
 // createLocked creates a record on behalf of the system (an automation `create`
@@ -170,6 +244,9 @@ func (e *Engine) createLocked(ctx context.Context, entity string, values map[str
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		return nil, err
+	}
+	if err := e.sealPII(decl, vals, nil); err != nil {
 		return nil, err
 	}
 	payload, _ := json.Marshal(createdPayload{Values: vals})
@@ -391,6 +468,10 @@ func (e *Engine) updateCore(ctx context.Context, actor eventstore.Actor, entity,
 		return nil, err
 	}
 
+	if err := e.sealPII(decl, values, rec.Values); err != nil {
+		return nil, err
+	}
+
 	var changes []change
 	for k, v := range values {
 		if rec.Values[k] != v {
@@ -456,7 +537,9 @@ func (e *Engine) Get(ctx context.Context, actor eventstore.Actor, entity, id str
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
 	full := e.withComputed(decl, rec.ID, rec.Values)
-	return &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full), Inconsistent: rec.Inconsistent}, nil
+	masked := e.maskFields(actor, entity, full)
+	e.openPII(decl, masked)
+	return &Record{ID: rec.ID, Entity: entity, Values: masked, Inconsistent: rec.Inconsistent}, nil
 }
 
 // QueryOpts are query parameters. Filter (equality map) is the simple form;
@@ -514,7 +597,9 @@ func (e *Engine) Query(ctx context.Context, actor eventstore.Actor, entity strin
 		if search != "" && !matchesSearch(decl, full, search) {
 			continue
 		}
-		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: e.maskFields(actor, entity, full), Inconsistent: rec.Inconsistent})
+		masked := e.maskFields(actor, entity, full)
+		e.openPII(decl, masked)
+		out = append(out, &Record{ID: rec.ID, Entity: entity, Values: masked, Inconsistent: rec.Inconsistent})
 	}
 
 	sortRecords(out, opts.Sort)

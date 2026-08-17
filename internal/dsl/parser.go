@@ -510,6 +510,16 @@ func (p *parser) modifiers(toks []Tok, f *FieldDecl, ln *Line) {
 			}
 			f.Picker = rest[0].Text + "." + rest[2].Text
 			i += 5
+		case "pii":
+			// pii subject=<ref_field> — the field holds personal data of the
+			// subject identified by that ref field (LLD-16 §1).
+			if i+3 >= len(toks) || toks[i+1].Text != "subject" || toks[i+2].Text != "=" || toks[i+3].Kind != TIdent {
+				p.errs.add(EBadModifier, ln.File, ln.Num, "pii requires subject=<ref_field>",
+					"write e.g. `pii subject=employee`")
+				return
+			}
+			f.PII = toks[i+3].Text
+			i += 4
 		case "default", "computed", "on_delete", "format", "label":
 			if i+2 >= len(toks)+1 || i+1 >= len(toks) || toks[i+1].Text != "=" {
 				p.errs.add(EBadModifier, ln.File, ln.Num, t.Text+" requires =value",
@@ -536,13 +546,13 @@ func (p *parser) modifiers(toks []Tok, f *FieldDecl, ln *Line) {
 			i += 2 + n
 		default:
 			p.errs.add(EBadModifier, ln.File, ln.Num, "unknown modifier "+t.Text,
-				"allowed modifiers: required, unique, default=, computed=, on_delete=, format=, label=, picker=")
+				"allowed modifiers: required, unique, default=, computed=, on_delete=, format=, label=, picker=, pii subject=")
 			return
 		}
 	}
 }
 
-var modKeywords = map[string]bool{"required": true, "unique": true, "default": true, "computed": true, "on_delete": true, "format": true, "label": true, "picker": true}
+var modKeywords = map[string]bool{"required": true, "unique": true, "default": true, "computed": true, "on_delete": true, "format": true, "label": true, "picker": true, "pii": true}
 
 // exprUntilKeyword joins tokens into a raw expression until the next modifier
 // keyword. Expressions stay raw text in week 2; the expression grammar is
@@ -655,7 +665,7 @@ func (p *parser) roles(ln *Line) {
 var permVerbs = map[string]bool{
 	"read": true, "create": true, "update": true, "delete": true,
 	"act": true, "approve": true, "full": true, "deny": true,
-	"call": true, "emit": true, "tail": true, "flag": true,
+	"call": true, "emit": true, "tail": true, "flag": true, "erase": true,
 }
 
 func (p *parser) permissions(ln *Line) {
@@ -685,7 +695,7 @@ func (p *parser) permRule(ln *Line) *PermRule {
 	verb := ln.Toks[0].Text
 	if !permVerbs[verb] {
 		p.errs.add(EBadVerb, ln.File, ln.Num, "unknown permission verb "+verb,
-			"allowed verbs: read, create, update, delete, act, approve, full, deny, call, emit, tail, flag")
+			"allowed verbs: read, create, update, delete, act, approve, full, deny, call, emit, tail, flag, erase")
 		return nil
 	}
 	rule := &PermRule{Verb: verb, Line: ln.Num}
@@ -771,12 +781,14 @@ func parsePermItem(toks []Tok, outerVerb string, ln *Line, errs *Errors) *PermIt
 		}
 		return item
 	}
-	if item.Verb == "tail" || item.Verb == "flag" {
+	if item.Verb == "tail" || item.Verb == "flag" || item.Verb == "erase" {
 		// kind names are dotted (eventstore.Kind, e.g. event.emitted) — same
 		// token-joining shape as `call`, one kind per list group (LLD-08 §2).
 		// `flag` reuses the exact same dotted-name grammar as `tail` (TECHDEBT
 		// "Безопасность LLM-периметра"): it grants WRITING a core-reserved
-		// kind directly, the mirror-image counterpart of tail's read.
+		// kind directly, the mirror-image counterpart of tail's read. `erase`
+		// takes the single plain target `subject` (LLD-16 §4), which joins the
+		// same way (no dots) and is validated against the closed erasable set.
 		var sb strings.Builder
 		for _, t := range toks[i:] {
 			if t.Kind == TIdent || t.Text == "." {

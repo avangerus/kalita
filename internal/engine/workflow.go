@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 
@@ -87,6 +88,14 @@ type ActResult struct {
 }
 
 const approvalDomain = "kalita-approval-v1"
+
+// DecideFallbackSynthetic counts Decide calls that applied the legacy synthetic
+// transition because the declared transition no longer exists in the current
+// model (D-010/Cycle-003 fail-open edge: definitions changed between park and
+// decide). Structured operator signal, mirroring AutomationJournalFailures —
+// a metrics exporter outside this package can read it. A journaled audit event
+// for this edge is a candidate for a future cycle (skeptic note Cycle-003).
+var DecideFallbackSynthetic atomic.Int64
 
 // ApprovalMessage is the byte string a human signs when deciding an approval.
 // It is reproducible offline: domain || id || decision.
@@ -318,6 +327,40 @@ func (e *Engine) Decide(ctx context.Context, actor eventstore.Actor, approvalID 
 			Rule:    "signatures are mandatory on HITL decisions"}
 	}
 
+	// G1 / D-010 (Cycle-003): the guard that justified the request at Act
+	// time must STILL hold when the signed decision is about to apply —
+	// fields, linked records, computed aggregates and the clock can all
+	// change while a signature is pending (TOCTOU window park→decide).
+	// Re-evaluated with the same machinery as actCore (withComputed +
+	// ctxFor + ref-path resolve) and with the REQUESTER as the $me context:
+	// the question is whether the request is still justified, not who is
+	// deciding. Checked BEFORE the decision is journaled, for the same
+	// reason as checkConsistent above: a decision that cannot apply must
+	// not be recorded as if it could. The approval stays pending, so the
+	// data can be fixed and the decision retried. The reject path is exempt
+	// — a "no" applies nothing and must never be blocked by a stale guard
+	// (D-009, reject stays unconditional).
+	if grant {
+		if rec, ok := e.records[a.Entity][a.RecordID]; ok {
+			if wf, ok := e.model.Workflows[a.Entity]; ok {
+				// tr==nil (transition removed from the DSL between park and
+				// decide) has no guard text to re-evaluate — the legacy
+				// synthetic fallback below applies; the removal itself is
+				// logged there (governed definition change, audit edge).
+				if tr := findTransition(wf, a.Action, a.From); tr != nil && tr.When != "" {
+					if decl, ok := e.model.Entities[a.Entity]; ok {
+						full := e.withComputed(decl, a.RecordID, rec.Values)
+						if !evalWhere(tr.When, e.ctxFor(a.RecordID, a.RequestedBy, full)) {
+							return nil, &Err{Code: CodeGuardFailed,
+								Message: fmt.Sprintf("guard `%s` is false for %s %s: the world changed while the approval was pending", tr.When, a.Entity, a.RecordID),
+								FixHint: "restore the data the guard depends on and decide again — the approval remains pending"}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	payload, _ := json.Marshal(approvalPayload{
 		Entity: a.Entity, RecordID: a.RecordID, Action: a.Action, From: a.From, To: a.To, Role: a.Role,
 		HumanSignature: do.humanSig, RPID: do.rpID, HeadSeq: do.headSeq,
@@ -354,6 +397,13 @@ func (e *Engine) Decide(ctx context.Context, actor eventstore.Actor, approvalID 
 	// path reconstructs from/to/action but must carry the declared emits).
 	tr := findTransition(e.model.Workflows[a.Entity], a.Action, current)
 	if tr == nil {
+		// D-010/Cycle-003 edge: the model changed between park and decide and
+		// the transition is no longer declared (a governed definition change).
+		// The legacy synthetic transition carries no guard; log it so the
+		// fail-open edge is visible to operators (architect review note).
+		log.Printf("engine: decide %s on %s %s: transition %s no longer declared — applying synthetic %s->%s (no guard)",
+			approvalID, a.Entity, a.RecordID, a.Action, a.From, a.To)
+		DecideFallbackSynthetic.Add(1)
 		tr = &dsl.TransitionDecl{From: a.From, To: a.To, Action: a.Action}
 	}
 	if err := e.applyTransitionAndEmit(ctx, actor, a.Entity, a.RecordID,
@@ -451,6 +501,7 @@ var autoActor = eventstore.Actor{Type: eventstore.ActorSystem, ID: "workflow-eng
 
 // runAutoTransitions fires auto transitions whose guards hold, repeatedly,
 // with a hard bound against cycles. Called after every state-affecting change.
+// D-012: maxCascadeDepth=8 vs auto-hops<10 — осознанное расхождение, см. docs/forge/DECISIONS.md.
 func (e *Engine) runAutoTransitions(ctx context.Context, entity, id string) {
 	wf, ok := e.model.Workflows[entity]
 	if !ok {
@@ -527,6 +578,11 @@ func (e *Engine) canTail(role, kind string) bool { return e.canNamed(role, "tail
 // eventstore.Kind name, exactly mirroring how canEmit/canTail gate their own
 // stronger surfaces.
 func (e *Engine) canFlag(role, kind string) bool { return e.canNamed(role, "flag", kind) }
+
+// canErase is the Permission Engine check for the `erase` verb (LLD-16 §4):
+// shredding a data subject is irreversible and is never inferred from any
+// other grant — a role must explicitly hold `erase [subject]`.
+func (e *Engine) canErase(role string) bool { return e.canNamed(role, "erase", "subject") }
 
 func (e *Engine) canNamed(role, verb, name string) bool {
 	pb, ok := e.model.Perms[role]

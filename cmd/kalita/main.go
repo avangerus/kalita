@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -51,6 +52,12 @@ func main() {
 		lockdownCmd(os.Args[2:])
 	case "export":
 		exportCmd(os.Args[2:])
+	case "backup":
+		backupCmd(os.Args[2:])
+	case "trace":
+		traceCmd(os.Args[2:])
+	case "anchor":
+		anchorCmd(os.Args[2:])
 	case "import":
 		importCmd(os.Args[2:])
 	case "era":
@@ -78,19 +85,11 @@ func main() {
 func verifyCmd(args []string) {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	pub := fs.String("pub", "", "node.pub file for checkpoint AND human_signature verification (LLD-02 §5)")
+	file := fs.String("file", "", "backup directory (with MANIFEST.json + journal.jsonl) to verify instead of the Postgres journal (OPS-2, Cycle-A3)")
 	requireSignedApprovals := fs.Bool("require-signed-approvals", false, "fail if any human approve/reject decision has no WebAuthn human_signature (LLD-02 §5 — audits a prod journal that is supposed to be passkey-only)")
 	_ = fs.Parse(args)
-	dsn := resolveDSN()
-	if dsn == "" {
-		log.Fatal("KALITA_PG_DSN is required")
-	}
-	ctx := context.Background()
-	store, err := eventstore.NewPGStore(ctx, dsn, os.Getenv("KALITA_PG_SCHEMA"), nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer store.Close()
-	events, err := store.All(ctx)
+
+	events, err := loadVerifyEvents(*file)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -98,7 +97,11 @@ func verifyCmd(args []string) {
 		fmt.Printf("CHAIN BROKEN: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("chain ok: %d events, head seq %d\n", len(events), events[len(events)-1].Seq)
+	headSeq, err := verifyHeadSeq(events)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("chain ok: %d events, head seq %d\n", len(events), headSeq)
 	if *pub != "" {
 		key, err := identity.LoadPub(*pub)
 		if err != nil {
@@ -126,6 +129,39 @@ func verifyCmd(args []string) {
 	} else if *requireSignedApprovals {
 		log.Fatal("--require-signed-approvals requires --pub (node_id is part of the canonical string it checks)")
 	}
+}
+
+// verifyHeadSeq returns the head event's seq, or an explicit error on an empty
+// journal — `kalita verify` used to index events[len(events)-1] and panic with
+// no events in the journal. Extracted so the empty-journal case is testable
+// without a postgres (verifyCmd itself requires KALITA_PG_DSN).
+func verifyHeadSeq(events []*eventstore.Event) (uint64, error) {
+	if len(events) == 0 {
+		return 0, errors.New("journal is empty, nothing to verify")
+	}
+	return events[len(events)-1].Seq, nil
+}
+
+// loadVerifyEvents resolves the journal verify reads: a backup directory
+// (--file) goes through loadVerifiedBackup (sha256 + chain + checkpoint anchor
+// all re-checked — OPS-2, Cycle-A3); otherwise the Postgres journal. Extracted
+// so the file path is testable without a database.
+func loadVerifyEvents(file string) ([]*eventstore.Event, error) {
+	if file != "" {
+		_, events, err := loadVerifiedBackup(file)
+		return events, err
+	}
+	dsn := resolveDSN()
+	if dsn == "" {
+		return nil, errors.New("KALITA_PG_DSN is required")
+	}
+	ctx := context.Background()
+	store, err := eventstore.NewPGStore(ctx, dsn, os.Getenv("KALITA_PG_SCHEMA"), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	return store.All(ctx)
 }
 
 // agentCmd registers an actor (agent or human) and prints its bearer token.
@@ -394,7 +430,12 @@ func serve(args []string) {
 	shutdownTimeout := fs.Duration("shutdown-timeout", 25*time.Second, "how long SIGTERM/SIGINT waits for in-flight requests to drain before forcing the listener closed")
 	forceDowngrade := fs.Bool("force-downgrade", false, "start even though the journal was last run by a newer version (LLD-03 §1); events of kinds this binary does not recognize are skipped and counted in a warning, and a node.downgraded event is recorded")
 	requireHumanSig := fs.Bool("require-human-signature", false, "require a verified WebAuthn passkey signature on every human approve/reject (LLD-02 §5) — the production gate; off by default so demo/dev nodes keep working unchanged")
+	logFormat := fs.String("log-format", "text", "text | json — structured JSON log lines for an in-perimeter collector (PROD-READINESS O5)")
 	_ = fs.Parse(args)
+
+	if *logFormat == "json" {
+		log.SetOutput(&jsonLogWriter{})
+	}
 
 	tls := *tlsCert != "" && *tlsKey != ""
 	if !tls && !*insecureHTTP && !isLoopback(*listen) {
@@ -520,6 +561,7 @@ func serve(args []string) {
 	// without this they fell through to the UI catch-all and probes got HTML.
 	mux.Handle("/healthz", apiSrv)
 	mux.Handle("/readyz", apiSrv)
+	mux.Handle("/metrics", apiSrv)
 	// UI source, by ADR-004: --ui-dir (disk, no rebuild) > embedded (build tag) > API-only
 	var ui http.Handler
 	switch {

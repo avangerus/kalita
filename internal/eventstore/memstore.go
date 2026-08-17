@@ -193,3 +193,6 @@ func (s *MemStore) Verify(ctx context.Context) error {
 	}
 	return VerifyChain(events)
 }
+
+// Ping reports the in-memory journal as always reachable.
+func (s *MemStore) Ping(ctx context.Context) error { return nil }

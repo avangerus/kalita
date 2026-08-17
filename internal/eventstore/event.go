@@ -107,6 +107,7 @@ const (
 	AutomationAbandoned Kind = "automation.abandoned" // retries exhausted (LLD-01 §3)
 	EventEmitted        Kind = "event.emitted"        // DSL `event` primitive (LLD-01 §4, PR-4)
 	IngestFlagged       Kind = "ingest.flagged"       // perimeter detector (LLD-01 §6, PR-6)
+	SubjectErased       Kind = "subject.erased"       // crypto-shredding: a data subject's key was destroyed (LLD-16 §4)
 
 	// The kinds below are LLD-03-upgrade-eras.md's closed additions. All
 	// events of these kinds are written with SchemaV CurrentSchemaV.
@@ -156,6 +157,7 @@ var AllKinds = []Kind{
 	AutomationFailed, AutomationAbandoned,
 	EventEmitted,
 	IngestFlagged,
+	SubjectErased,
 	NodeLockdown, NodeLockdownLifted,
 	AuthThrottled,
 	NodeUpgraded, NodeDowngraded,

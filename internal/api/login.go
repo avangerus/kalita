@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
 )
 
@@ -33,6 +34,16 @@ func (s *Server) setPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	// D-014 (Cycle-A2): setting ANOTHER actor's password is an admin action.
+	// Any human may set only their own password; the node admin (defApprover)
+	// may reset anyone's. Denied BEFORE the registry call so a refusal
+	// journals nothing.
+	if id != actor.ID && actor.Role != s.eng.DefinitionApprover() {
+		writeErr(w, &engine.Err{Code: engine.CodePermissionDenied,
+			Message: "only the actor themself or the node admin (role " + s.eng.DefinitionApprover() + ") may set this password",
+			Rule:    "identity admin boundary (self-or-admin)"})
+		return
+	}
 	if err := s.reg.SetPassword(r.Context(), actor, id, req.Password,
 		&eventstore.Basis{Type: "human", ID: actor.ID}); err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"code": "VALIDATION_ERROR", "message": err.Error()})

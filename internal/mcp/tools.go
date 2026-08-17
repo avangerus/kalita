@@ -96,6 +96,7 @@ var toolDefs = []map[string]any{
 	{"name": "dashboard", "description": "Compute one dashboard by name: each tile is an aggregate (count/sum/avg/min/max) over a whole table, optionally grouped. Totals respect your row-level permissions.", "inputSchema": schema(map[string]any{"name": str}, "name")},
 	{"name": "emit_event", "description": "Emit a domain event declared by the loaded pack(s) directly — for inbound connectors and cross-node bridges, outside any DSL transition. Requires an `emit [Name]` grant on your role; payload is validated against the event's own schema; subscribers run synchronously in the same cascade, exactly as if a transition's `emits` clause had fired it. Requires idempotency_key.", "inputSchema": schema(map[string]any{"name": str, "payload": obj, "idempotency_key": str}, "name", "idempotency_key")},
 	{"name": "flag_ingest", "description": "Journal a core ingest.flagged event (source, reasons, score) under a record you can read — the perimeter detector's tripwire signal (e.g. a KnowVault Source flagged for possible prompt injection in its extracted text). Never blocks or changes the record's state; it only makes the signal visible via read_journal on that record. Requires a `flag [ingest.flagged]` grant on your role (never inferred from create/update/act on the entity) and idempotency_key.", "inputSchema": schema(map[string]any{"entity": str, "id": str, "source": str, "reasons": map[string]any{"type": "array", "items": str}, "score": num, "basis": basisSchema, "idempotency_key": str}, "entity", "id", "source", "basis", "idempotency_key")},
+	{"name": "erase_subject", "description": "Governed crypto-shredding (right to be forgotten): destroy a data subject's pii key and journal subject.erased. Irreversible. Requires an `erase [subject]` grant on your role (never inferred from any other grant) and idempotency_key.", "inputSchema": schema(map[string]any{"subject_id": str, "reason": str, "basis": basisSchema, "idempotency_key": str}, "subject_id", "reason", "basis", "idempotency_key")},
 	{"name": "search_perimeter", "description": "RAG search over the configured search worker (e.g. KnowVault), through the SAME governance core as the human REST /api/search: results are filtered to the workspaces your role may read BEFORE they come back, and a SearchQuery record is journaled for provenance (skipped if the worker itself errors). Not configured on every node — a NOT_CONFIGURED error means this node has no search backend.", "inputSchema": schema(map[string]any{"query": str, "workspace": str, "limit": num}, "query")},
 }
 
@@ -373,6 +374,22 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 			return nil, toolErr(err)
 		}
 		return fact, nil
+
+	case "erase_subject":
+		var a struct {
+			SubjectID      string            `json:"subject_id"`
+			Reason         string            `json:"reason"`
+			Basis          *eventstore.Basis `json:"basis"`
+			IdempotencyKey string            `json:"idempotency_key"`
+		}
+		_ = json.Unmarshal(args, &a)
+		if terr := requireIdemKey(a.IdempotencyKey); terr != nil {
+			return nil, terr
+		}
+		if err := s.eng.EraseSubject(ctx, actor, a.SubjectID, a.Reason, a.Basis, a.IdempotencyKey); err != nil {
+			return nil, toolErr(err)
+		}
+		return map[string]any{"erased": a.SubjectID}, nil
 
 	case "search_perimeter":
 		if s.rag == nil {

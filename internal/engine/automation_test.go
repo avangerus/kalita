@@ -425,6 +425,10 @@ func (s *replayStore) Verify(context.Context) error {
 	panic("replayStore.Verify is unused by this test")
 }
 
+// Ping reports the replay journal as reachable (memory-resident).
+func (s *replayStore) Ping(context.Context) error { return nil }
+
+
 var _ eventstore.Store = (*replayStore)(nil)
 
 // Finished schedule-rule tasks must be pruned from the in-memory projection

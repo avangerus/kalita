@@ -64,22 +64,36 @@ func (r *Registry) CreateInvite(ctx context.Context, inviter eventstore.Actor, r
 
 // Redeem turns a valid invite into a registered actor and returns its bearer
 // token (shown once) plus the invite's record binding for the API layer.
+// Atomic (Cycle-A4): the invite lookup, the actor registration and the
+// invite.redeemed append all happen under r.mu, so two concurrent redemptions
+// of the same code can no longer both register an actor — the second sees
+// Redeemed=true and fails with ErrInviteUsed.
 func (r *Registry) Redeem(ctx context.Context, actorID, code string) (string, *Invite, error) {
 	if actorID == "" {
 		return "", nil, fmt.Errorf("identity: actor id is required")
 	}
 	hash := sha256.Sum256([]byte(code))
-	inv, err := r.findInvite(ctx, hash[:])
-	if err != nil {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.foldLocked(ctx); err != nil {
 		return "", nil, err
+	}
+	inv, ok := r.invites[hex.EncodeToString(hash[:])]
+	if !ok {
+		return "", nil, ErrInviteUnknown
 	}
 	if inv.Redeemed {
 		return "", nil, ErrInviteUsed
 	}
-	token, err := r.RegisterWithToken(ctx, inv.CreatedBy, actorID, eventstore.ActorHuman, inv.Role, nil,
-		&ActorMeta{Description: "self-registered via invite"},
-		&eventstore.Basis{Type: "human", ID: inv.CreatedBy.ID})
-	if err != nil {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", nil, err
+	}
+	token := hex.EncodeToString(raw)
+	tokenHash := sha256.Sum256([]byte(token))
+	if _, err := r.registerLocked(ctx, inv.CreatedBy, actorID, eventstore.ActorHuman, inv.Role, nil,
+		tokenHash[:], &ActorMeta{Description: "self-registered via invite"},
+		&eventstore.Basis{Type: "human", ID: inv.CreatedBy.ID}); err != nil {
 		return "", nil, err
 	}
 	redeemed, _ := json.Marshal(Invite{CodeHash: inv.CodeHash, ActorID: actorID, Redeemed: true})
@@ -95,36 +109,40 @@ func (r *Registry) Redeem(ctx context.Context, actorID, code string) (string, *I
 	return token, inv, nil
 }
 
-// findInvite folds invite.* events (reusing the registry watermark machinery
-// would complicate the actor fold; invite volume is tiny — scan is fine, and
-// it runs only on registration attempts, never on the hot path).
+// foldInvite folds one invite.* event into the r.invites projection. Callers
+// hold r.mu (foldLocked). Returns true when the event was consumed here.
+func (r *Registry) foldInvite(e *eventstore.Event) bool {
+	if e.Kind != eventstore.InviteCreated && e.Kind != eventstore.InviteRedeemed {
+		return false
+	}
+	var inv Invite
+	if json.Unmarshal(e.Payload, &inv) != nil {
+		return true // unparseable invite event: consume (never matches a lookup)
+	}
+	key := hex.EncodeToString(inv.CodeHash)
+	if e.Kind == eventstore.InviteCreated {
+		cp := inv
+		r.invites[key] = &cp
+	} else if cur, ok := r.invites[key]; ok {
+		cur.Redeemed = true
+		cur.ActorID = inv.ActorID
+	}
+	return true
+}
+
+// findInvite resolves a code hash to its Invite via the O(1) projection
+// (LLD-10 PR-2, Cycle-A4). The projection is folded in lockstep with the actor
+// cache under the same mu/watermark; results are identical to the former full
+// journal scan (invite.created seeds, invite.redeemed marks on the same entry).
 func (r *Registry) findInvite(ctx context.Context, hash []byte) (*Invite, error) {
-	events, err := r.store.All(ctx)
-	if err != nil {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.foldLocked(ctx); err != nil {
 		return nil, err
 	}
-	var found *Invite
-	for _, e := range events {
-		if e.Kind != eventstore.InviteCreated && e.Kind != eventstore.InviteRedeemed {
-			continue
-		}
-		var inv Invite
-		if json.Unmarshal(e.Payload, &inv) != nil {
-			continue
-		}
-		if hex.EncodeToString(inv.CodeHash) != hex.EncodeToString(hash) {
-			continue
-		}
-		if e.Kind == eventstore.InviteCreated {
-			cp := inv
-			found = &cp
-		} else if found != nil {
-			found.Redeemed = true
-			found.ActorID = inv.ActorID
-		}
+	if inv, ok := r.invites[hex.EncodeToString(hash)]; ok {
+		cp := *inv
+		return &cp, nil
 	}
-	if found == nil {
-		return nil, ErrInviteUnknown
-	}
-	return found, nil
+	return nil, ErrInviteUnknown
 }

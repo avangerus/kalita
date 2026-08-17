@@ -252,6 +252,15 @@ func analyzeBlocks(ast *AST, m *Model, errs *Errors) {
 							fmt.Sprintf("permissions of %s reference unknown flag target %s", role, name),
 							hint)
 					}
+				case "erase":
+					for _, name := range item.Names {
+						if name == "subject" {
+							continue
+						}
+						errs.add(EUnknownFlagKind, "", item.Line,
+							fmt.Sprintf("permissions of %s reference unknown erase target %s", role, name),
+							"the only erasable target is `subject` — write `erase [subject]`")
+					}
 				}
 			}
 		}

@@ -78,6 +78,12 @@ func (r *upgradeReport) print(ok bool, summary string) {
 	}
 }
 
+// upgradeInsecureSkipTLSVerifyDefault is the single source of truth for
+// --insecure-skip-tls-verify's default (SEC-3, Cycle-A3): FALSE — a
+// self-signed deployment must pass the flag explicitly. The regression test
+// pins this default so it can never silently drift back to true.
+const upgradeInsecureSkipTLSVerifyDefault = false
+
 // upgradeCmd is `kalita upgrade` (LLD-03 §2), the docker-compose-first
 // orchestrator: preflight -> backup -> pull+verify -> stop -> start new ->
 // smoke -> node.upgraded, with an automatic rollback to the old image on a
@@ -99,7 +105,7 @@ func upgradeCmd(args []string) {
 	skipSigVerify := fs.Bool("skip-signature-verify", false, "proceed even if the image signature cannot be verified (cosign/key missing) — NOT recommended, use only until release signing is set up")
 	readyTimeout := fs.Duration("ready-timeout", 10*time.Minute, "how long to wait for /readyz after starting the new version")
 	healthURL := fs.String("health-url", "https://127.0.0.1:8443", "base URL of the node for the smoke checks (/healthz, /readyz)")
-	insecureSkipTLSVerify := fs.Bool("insecure-skip-tls-verify", true, "skip TLS certificate verification for smoke checks (the default compose deployment uses a self-signed cert)")
+	insecureSkipTLSVerify := fs.Bool("insecure-skip-tls-verify", upgradeInsecureSkipTLSVerifyDefault, "skip TLS certificate verification for smoke checks (a self-signed deployment must pass this EXPLICITLY)")
 	_ = fs.Parse(args)
 
 	if *to == "" {

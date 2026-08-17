@@ -49,6 +49,7 @@ type FieldDecl struct {
 	Format   string // serial format, e.g. "INV-{year}-{seq:5}", "" if absent
 	Label    string // human label (i18n), "" = use the field name
 	Picker   string // "<integration>.<fn>" — field is filled by a connector capability, "" if absent
+	PII      string // subject ref field name (crypto-shredding, LLD-16 §1), "" if absent
 }
 
 type EntityDecl struct {

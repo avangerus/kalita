@@ -242,8 +242,15 @@ func (s *Server) revokeCredential(w http.ResponseWriter, r *http.Request) {
 	if targetActorID == "" {
 		targetActorID = actor.ID
 	}
-	if targetActorID != actor.ID && actor.Type != eventstore.ActorHuman {
-		writeAuthRequired(w)
+	// D-014 (Cycle-A2): revoking ANOTHER actor's credential is an admin action
+	// (LLD-02 §4 intent: "сам актор или admin"). The v0 check only required the
+	// caller to be a human — any staff member could revoke a colleague's passkey
+	// and lock them out of signing. Self-revocation stays open to the actor.
+	if targetActorID != actor.ID &&
+		(actor.Type != eventstore.ActorHuman || actor.Role != s.eng.DefinitionApprover()) {
+		writeErr(w, &engine.Err{Code: engine.CodePermissionDenied,
+			Message: "only the actor themself or the node admin (role " + s.eng.DefinitionApprover() + ") may revoke this credential",
+			Rule:    "identity admin boundary (self-or-admin)"})
 		return
 	}
 	credID := r.PathValue("id")

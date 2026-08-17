@@ -269,6 +269,14 @@ func (s *Server) disableActor(w http.ResponseWriter, r *http.Request) {
 		writeAuthRequired(w)
 		return
 	}
+	// D-014 (Cycle-A2): disabling an actor is a node-admin action — the v0
+	// "any human disables anyone" model was a takeover/DoS vector (SEC-1).
+	if actor.Role != s.eng.DefinitionApprover() {
+		writeErr(w, &engine.Err{Code: engine.CodePermissionDenied,
+			Message: "only the node admin (role " + s.eng.DefinitionApprover() + ") may disable an actor",
+			Rule:    "identity admin boundary"})
+		return
+	}
 	err := s.reg.Disable(r.Context(), actor, r.PathValue("id"),
 		&eventstore.Basis{Type: "human", ID: actor.ID})
 	if err != nil {
@@ -296,6 +304,17 @@ func (s *Server) createInvite(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Role == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR",
 			"message": "role is required", "fix_hint": `send {"role": "Customer", "entity": "Customer", "record_id": "..."}`})
+		return
+	}
+	// D-014 (Cycle-A2): an invite carries a role grant. Granting the node-admin
+	// role (defApprover) is reserved to the admin role itself — otherwise any
+	// staff member could self-escalate to admin via the public /api/register.
+	// Staff inviting staff/customers stays v0 (documented KNOWN LIMITATION;
+	// a full role-grant model is a separate gated design).
+	if req.Role == s.eng.DefinitionApprover() && actor.Role != s.eng.DefinitionApprover() {
+		writeErr(w, &engine.Err{Code: engine.CodePermissionDenied,
+			Message: "only the node admin (role " + s.eng.DefinitionApprover() + ") may issue invites for that role",
+			Rule:    "identity admin boundary (admin-role invites)"})
 		return
 	}
 	code, err := s.reg.CreateInvite(r.Context(), actor, req.Role, req.Entity, req.RecordID, req.BindField,

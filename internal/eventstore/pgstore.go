@@ -96,6 +96,12 @@ func NewPGStore(ctx context.Context, dsn, schema string, nowFn func() time.Time)
 
 func (s *PGStore) Close() { s.pool.Close() }
 
+// Ping reports whether the Postgres journal is reachable — the readiness
+// probe's storage half: a dead database must fail /readyz, not pass it.
+func (s *PGStore) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
 // Append adds an event under an advisory lock that serializes writers.
 func (s *PGStore) Append(ctx context.Context, in AppendInput) (*Event, error) {
 	if in.Actor.ID == "" {
@@ -172,6 +178,57 @@ func (s *PGStore) Append(ctx context.Context, in AppendInput) (*Event, error) {
 
 const columns = `seq, event_id, ts, actor, kind, subject, payload, basis,
                  def_version, idempotency_key, prev_hash, hash, signature, schema_v`
+
+// Restore loads a verified event chain into an EMPTY journal, preserving every
+// event's seq/prev_hash/hash exactly as backed up (LLD-17 DR: `kalita backup
+// restore`). Refuses a non-empty journal (restore targets a FRESH database) and
+// re-verifies the chain before inserting a single row.
+func (s *PGStore) Restore(ctx context.Context, events []*Event) error {
+	if len(events) == 0 {
+		return fmt.Errorf("restore: no events to restore")
+	}
+	var n int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM events`).Scan(&n); err != nil {
+		return err
+	}
+	if n != 0 {
+		return fmt.Errorf("restore: journal is not empty (%d events) — restore targets a fresh database", n)
+	}
+	if err := VerifyChain(events); err != nil {
+		return fmt.Errorf("restore: chain does not verify: %w", err)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	for _, e := range events {
+		actorJSON, _ := json.Marshal(e.Actor)
+		subjectJSON, _ := json.Marshal(e.Subject)
+		var basisJSON []byte
+		if e.Basis != nil {
+			basisJSON, _ = json.Marshal(e.Basis)
+		}
+		var payload *string
+		if len(e.Payload) > 0 {
+			p := string(e.Payload)
+			payload = &p
+		}
+		var idem *string
+		if e.IdempotencyKey != "" {
+			idem = &e.IdempotencyKey
+		}
+		if _, err := tx.Exec(ctx, `
+            INSERT INTO events (seq, event_id, ts, actor, kind, subject, payload, basis,
+                                def_version, idempotency_key, prev_hash, hash, signature, schema_v)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+			e.Seq, e.EventID, e.TS, actorJSON, e.Kind, subjectJSON, payload, basisJSON,
+			e.DefVersion, idem, e.PrevHash, e.Hash, e.Signature, e.SchemaV); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
 
 type rowScanner interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row

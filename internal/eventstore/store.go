@@ -20,4 +20,7 @@ type Store interface {
 	ByIdemKey(ctx context.Context, key string) (*Event, error)
 	// Verify re-reads the journal and checks the hash chain.
 	Verify(ctx context.Context) error
+	// Ping reports whether the journal backend is reachable (liveness of the
+	// storage itself) — the readiness probe's journal half (LLD-09 §3).
+	Ping(ctx context.Context) error
 }

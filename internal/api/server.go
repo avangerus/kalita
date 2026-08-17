@@ -121,13 +121,20 @@ func New(eng *engine.Engine, reg *identity.Registry, opts ...Option) *Server {
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	s.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+	s.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		if s.eng == nil || s.eng.Model() == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "starting"})
 			return
 		}
+		// readiness must include the journal itself: a dead Postgres pool is
+		// NOT ready, even though the in-memory projection is up (LLD-09 §3).
+		if err := s.eng.Ping(r.Context()); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "degraded", "reason": "journal unreachable"})
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
+	s.mux.HandleFunc("GET /metrics", s.metrics)
 	s.mux.HandleFunc("GET /api/system", s.describe)
 	s.mux.HandleFunc("GET /api/meta", s.meta)
 	s.mux.HandleFunc("GET /api/records/{entity}", s.query)

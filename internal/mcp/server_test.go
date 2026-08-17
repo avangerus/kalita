@@ -92,7 +92,7 @@ var mutatingIdemTools = map[string]bool{
 	"revert_record": true, "rewind_record": true, "take_task": true,
 	"report_progress": true, "complete_task": true, "fail_task": true,
 	"comment": true, "propose_change": true, "emit_event": true,
-	"flag_ingest": true,
+	"flag_ingest": true, "erase_subject": true,
 }
 
 // call invokes a tool and decodes the single text content block.

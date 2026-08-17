@@ -90,6 +90,9 @@ func (s *FrozenStore) Verify(ctx context.Context) error {
 	return eventstore.VerifyChain(events)
 }
 
+// Ping reports the frozen journal as reachable (it is memory-resident).
+func (s *FrozenStore) Ping(ctx context.Context) error { return nil }
+
 // Append always fails: FrozenStore replays history, it does not extend it.
 // engine.New only calls All at construction time, so this is never exercised
 // by the replay gate; it exists solely to satisfy the Store interface.

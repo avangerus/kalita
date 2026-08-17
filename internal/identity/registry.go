@@ -40,6 +40,11 @@ type Registry struct {
 	// replaying actor.registered/actor.key_rotated, never itself journaled.
 	tokenIndex map[string]string
 
+	// invites is the invite projection (LLD-10 PR-2, Cycle-A4): hex(code hash)
+	// -> Invite, folded in lockstep with cache under the same mu/watermark.
+	// findInvite is O(1) instead of a full journal scan (invites.go).
+	invites map[string]*Invite
+
 	// lockdown state (LLD-10 §3), folded from node.lockdown/node.lockdown_lifted
 	// under the same mu as the actor cache — see lockdown.go.
 	lockdown     bool
@@ -54,7 +59,7 @@ type Registry struct {
 }
 
 func NewRegistry(store eventstore.Store) *Registry {
-	return &Registry{store: store, cache: map[string]*ActorInfo{}, tokenIndex: map[string]string{}}
+	return &Registry{store: store, cache: map[string]*ActorInfo{}, tokenIndex: map[string]string{}, invites: map[string]*Invite{}}
 }
 
 // ActorMeta describes what stands behind an actor — for agents: which model,
@@ -139,11 +144,23 @@ func (r *Registry) register(ctx context.Context, registrar eventstore.Actor, id 
 	if registrar.Type != eventstore.ActorHuman {
 		return nil, fmt.Errorf("identity: only humans register actors in v0, got %s", registrar.Type)
 	}
-	existing, err := r.lookup(ctx, id)
-	if err != nil {
+	// LLD-10 PR-1 (Cycle-A4): the existence check and the append are atomic —
+	// the whole register body holds r.mu, so two concurrent registrations of
+	// the same id can no longer both pass the nil check and double-append
+	// (which, under RegisterWithToken, would mint an orphan token whose hash
+	// never landed in the journal).
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.registerLocked(ctx, registrar, id, typ, role, pub, tokenHash, meta, basis)
+}
+
+// registerLocked is register's body; the caller holds r.mu (used by Redeem,
+// which must stay atomic across invite-check + registration + redeem-append).
+func (r *Registry) registerLocked(ctx context.Context, registrar eventstore.Actor, id string, typ eventstore.ActorType, role string, pub ed25519.PublicKey, tokenHash []byte, meta *ActorMeta, basis *eventstore.Basis) (*eventstore.Event, error) {
+	if err := r.foldLocked(ctx); err != nil {
 		return nil, err
 	}
-	if existing != nil {
+	if _, ok := r.cache[id]; ok {
 		return nil, ErrActorExists
 	}
 	payload, err := json.Marshal(actorPayload{ActorType: typ, Role: role, PublicKey: pub, TokenHash: tokenHash, Meta: meta})
@@ -164,22 +181,37 @@ func (r *Registry) register(ctx context.Context, registrar eventstore.Actor, id 
 // identity on first start, the same token slot on restarts (re-issued). If the
 // actor already exists, a fresh token is issued and the old one rotated out.
 func (r *Registry) EnsureActor(ctx context.Context, id string, typ eventstore.ActorType, role string, meta *ActorMeta) (string, error) {
-	existing, err := r.lookup(ctx, id)
-	if err != nil {
+	// LLD-10 PR-1 (Cycle-A4): hold r.mu across the existence check and the
+	// append, so a bootstrap EnsureActor cannot race a concurrent human
+	// Register of the same id into a double registration.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.foldLocked(ctx); err != nil {
 		return "", err
 	}
 	registrar := eventstore.Actor{Type: eventstore.ActorHuman, ID: "bootstrap", Role: "Owner"}
 	basis := &eventstore.Basis{Type: "human", ID: "bootstrap"}
-	if existing == nil {
-		return r.RegisterWithToken(ctx, registrar, id, typ, role, nil, meta, basis)
-	}
-	// already registered: rotate its token (re-issue), keep role/meta
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
 	token := hex.EncodeToString(raw)
 	hash := sha256.Sum256([]byte(token))
+	existing := r.cache[id]
+	if existing == nil {
+		payload, _ := json.Marshal(actorPayload{ActorType: typ, Role: role, PublicKey: nil, TokenHash: hash[:], Meta: meta})
+		if _, err := r.store.Append(ctx, eventstore.AppendInput{
+			Actor:   registrar,
+			Kind:    eventstore.ActorRegistered,
+			Subject: eventstore.Subject{ActorID: id},
+			Payload: payload,
+			Basis:   basis,
+		}); err != nil {
+			return "", err
+		}
+		return token, nil
+	}
+	// already registered: rotate its token (re-issue), keep role/meta
 	payload, _ := json.Marshal(actorPayload{ActorType: existing.Type, Role: existing.Role,
 		PublicKey: existing.PublicKey, TokenHash: hash[:], Meta: existing.Meta})
 	if _, err := r.store.Append(ctx, eventstore.AppendInput{
@@ -305,6 +337,10 @@ func (r *Registry) foldLocked(ctx context.Context) error {
 		// node.lockdown/node.lockdown_lifted carry no Subject.ActorID — fold
 		// them before the actor-subject skip below would otherwise drop them.
 		if r.foldLockdown(e) {
+			continue
+		}
+		// invite.* carry no Subject.ActorID either — fold before the skip.
+		if r.foldInvite(e) {
 			continue
 		}
 		id := e.Subject.ActorID

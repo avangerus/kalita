@@ -182,6 +182,9 @@ func analyze(ast *AST, errs *Errors) *Model {
 			if f.Computed != "" {
 				checkComputedAggregate(e, f, errs)
 			}
+			if f.PII != "" {
+				checkPII(m, e, f, errs)
+			}
 		}
 		for _, c := range e.Constraints {
 			for _, cf := range c.Fields {
@@ -417,6 +420,42 @@ func checkRefTarget(m *Model, e *EntityDecl, f *FieldDecl, errs *Errors) {
 		errs.add(EUnknownRef, e.File, f.Line,
 			fmt.Sprintf("%s.%s references undeclared entity %s", e.Name, f.Name, target),
 			"declare `entity "+target+":` in this pack or reference core.User")
+	}
+}
+
+// checkPII validates a pii field (LLD-16 §1): the subject must name a ref
+// field in the SAME entity (the data subject), and the pii field itself must
+// be a stored scalar — never computed/serial/file/ref.
+func checkPII(m *Model, e *EntityDecl, f *FieldDecl, errs *Errors) {
+	if f.Computed != "" {
+		errs.add(EBadModifier, e.File, f.Line,
+			fmt.Sprintf("%s.%s: pii cannot be computed", e.Name, f.Name),
+			"encrypt a stored value, not a derived one")
+		return
+	}
+	if f.Unique {
+		errs.add(EBadModifier, e.File, f.Line,
+			fmt.Sprintf("%s.%s: pii cannot be unique", e.Name, f.Name),
+			"encryption randomizes the ciphertext, so uniqueness is meaningless — drop unique")
+		return
+	}
+	var subj *FieldDecl
+	for _, sf := range e.Fields {
+		if sf.Name == f.PII {
+			subj = sf
+			break
+		}
+	}
+	if subj == nil {
+		errs.add(EUnknownRef, e.File, f.Line,
+			fmt.Sprintf("%s.%s pii subject=%s is not a field of %s", e.Name, f.Name, f.PII, e.Name),
+			"declare the subject ref field first, then `pii subject=<that field>`")
+		return
+	}
+	if subj.Type.Kind != TyRef {
+		errs.add(EBadModifier, e.File, f.Line,
+			fmt.Sprintf("%s.%s pii subject=%s must be a ref field", e.Name, f.Name, f.PII),
+			"the subject of personal data is a record ref (e.g. `employee: ref[core.User]`)")
 	}
 }
 

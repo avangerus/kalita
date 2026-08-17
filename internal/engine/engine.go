@@ -10,6 +10,7 @@ import (
 
 	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/eventstore"
+	"github.com/avangerus/kalita/internal/pii"
 )
 
 // Engine executes a compiled model over the journal. State is an in-memory
@@ -36,6 +37,7 @@ type Engine struct {
 	// generic Ed25519 `verify` hook above. See WithRequireHumanSignature.
 	requireHumanSig bool
 	blobs           BlobStore
+	pii             *pii.Store // per-subject key store (LLD-16); nil = pii disabled
 	now             func() time.Time
 	cal             businessCalendar        // working-time calendar for business_*_since
 	idxMu           sync.Mutex              // guards idxCache (built lazily under e.mu read side)
@@ -111,9 +113,22 @@ func WithVerifier(v func(ctx context.Context, actorID string, msg, sig []byte) e
 // WithTaskTTL sets the task lease duration (default 1h).
 func WithTaskTTL(d time.Duration) Option { return func(e *Engine) { e.taskTTL = d } }
 
+// WithPIIStore mounts the node's per-subject key store (LLD-16): fields
+// declared `pii subject=…` are sealed at journal time and opened on read; a
+// shredded subject reads back as a tombstone, never an error.
+func WithPIIStore(s *pii.Store) Option { return func(e *Engine) { e.pii = s } }
+
 // WithDefinitionApprover sets the role whose human signature applies
 // definition changes (default Owner).
 func WithDefinitionApprover(role string) Option { return func(e *Engine) { e.defApprover = role } }
+
+// DefinitionApprover returns the node's admin role: the role whose human
+// signature governs definition changes, shadow mode and core reference data.
+// The API layer uses it as the identity-admin boundary (D-014, Cycle-A2).
+// Read-only after construction — written once in New (or by the option
+// above, which is only ever applied there); no lock is needed and none
+// should be added without a mutation site.
+func (e *Engine) DefinitionApprover() string { return e.defApprover }
 
 // WithBusinessCalendar sets the working-time calendar used by business_*_since
 // (default Mon-Fri 09:00-18:00, no holidays).
@@ -645,6 +660,12 @@ func (e *Engine) DefVersion() uint64 {
 func (e *Engine) HeadSeq(ctx context.Context) (uint64, error) {
 	seq, _, err := e.store.Head(ctx)
 	return seq, err
+}
+
+// Ping reports whether the journal backend is reachable — the readiness
+// probe's storage half (LLD-09 §3): a dead Postgres must fail /readyz.
+func (e *Engine) Ping(ctx context.Context) error {
+	return e.store.Ping(ctx)
 }
 
 // entityOrErr resolves an entity declaration.

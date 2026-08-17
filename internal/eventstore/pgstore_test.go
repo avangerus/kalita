@@ -168,3 +168,50 @@ func TestPGConcurrentAppends(t *testing.T) {
 		t.Fatalf("want %d events, got %d", workers*each, len(events))
 	}
 }
+
+// TestPGRestartReplay — a record survives a node restart by pure journal
+// replay: write a journal, close the store (node stops), reopen a fresh store
+// over the same schema (node starts), and the chain verifies with no gaps.
+func TestPGRestartReplay(t *testing.T) {
+	dsn := os.Getenv("KALITA_TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("KALITA_TEST_PG_DSN not set")
+	}
+	ctx := context.Background()
+
+	boot, err := NewPGStore(ctx, dsn, "kalita_restart_boot", nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	if _, err := boot.pool.Exec(ctx, `DROP SCHEMA IF EXISTS kalita_restart CASCADE`); err != nil {
+		t.Fatalf("drop schema: %v", err)
+	}
+	boot.Close()
+
+	s1, err := NewPGStore(ctx, dsn, "kalita_restart", testClock())
+	if err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+	pgAppendN(t, s1, 100)
+	s1.Close() // the node stops
+
+	// a fresh store over the same journal is the node restarting.
+	s2, err := NewPGStore(ctx, dsn, "kalita_restart", testClock())
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer s2.Close()
+	if err := s2.Verify(ctx); err != nil {
+		t.Fatalf("chain must verify after restart: %v", err)
+	}
+	events, err := s2.All(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 100 {
+		t.Fatalf("replayed journal must have 100 events, got %d", len(events))
+	}
+	if events[0].Seq != 1 || events[99].Seq != 100 {
+		t.Fatalf("gapless seq after restart, got %d..%d", events[0].Seq, events[99].Seq)
+	}
+}
