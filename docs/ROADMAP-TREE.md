@@ -26,7 +26,7 @@ Add: **registration metadata** (model, endpoint, owner, description) in
 payload actor.registered → visible in UI and log; "Agents" screen (admin):
 list, status, disable, key/token rotation, last activity.
 
-## 2. v0.2 — Before the Pilot (≈2-3 weeks)
+## 2. v0.2 — Before the Pilot (shipped)
 
 Core:
 - [ ] singleton entities (`entity X: ... singleton`) for Settings

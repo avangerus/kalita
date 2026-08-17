@@ -24,6 +24,7 @@
 | [HLD.md](HLD.md) | Конституция: 7 принципов (spec→runtime, Lego, event-sourcing, подпись, agent=сотрудник, think-big/commit-small, on-prem) |
 | [HLD-V1.md](HLD-V1.md) | Расширение: инварианты I-1..I-6 + подсистемы (не заменяет HLD.md) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Якорь движка: команда→факт, двое ворот, base/extended, admission gate |
+| [forge/](forge/) | Карта системы для владельца: SYSTEM_TRUTH (что существует сейчас, из кода), SYSTEM_MAP, COMPONENTS, CURRENT_STATE |
 
 ## Язык и стандартная библиотека
 

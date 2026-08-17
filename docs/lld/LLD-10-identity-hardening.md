@@ -102,7 +102,11 @@ Consumer-auth (массовый self-signup, OAuth-соцвход, сброс п
 ## 7. PR-нарезка
 
 PR-1: атомарный Register + конкурентный тест (тест 1).
+      **НЕ реализовано (planned → DEVELOPMENT_GRAPH G6)** — check и append
+      остаются раздельными (registry.go:138-160, TOCTOU жив).
 PR-2: инвайт-проекция + Redeem под покрытием (тест 2).
+      **НЕ реализовано (planned → DEVELOPMENT_GRAPH G6)** — инвайты по-прежнему
+      full-scan журнала (invites.go:98-101).
 PR-3: `kalita lockdown`/`lockdown_lifted` + аварийный admin + Authenticate-
       заслонка + verify-окна (тесты 3, 4, 6). ← **ревью Fable** (аварийная
       семантика безопасности, необратимо).

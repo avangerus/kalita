@@ -58,7 +58,7 @@ an e-shop. One operator covers the whole map.
 ```mermaid
 flowchart TD
     H["Humans"] --> UI["Web UI<br/>notation-driven"]
-    A["AI agents"] --> MCP["MCP gateway<br/>31 tools"]
+    A["AI agents"] --> MCP["MCP gateway<br/>32 tools"]
     UI -->|REST| ENG
     MCP -->|JSON-RPC| ENG
     ENG["ENGINE<br/>DSL compiler · ABAC permissions<br/>workflows + HITL · automation<br/>computed fields · dashboards"]
@@ -175,7 +175,7 @@ row-scoped user sees totals over only their own rows — no separate "see all" g
 | **DSL compiler** | entities · rich types (money, email, file, `array[file]`, serial, duration…) · enums · refs & bidirectional links · workflows · ABAC permissions · automation · computed fields (arithmetic, aggregates, `days/hours/minutes_since` & `…_until`) · dashboards · i18n labels. Errors are `{code, file:line, message, fix_hint}` for agent self-correction. |
 | **Runtime** | CRUD + validation · guarded workflow transitions & auto-moves · **undo / time-travel** — one-step undo of any edit or transition, or rewind a record to any past point in its history, both as compensating events (history is never erased; the undo is itself journaled and reversible) · approval queue (signature-gated) · TTL task pool · automation triggers (schedule / event / stuck) · row-level ABAC on reads, writes **and** dashboard aggregates — direct (`where owner = $me`) and indirect (`where project.owner = $me`) scopes are served from secondary indexes, so the permitted-set query stays sub-millisecond on a 100k-row table instead of scanning it ([ADR-005](docs/adr/ADR-005-permitted-set-index.md)). |
 | **Event store** | append-only PostgreSQL journal · SHA-256 hash chain · DB-level immutability · node-key checkpoints · definitions and projections replay from the journal. |
-| **MCP gateway** | `31` tools at `/mcp` — generated count, see [MCP Contract](docs/MCP-CONTRACT-v1.md) (`kalita mcp contract`, gated against the code by `TestMcpContractMatchesCode`). An agent starts from an empty node, iterates DSL to green via `validate_dsl`, `propose_change`s a pack, and works inside it after a human signs — that loop is the acceptance test. |
+| **MCP gateway** | `32` tools at `/mcp` — generated count, see [MCP Contract](docs/MCP-CONTRACT-v1.md) (`kalita mcp contract`, gated against the code by `TestMcpContractMatchesCode`). An agent starts from an empty node, iterates DSL to green via `validate_dsl`, `propose_change`s a pack, and works inside it after a human signs — that loop is the acceptance test. |
 | **Generated UI** | one notation-driven client (no build step) renders any pack from per-actor metadata: lists, 3-column forms, kanban boards, record timelines, dashboards, the approval inbox, async people pickers. Invite-based customer portal with row-level visibility. |
 | **core.User** | built-in people directory projected from the identity registry — `ref[core.User]` pickers search it; no User table per pack. |
 
@@ -209,6 +209,7 @@ packs/crm/           Sales CRM — accounts, leads, pipeline, weighted forecast
 packs/eshop/         Online store — catalog, master-detail orders, fulfilment
 packs/devtrack/      Tracker where AGENTS do the tasks — assign → agent works → human accepts
 packs/finance/       Invoices, payments & receivables — a collections agent chases overdue debt
+packs/ap/            AP — incoming invoices, threshold approval ladder, checker agent
 packs/contracts/     Contract management — a legal agent reviews, two humans sign in sequence
 packs/hr/            leave & balances        packs/tracker/   Jira-like issues
 packs/knowvault/     RAG knowledge base      packs/boards/    simple boards
@@ -233,7 +234,7 @@ kalita**, not parts of it.
 [Roadmap](docs/ROADMAP.md) · [HLD](docs/HLD.md) · [DSL Spec](docs/DSL-SPEC-v0.md) ·
 [MCP Contract](docs/MCP-CONTRACT-v1.md) · [Event Store](docs/EVENT-STORE-v0.md) ·
 [Type System](docs/TYPE-SYSTEM-V1.md) · [Security threat model](docs/SECURITY.md)
-*(read before deploying beyond localhost)* · [ADRs](docs/adr/)
+*(read before deploying beyond localhost)* · [ADRs](docs/adr/) · [docs/forge — owner's map](docs/forge/)
 
 ## Layout
 
@@ -251,6 +252,8 @@ docs/          design documents + ADRs
 Pre-alpha. The MVP kernel is code-complete and the generated UI runs; the
 Service Desk / HR / CRM cores build on it without kernel gaps. The deploy-blocking
 **P0 security items are closed** (token-only auth, TLS with a non-loopback-plaintext
-refusal, same-origin + CSP); **P1** — WebAuthn for human non-repudiation, secrets
-management, token revocation — remains before the first external user. See
+refusal, same-origin + CSP); **P1 is implemented** — WebAuthn/passkey non-repudiation
+(`--require-human-signature` prod gate + `kalita verify --require-signed-approvals`),
+secrets management (`KALITA_SECRETS_FILE`/`KALITA_PG_DSN_FILE` chain), token
+revocation (`agent revoke`) and emergency lockdown (`kalita lockdown`). See
 [SECURITY.md](docs/SECURITY.md).

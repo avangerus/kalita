@@ -66,17 +66,30 @@ for the audit trail, struck through, with the mechanism that closed each.
    header-bearer (not cookie), so classic CSRF does not apply.
 
 ### P1 — Before the first external user (now the front line)
-4. **WebAuthn for humans** — currently human decisions are signed only when a
+4. ~~**WebAuthn for humans** — currently human decisions are signed only when a
    registered key is present; a token ≠ non-repudiation. A passkey makes the
-   signature evidential (key on device, Event Store spec §4).
-5. **Secrets:** PG DSN in env/.env; needs a config file with 0600 permissions
-   and docker secrets support.
-6. **Auth-failure logging** — to memory/log with IP rate-limit (not to the log,
-   see T6), alert on N failures.
-7. **Lockout/invalidation:** no emergency command to revoke all tokens.
+   signature evidential (key on device, Event Store spec §4).~~ **Closed:**
+   `internal/identity/webauthn.go` (HLD-V1 H1/LLD-02) — passkeys registered via
+   `actor.credential_registered`, approvals signed by the device key and verified
+   offline.
+5. ~~**Secrets:** PG DSN in env/.env; needs a config file with 0600 permissions
+   and docker secrets support.~~ **Closed:** `internal/secrets` (LLD-18 §1) —
+   0600 config file / docker-secrets `<NAME>_FILE` fallback; fail-fast on weak
+   permissions, secret values never logged.
+6. ~~**Auth-failure logging** — to memory/log with IP rate-limit (not to the log,
+   see T6), alert on N failures.~~ **Closed:** `internal/identity/authfail.go`
+   (LLD-10 §4) — IP rate-limit with aggregated `auth.throttled` events, not one
+   per attempt.
+7. ~~**Lockout/invalidation:** no emergency command to revoke all tokens.~~
+   **Closed:** `internal/identity/lockdown.go` (LLD-10 §3) — `kalita lockdown`
+   rejects every token except one emergency admin (hash-only in the journal).
 
 ### P2 — Before enterprise sales
-8. Crypto-shredding of payloads (reserved in Event Store §6).
+8. ~~Crypto-shredding of payloads (reserved in Event Store §6).~~ **Closed:**
+   `internal/engine/records.go` (`sealPII`) + `internal/pii` (LLD-16) —
+   per-subject-key encryption of declared `pii subject=…` fields on write;
+   destroying the key renders the data unreadable while the hash chain stays
+   intact.
 9. External checkpoint anchoring (client backup, notary).
 10. Dependency scanning in CI (govulncheck) + release signing.
 11. WASM sandbox escape hatch with capability model (the contract already requires it).

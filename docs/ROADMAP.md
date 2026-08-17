@@ -35,7 +35,7 @@ a customer touches it. Do the **known** work only.
 - **Security P0** (SECURITY.md §3) — **DONE**: token-only auth (dev headers
   off by default behind `--insecure-dev-auth`), TLS via `--tls-cert/--tls-key`
   with a non-loopback-plaintext start refusal, same-origin enforcement + CSP.
-  Next on this axis is **P1**: WebAuthn for human non-repudiation, secrets
+  **P1 — DONE**: WebAuthn for human non-repudiation, secrets
   management (config file / docker secrets), emergency token revocation.
 - **Deploy unit** — **DONE**: `docker compose up --build` brings up a node that
   serves HTTPS itself (self-signed cert generated on first boot), with the journal
@@ -48,7 +48,7 @@ a customer touches it. Do the **known** work only.
 - **Lock the spec** — **DONE**: DSL-SPEC-v0 reconciled to the shipped compiler
   (rich scalars, serial, mdg, array[file]/tags/multiselect, dashboards, i18n
   labels, aggregates + `*_since`/`*_until`/business calendars, ref-path scopes)
-  and marked frozen. All 10 packs + 3 acceptance examples compile clean.
+  and marked frozen. All 16 packs + 3 acceptance examples compile clean.
 - **Close only the *known* rough edges:** permission-scope narrowing (multi-term
   `and` intersection, `or`, `core.*` ref-paths — correct today, just scanning);
   constraints beyond `unique`. Resist adding speculative features here.
@@ -99,7 +99,6 @@ customer portal — with zero pack-specific UI code, served from disk (not embed
 in the binary). Remaining L1 is polish (white-label depth, side-by-side diffs).
 - **White-label / branding.** Per-client theming for the studio's multi-tenant
   on-prem model (one client = one node).
-- **Customer portal.** Invite-based, row-level visibility (already specced).
 
 **Exit criteria for L1:** any compiled pack is fully operable by a human in the
 browser — including approvals, audit, and undo — with zero pack-specific UI code.

@@ -19,7 +19,7 @@ ts              timestamptz
 actor           {type: human|agent|system, id, role}
 kind            see taxonomy
 subject         {entity, record_id} | {proposal_id} | {task_id} | {actor_id}
-payload         jsonb
+payload         TEXT  (not jsonb — byte fidelity for the hash chain, pgstore.go:20-23)
 basis           {type: task|rule|adr|human|approval, id}   — provenance
 def_version     SystemDefinition version at the time of the event
 idempotency_key nullable
@@ -56,13 +56,19 @@ New kinds are added only additively (like an enum in the DSL).
 | Agent | Ed25519 agent key (client-side request signature) | all mutations; the core verifies and stores the signature in the event |
 | Node | node key | checkpoints |
 
+> **OPEN QUESTION (G14, docs/forge/DEVELOPMENT_GRAPH.md):** «агент подписывает
+> все мутации» — НЕ реализовано; только approvals/definitions/checkpoints
+> подписываются. Решение — за владельцем (trust model), см. G14.
+
 Decision: no server-side storage of human keys — otherwise the signature has no evidentiary force ("the server could have done it itself"). The MVP includes WebAuthn from day 1: it is cheap (standard libraries) and cannot be retrofitted later.
 
 ## 5. Storage and projections
 
 - PostgreSQL, `events` table, partitioned by month; indexes: `(seq)`, `(subject)`, `(actor.id, ts)`, `(kind, ts)`. SMB node load profile — 10–100k events/month: trivial.
 - **Projections are updated in the same transaction as the event append** (single-node MVP: no eventual consistency, no outbox — you read exactly what you wrote). Async replay — only for rebuilding/recovery.
-- Projections v0: current-state tables per entity (jsonb + extracted index columns), task queue, signing queue, definition versions.
+  **Сверено с кодом (Cycle-002): строки 68–69 — pre-ADR-001 модель, НЕ реализована.**
+- Projections v0 (as originally specced, NOT implemented): current-state tables per entity (jsonb + extracted index columns), task queue, signing queue, definition versions.
+  **В v0 проекции in-memory** (реплей журнала при старте, PostgreSQL хранит только события) — ADR-001.
 - Files (`file` fields) — content-addressed storage alongside; the event holds the content hash.
 
 ## 6. Retention and "right to be forgotten"

@@ -1,5 +1,7 @@
 # Kalita MCP Contract v0
 
+> **SUPERSEDED by MCP-CONTRACT-v1 (генерируется из кода: `kalita mcp contract`)**
+
 Status: draft. The MCP server is a first-class agent interface (equal to the Web UI for humans). Transport: streamable HTTP (primary), stdio (local development).
 
 ## 0. Contract principles

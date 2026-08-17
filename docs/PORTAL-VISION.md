@@ -14,6 +14,9 @@ kalita capability for the SMB market.
 ## What is missing (plan, after MVP)
 1. **Self-registration of external users** — public registration with
    binding to a record (Customer) and role assignment; currently actors are created by an admin.
+   **Реализовано через инвайты** — одноразовый код + саморегистрация через
+   единственный публичный endpoint `POST /api/register` (internal/api/server.go:164,
+   handlers_ui.go:311; portal_test.go).
 2. **Content pages (storefront website)** — DO NOT extend the DSL to include layout
    (the order/freedom boundary): the storefront is custom pages/theme on top of
    the public API (UI-level escape hatch), the portal is generated.

@@ -152,23 +152,15 @@ kalita держит границу ДЕЙСТВИЯ агента (ABAC/HITL/жу
 StarGuard AI (Orion soft) — смежный слой, не конкурент: его можно поставить ПЕРЕД
 LLM-вызовами agent_runner. Но пока его нет, дыры наши:
 
-- **P1 нет анти-prompt-injection на ingest.** ЧАСТИЧНО закрыто для legal:
-  `workers/agent_runner/runner.py`'s `handle_legal` теперь зовёт
-  `workers/perimeter/detector.score()` на `Contract.terms` ДО промпта и, при
-  флаге, пишет `comment(internal=true)` на договор — видимый в аудите сигнал
-  (H4 layer 3), проверено на honeypot-корпусе (`testdata/honeypot/atk`,
-  `workers/agent_runner/test_runner.py::TestHandleLegalPerimeter`). Это
-  ТРИПВАЙР, не фильтр — ничего не блокирует; реальный бэкстоп остаётся
-  ABAC (доказано `TestDogfoodContractsPoisonedTermsCannotSelfApprove`). НЕ
-  закрыто: KnowVault по-прежнему индексирует «всю помойку» без детектора на
-  ingest, и нигде не журналируется core-событие `ingest.flagged`
-  (`eventstore.IngestFlagged` существует как Kind, но ни один MCP-тул его не
-  умеет Append — только `emit_event` для ПАКОВЫХ событий; `ingest.flagged` —
-  зарезервированный core kind, генерик-эмит не подходит). → (a) тот же паттерн
-  на KnowVault upload/ingest; (b) core MCP-тул или engine-хук, который реально
-  умеет журналировать `ingest.flagged` с source/reasons/score, чтобы сигнал
-  жил в самом journal, а не только в comment-треде одной записи. (2026-06-12,
-  расширено 2026-07-02 при DEMO-0 hardening)
+- **P1 нет анти-prompt-injection на ingest.** → **ЗАКРЫТО (Cycle-A5, верифицировано)**:
+  (a) KnowVault ingest: `workers/knowvault_indexer/indexer.py:601-620` гонит
+  `workers/perimeter/detector.score()` ДО индексации и при флаге пишет internal-коммент +
+  вызывает `flag_ingest` (pytest `test_perimeter_ingest.py`); (b) core-событие
+  `ingest.flagged` журналируется MCP-тулом `flag_ingest` (internal/mcp/tools.go:98 →
+  engine.FlagIngest; Go-тесты flag_ingest_test.go: permission-denied / journals-under-subject /
+  idempotent / unknown-record — зелёные). Это ТРИПВАЙР, не фильтр — реальный бэкстоп ABAC
+  (TestDogfoodContractsPoisonedTermsCannotSelfApprove). Остаточное: «block vs tripwire» —
+  KNOWN LIMITATION (решение продукта); Python-тесты вне CI до G5. (2026-06-12; закрыто Cycle-A5)
 - **P2 нет egress-DLP на LLM-вызовах.** Локальная LM Studio частично снимает (данные не покидают контур), но облачная модель = утечка бизнес-данных в провайдера без маскирования. → DLP-хук перед llm(), либо обязательный шлюз. (2026-06-12)
 - **P3 нет low-friction режима вставки.** Урок StarGuard: «reverse-proxy без изменений инфраструктуры» = нулевое трение. kalita = новый рантайм. → продумать «governed-слой поверх существующего» как режим входа (коннекторы — начало). (2026-06-12)
 
@@ -263,12 +255,12 @@ LLM-вызовами agent_runner. Но пока его нет, дыры наш�
   admin-модели терпимо (принято по образцу существующих ручек), но при
   первом продукте с несколькими человеческими ролями needs role-gate
   (например, только Owner меняет чужой пароль; актор меняет только свой).
-  → добавить проверку `actor.ID == id || actor.Role == approver` в
-  `setPassword`. **Это КЛАСС** (setPassword/disableActor/createInvite — все
-  «любой человек»); закрывать системно в **LLD-10** (identity hardening), не
-  патчить одну ручку вразнобой. Ревью Fable: принято как долг, обязателен к
-  закрытию ДО Legal-пилота с несколькими человеческими ролями.
-  (2026-07-02, LLD-05 PR-4)
+  → **FIXED Cycle-A2 (D-014)**: self-or-admin для setPassword/revokeCredential,
+  admin-only для disableActor, admin-role invites reserved admin'у; закрыт весь
+  класс (setPassword/disableActor/createInvite/revokeCredential). Остаточные v0
+  допущения (staff→staff инвайты; смена пароля не отзывает старый bearer-токен —
+  remediation: disable после reset) задокументированы в D-014.
+  (2026-07-02, LLD-05 PR-4; FIXED 2026-08, Cycle-A2)
 - **P2 нет self-service «забыли пароль».** `SetPassword`/CLI `user add
   --password` — только админский/CLI путь выставить начальный пароль; сброса
   по email/каналу нет (массовый self-service сознательно вне LLD-05 — внешний

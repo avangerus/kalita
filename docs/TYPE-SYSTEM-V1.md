@@ -29,6 +29,7 @@ The closed list is extended: `decimal(p,s)` (more precise than money), `duration
 (2d4h — normalized), `email`/`url`/`phone` (validated strings),
 `json` (constrained, for arbitrary metadata without a schema — use carefully),
 `color`, `geo`(lat,lng), `percent`. Each — with its own validation in the core.
+**geo — не в v0** (см. DSL-SPEC §14); остальные скаляры приняты.
 **tags: `array[string]`** and **multiselect `array[enum[...]]`** — Jira labels/
 components. All are added additively; they do not break existing packs.
 

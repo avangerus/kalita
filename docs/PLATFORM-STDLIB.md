@@ -38,14 +38,19 @@ LLD-16 (pii), core.notify (DSL-CORE-LIB §3).
    **Блокер всей горизонтали** (DSL-CORE-LIB §4): без него каждый пак копипастит.
 2. **`reference` (turnkey) + `core.reference`** — Currency, Country, Timezone,
    Unit, Language, ProductionCalendar-RU (LLD-13). Первоклассный конструкт справочника.
+   **Не построены (planned)** — в ядре только core.Calendar + mdg-словари (internal/dsl/core.go).
 3. **`core.User` + оргструктура** (Department + иерархия подчинения) + шаблоны
-   ролей (Owner/Approver/Viewer).
+   ролей (Owner/Approver/Viewer). **Не построены (planned)** — Department/
+   оргструктура отсутствует (core.User — виртуальная, identity-backed,
+   internal/dsl/core.go:7).
 
 ## C. Строить следом
 
 - **`core.notify`** — событие→канал→шаблон→настройка (спека: DSL-CORE-LIB §3;
   in-app=факт, внешнее=егресс+durable).
 - **`core.content`** — Comment (есть) + Attachment (content-addressed) + Tag.
+  **Comment реализован как механизм движка** — полиморфный поток на любую
+  запись, internal/engine/comments.go (не отдельная core-сущность).
 - **Авто-виды/поиск/фильтры** — платформа рендерит список/доску/карточку сама;
   пишешь только сохранённый фильтр.
 - **Шаблоны workflow** — Draft→Review→Approved→Archived, Approval-gate миксин;

@@ -162,6 +162,8 @@ Transition: `Source -> Target: action [auto] [when <guard>] [assignee=<Role>|age
   multi-party sign-off (e.g. legal then commercial), each a distinct signer.
 - The compiler checks reachability of every state, no transitions to/from
   non-existent states, and conflicts among auto-guards.
+  **Reachability и конфликты auto-guards — НЕ реализовано** (проверяются только
+  unknown states, E026_UNKNOWN_STATE); осталось как намерение.
 
 ## 5. Roles and permissions
 
@@ -184,7 +186,9 @@ permissions:
         read    all
 ```
 
-- Verbs: `read | create | update | delete | act [actions] | approve [actions] | full`.
+- Verbs: `read | create | update | delete | act [actions] | approve [actions] | full`
+  plus `deny`, `call` (connector capability `<integration>.<fn>`), `emit`,
+  `tail`, `flag`, `erase` — **13 verbs**, parser.go:665-669.
 - Row-level scope: `Entity where <expr>` (e.g. `read Debtor where manager = $me`,
   or indirect `read Task where project.owner = $me`). Direct and ref-path
   `= $me[.attr]` scopes are served from secondary indexes — the permitted-set
@@ -275,7 +279,9 @@ new automation; any UI/dashboard change. Forbidden in v0 (require an explicit
 export/migrate procedure): changing a field type, deleting/renaming a field or
 entity, deleting an enum value or state. Each accepted diff is a new
 SystemDefinition version; application is atomic; rollback is a reverse proposal
-through the same signing queue.
+through the same signing queue. **Rollback (SystemDefinition) — not implemented**
+(record-level undo exists via `revert_record`, internal/engine/revert.go; the
+definition rollback pipeline is not built — `definition.reverted` is taxonomy-only).
 
 ## 10. Reserved words (not implemented; forbidden as identifiers)
 
@@ -283,6 +289,10 @@ through the same signing queue.
 (layer-2 dry-run), `metric`, `system` (system-pack marker), `federation` /
 `remote` (cross-node references) — reserved so packs built today do not collide
 with these when they land.
+
+**`integration` — реализован** (parser.go:847-938: `integration Name:` with
+`read fn(params) -> tree|list`; semantic + merge + `call` verb + runtime proxy);
+остальные слова остаются зарезервированными.
 
 ## 11. System packs (v1 plan)
 

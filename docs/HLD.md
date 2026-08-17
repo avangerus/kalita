@@ -95,7 +95,7 @@ Directly modifying the system bypassing the pipeline does not exist as an API op
 
 ### 3.7 UI (generated)
 - From `ui` sections of the DSL: lists (filters, sorts, views), forms (sections, widgets by type), status boards, **signing queue** (the main human screen), object journal.
-- Implementation: SPA (React) on top of the Meta API; no manual layout per application. Custom widgets — via escape hatch.
+- Implementation: SPA (preact+htm, ADR-004) on top of the Meta API; no manual layout per application. Custom widgets — via escape hatch.
 
 ### 3.8 Escape Hatch (components)
 - External functions/components with a typed contract (typed input/output, side-effect declaration), called from DSL (`agent:` steps, computed fields, integrations, custom widgets).
@@ -122,9 +122,9 @@ Directly modifying the system bypassing the pipeline does not exist as an API op
 | Core | **Go** | best-in-class single static binary; the language of open-source infrastructure (Kubernetes, Terraform, Grafana, Temporal) → maximum contributor pool; small footprint for on-prem; simple language = smaller drift surface for agent-generated code. Founder's C# background is deliberately NOT a criterion: code is written by an agent pipeline; the language is chosen for the ecosystem |
 | Storage | PostgreSQL 16 | event log + jsonb projections + full-text; single dependency |
 | DSL parser | custom, hand-written recursive descent | the grammar is core IP; perfect error control and messages for agents are required |
-| Sandbox (escape hatch) | WASM (wazero, pure-Go) | determinism, capability-based, cross-platform (including Windows), language-agnostic components, ready for a marketplace of untrusted packs. Process isolation was rejected: not portable |
-| UI | React + Meta API | generated from metadata |
-| MCP | in core (HTTP + stdio) | first-class interface |
+| Sandbox (escape hatch) | WASM (wazero, pure-Go) | **отложено (→1.1)** — escape-hatch закрывают воркеры (T8); WASM не реализован |
+| UI | preact + Meta API (ADR-004) | generated from metadata |
+| MCP | in core (streamable HTTP; **stdio — нет**, не реализован) | first-class interface |
 | Deploy | Docker Compose (kalita + postgres); one client = one node | on-prem in 10 minutes; isolation "your node is your perimeter" instead of a shared schema |
 
 ---

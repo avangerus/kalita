@@ -9,7 +9,7 @@ DO NOT EDIT BY HAND. Regenerate after any tool change:
 if this file and the code disagree — the tool count and names below are
 honest by construction, not hand-maintained prose.
 
-**31 tools.**
+**32 tools.**
 
 ## `describe_system`
 
@@ -1114,6 +1114,58 @@ Input schema:
     "entity",
     "id",
     "source",
+    "basis",
+    "idempotency_key"
+  ],
+  "type": "object"
+}
+```
+
+## `erase_subject`
+
+Governed crypto-shredding (right to be forgotten): destroy a data subject's pii key and journal subject.erased. Irreversible. Requires an `erase [subject]` grant on your role (never inferred from any other grant) and idempotency_key.
+
+Input schema:
+
+```json
+{
+  "properties": {
+    "basis": {
+      "description": "provenance: what this mutation is based on",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "task",
+            "rule",
+            "adr",
+            "human",
+            "approval"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "type": "object"
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "subject_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "subject_id",
+    "reason",
     "basis",
     "idempotency_key"
   ],

@@ -4,6 +4,9 @@ Definition of 1.0: a paying client lives on a node within their own perimeter
 without our daily involvement. Everything in the list is derived from this
 definition. Recorded 2026-06-14. Estimates are in weeks of pipeline pace.
 
+> **Пересмотрено после v1.0-rc1 (2026-07-06): блокеры закрыты, см.
+> RELEASE-1.0.md; не сделано: WASM (→1.1), CONTRIBUTING, signed releases.**
+
 ## Blockers (cannot sell without these)
 
 ### Operations (≈2 wks)
