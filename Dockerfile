@@ -3,7 +3,12 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /kalita ./cmd/kalita
+# OPS-1 (Cycle-F1): the binary's version is injected at build time via
+# -X main.version — otherwise every image reports the "0.1.0-dev" default and
+# `kalita upgrade`'s journal version guard (upgrade.go) compares against a lie.
+# Build with: docker build --build-arg VERSION=v1.0.0 ...
+ARG VERSION=0.1.0-dev
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o /kalita ./cmd/kalita
 
 FROM alpine:3.20
 RUN apk add --no-cache openssl ca-certificates \

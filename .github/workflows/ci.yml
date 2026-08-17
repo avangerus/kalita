@@ -81,6 +81,25 @@ jobs:
           go-version-file: go.mod
       - run: go test -race -short -count=1 -timeout=10m ./...
 
+  # Python workers (TST-1, Cycle-F2): the agent/integration layer was entirely
+  # outside CI — the node's release evidence stopped at the Go boundary. This
+  # job runs the NETWORK-FREE worker tests (connectors, lib, perimeter) — the
+  # stdlib-only trust boundaries that must not regress: inbound connector's
+  # secret/whitelist/idempotency (test_inbound.py), the durable subscription
+  # library (test_subscribe.py), the prompt-injection detector (test_detector.py).
+  # Live-node workers (agent_runner, product_mcp, bridge, chat_runner,
+  # knowvault_indexer) need a running node and get their own job after the pilot.
+  workers:
+    name: python workers (network-free)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pytest
+      - run: python -m pytest workers/connectors/test_inbound.py workers/lib/test_subscribe.py workers/perimeter/test_detector.py -q
+
   # Node performance passport (docs/HLD-V1.md §H10, docs/RELEASE-1.0.md N6/N9):
   # P1 pilot mix, P2 bulk create, P3 journal replay, P4 auth storm — see
   # `make passport` / internal/engine/passport_bench_test.go /

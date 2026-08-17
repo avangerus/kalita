@@ -1,0 +1,46 @@
+# Kalita alerting rules (LLD-09 O5, PROD-READINESS §O5) — scraped from the
+# node's own /metrics by the operator's in-network Prometheus. Zero external
+# SaaS dependencies (SECURITY rule 6): the stack lives inside the client's
+# perimeter. Add this file to the deployment's Prometheus config.
+groups:
+  - name: kalita
+    rules:
+      - alert: KalitaNodeDown
+        expr: up{job="kalita"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "kalita node unreachable"
+
+      - alert: KalitaJournalStalled
+        expr: increase(kalita_journal_seq[1h]) == 0
+        for: 2h
+        labels:
+          severity: critical
+        annotations:
+          summary: "journal head not advancing — the node is not processing events"
+
+      - alert: KalitaApprovalBacklog
+        expr: kalita_pending_approvals > 10
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HITL approval backlog > 10 for 30m — humans are the bottleneck"
+
+      - alert: KalitaProposalsUnattended
+        expr: kalita_pending_proposals > 3
+        for: 24h
+        labels:
+          severity: warning
+        annotations:
+          summary: "pack proposals parked > 24h awaiting a human signature"
+
+      - alert: KalitaIngestFlags
+        expr: kalita_ingest_flags > 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "perimeter detector raised ingest flags — review flagged content"

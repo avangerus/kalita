@@ -42,3 +42,13 @@ tmp/
 
 # eval run artifacts (results are reproducible from the harness)
 workers/knowvault_eval/eval_results_*.json
+
+# Local node/runtime artifacts (day-2 drift; never committed — see docs/forge/G4_COMMIT_PLAN.md)
+/_bk*/
+/_anchor-node.*
+/_anchor.txt
+/_livetest*.log
+/_mcpbody.json
+/kalita-dsh-test.*
+/kalita-metrics.*
+/kalita.exe~

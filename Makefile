@@ -6,6 +6,14 @@
 test:
 	go test ./... -count=1 -cover
 
+# build compiles the node with its release version injected (OPS-1, Cycle-F1):
+#   make build VERSION=v1.0.0        # explicit
+#   make build                       # falls back to git describe (tag or dev)
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)
+.PHONY: build
+build:
+	go build -ldflags="-X main.version=$(VERSION)" -o bin/kalita ./cmd/kalita
+
 .PHONY: golden-test
 golden-test:
 	go test ./tests/... -run TestGoldenReplay -v

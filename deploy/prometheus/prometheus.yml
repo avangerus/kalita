@@ -1,0 +1,27 @@
+# Kalita Prometheus config (PROD-READINESS O5): the operator's in-perimeter
+# stack scrapes the node's own /metrics; zero external SaaS. The node serves
+# HTTPS with a self-signed cert by default, so the reference deployment pins
+# the node cert as a CA (SEC-3, Cycle-A3) instead of skipping verification.
+# Export it once after first boot (see docs/runbooks/README.md §8):
+#   docker cp kalita:/data/tls/node.crt /etc/prometheus/kalita-ca.crt
+global:
+  scrape_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: kalita
+    metrics_path: /metrics
+    scheme: https
+    tls_config:
+      # SEC-3: verify the node cert against the exported self-signed CA.
+      # The node's self-signed cert is CN/SAN=localhost (deploy/entrypoint.sh),
+      # so Prometheus must verify THAT name even though it dials the compose
+      # hostname `kalita` — server_name overrides both SNI and verification.
+      ca_file: /etc/prometheus/kalita-ca.crt
+      server_name: localhost
+      # Dev fallback only (NOT for production): replace ca_file with
+      #   insecure_skip_verify: true
+    static_configs:
+      - targets: ["kalita:8443"]
