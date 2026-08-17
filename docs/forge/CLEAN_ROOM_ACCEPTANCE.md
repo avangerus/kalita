@@ -29,4 +29,8 @@
 Все 16 шагов (кроме 16) пройдены буквально, без угадывания; где угадывали —
 открыть doc-gap.
 
-_Статус: НЕ запущен (ждёт чистой среды + независимого агента)._
+_Статус: частично прогнан в сессии (smoke installability, 2026-08): build с
+`-X main.version=v1.0-rc` → `kalita version` = v1.0-rc ✅; `serve --pack packs/ap`
+→ /healthz {"status":"ok"} ✅, /readyz {"status":"ready"} ✅ (пак скомпилирован).
+Полные шаги 4–16 (user/agent/workflow/approval/restart/backup/restore/upgrade) —
+требуют Postgres + оператора (чистая среда)._

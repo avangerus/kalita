@@ -24,16 +24,13 @@
 
 ## 3. Что изменилось с прошлого цикла?
 
-- **Milestone A (Trusted Kernel) — ПРОЙДЕН**: skeptic_pro + review_security_pro →
-  **KERNEL READY FOR PILOT** (staff-only scope). Cycles A1 (аудит) → A2 identity admin
-  boundary (D-014) → A3 operator trust (D-015) → A4 registry atomicity (D-016) → A5 SEC-2
-  верификация. Закрыты P1: setPassword impersonation (A2), анти-prompt-injection (A5);
-  P2: OPS-2/SEC-3 (A3), LLD-10 (A4). Каждый цикл — Pro-reviewers ACCEPT; полный
-  `go test ./...` зелёный (325 PASS / 12 SKIP / 0 FAIL).
-- **Cycle-003 завершён (ACCEPT)**: Decide перепроверяет guard (D-013); deny-строки ap —
-  defense-in-depth.
-- **Release-трекинг**: RELEASE_BLOCKERS/SCORECARD/KERNEL_PRESSURE ведутся; G4 (коммит) и
-  G2 (egress-семантика) — открытые гейты владельца.
+- **Release Candidate готов (v1.0, staff-only)**: Milestones A (kernel) / B (integration) /
+  C (model) / F (operability) / G (security threat-model ACCEPT) / H (performance) / J
+  (сценарии dogfood) — пройдены с evidence; I (clean-room) — чеклист готов, прогнать
+  оператору. Тесты: `go vet` чистый, `go test ./...` **345 PASS / 12 SKIP / 0 FAIL**,
+  golden replay зелёный. 7 локальных коммитов (6385409..eeb0edd), push — владельцем.
+  RC-артефакты: RELEASE_CANDIDATE.md, THREAT_MODEL.md, CLEAN_ROOM_ACCEPTANCE.md.
+  Финал — **OWNER RELEASE APPROVAL**.
 
 ## 4. Над чем работают агенты?
 
