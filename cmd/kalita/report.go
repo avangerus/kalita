@@ -121,6 +121,12 @@ func egressReportCmd(args []string) {
 			whitelists[a.ID] = a.Meta.EgressDomains
 		}
 	}
+	// the NODE's own webhook runner (Cycle-B1): its declared whitelist is the
+	// operator's KALITA_EGRESS_DOMAINS — an in-allowlist delivery is not an
+	// anomaly in the report.
+	if d := os.Getenv("KALITA_EGRESS_DOMAINS"); d != "" {
+		whitelists[engine.WebhookRunnerActorID] = parseEgressDomains(d)
+	}
 
 	events, err := store.All(ctx)
 	if err != nil {

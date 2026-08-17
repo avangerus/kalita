@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -50,6 +51,13 @@ import (
 //	    ref:     string
 const EgressCalledEventName = "EgressCalled"
 
+// WebhookRunnerActorID is the system-actor id under which the NODE's own
+// webhook runner journals its deliveries (Cycle-B1 / D-011). It is NOT a
+// worker: its "declared whitelist" is the operator's KALITA_EGRESS_DOMAINS,
+// passed into BuildEgressReport by `kalita egress-report` (see
+// FoldWebhookDeliveries), so an in-allowlist node delivery is not an anomaly.
+const WebhookRunnerActorID = "webhook-runner"
+
 // EgressCall is one observed external call.
 type EgressCall struct {
 	Worker  string // authenticated actor id (NOT a self-reported payload field)
@@ -84,7 +92,44 @@ type eventEmittedFold struct {
 // an anomaly, not silently passed (LLD-09 §3, honest lite boundary).
 func BuildEgressReport(events []*eventstore.Event, whitelists map[string][]string, since, now time.Time) *EgressReport {
 	rep := &EgressReport{Since: since, Until: now}
+	// First pass: index webhook delivery tasks by task id (Cycle-B1) so their
+	// settle events can be folded as node egress below.
+	webhookURLs := map[string]string{}
 	for _, ev := range events {
+		if ev.Kind != eventstore.TaskCreated {
+			continue
+		}
+		var tp taskPayload
+		if json.Unmarshal(ev.Payload, &tp) != nil || tp.Kind != TaskWebhook {
+			continue
+		}
+		webhookURLs[ev.Subject.TaskID] = tp.Args
+	}
+	for _, ev := range events {
+		if ev.Kind == eventstore.TaskCompleted || ev.Kind == eventstore.TaskFailed {
+			u, ok := webhookURLs[ev.Subject.TaskID]
+			if !ok || ev.TS.Before(since) {
+				continue
+			}
+			domain := webhookHost(u)
+			call := EgressCall{
+				Worker: WebhookRunnerActorID, Domain: domain,
+				Purpose: "webhook delivery", Ref: ev.Subject.TaskID, TS: ev.TS,
+			}
+			declared := whitelists[WebhookRunnerActorID]
+			if len(declared) == 0 {
+				call.Anomaly = true
+				call.Reason = "node has no KALITA_EGRESS_DOMAINS whitelist"
+			} else if !containsDomain(declared, domain) {
+				call.Anomaly = true
+				call.Reason = fmt.Sprintf("domain %s is outside the node's KALITA_EGRESS_DOMAINS", domain)
+			}
+			if call.Anomaly {
+				rep.Anomalies++
+			}
+			rep.Calls = append(rep.Calls, call)
+			continue
+		}
 		if ev.Kind != eventstore.EventEmitted {
 			continue
 		}
@@ -130,6 +175,17 @@ func containsDomain(declared []string, domain string) bool {
 		}
 	}
 	return false
+}
+
+// webhookHost extracts the normalized host from a webhook task's URL arg.
+// Normalization matches the runner's enforcement (Cycle-B1): lowercase,
+// trailing-dot stripped, no port, no path. An unparseable URL yields "".
+func webhookHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
 }
 
 // RenderMarkdown renders "what left the perimeter" — anomalies first, then

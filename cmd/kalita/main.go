@@ -412,6 +412,7 @@ func serve(args []string) {
 	pack := fs.String("pack", "", "genesis pack directory, or a comma-separated list of pack directories to load together on this node (optional: empty node accepts its first pack via propose_change)")
 	listen := fs.String("listen", "127.0.0.1:8080", "listen address")
 	approver := fs.String("approver", "Owner", "role whose human signature applies definition changes")
+	egressDomains := fs.String("egress-domains", os.Getenv("KALITA_EGRESS_DOMAINS"), "comma-separated allowlist of hosts the node's webhook runner may deliver to (KALITA_EGRESS_DOMAINS); empty = no outbound webhooks (fail-closed, Cycle-B1)")
 	tlsCert := fs.String("tls-cert", "", "TLS certificate file")
 	tlsKey := fs.String("tls-key", "", "TLS key file")
 	dataDir := fs.String("data-dir", "kalita-data", "node key directory (node.key/node.pub)")
@@ -631,6 +632,33 @@ func serve(args []string) {
 			}
 		}
 	}()
+	// the webhook runner (Cycle-B1 / D-011): delivers TaskWebhook intentions
+	// under the node-level egress whitelist, at-least-once with a deterministic
+	// idempotency_key. Faster than Tick — delivery latency, not schedule.
+	// An EMPTY allowlist leaves the runner disabled (fail-closed): tasks stay
+	// pending rather than being failed, so configuring KALITA_EGRESS_DOMAINS
+	// later does not lose their intent.
+	webhookDomains := parseEgressDomains(*egressDomains)
+	if len(webhookDomains) > 0 {
+		go func() {
+			tick := time.NewTicker(10 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					n := runWebhookDeliveries(context.Background(), eng, webhookDomains, deliverOnce)
+					if n > 0 {
+						log.Printf("webhook runner: settled %d task(s)", n)
+					}
+				}
+			}
+		}()
+		log.Printf("webhook runner: %d allowed egress domain(s) [%s]", len(webhookDomains), strings.Join(webhookDomains, ", "))
+	} else {
+		log.Printf("webhook runner: DISABLED — KALITA_EGRESS_DOMAINS empty (fail-closed, no outbound delivery)")
+	}
 	// hourly checkpoint seals the head with the node key (plus one at boot)
 	go func() {
 		seal := func() {

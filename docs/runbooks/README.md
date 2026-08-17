@@ -83,6 +83,9 @@ kalita verify --pub node.pub                      # чекпоинты + офл�
 kalita verify --pub node.pub --require-signed-approvals   # каждое approve обязано иметь passkey
 kalita report --since 7d --format md              # «неделя в цифрах», чистый fold по журналу
 kalita egress-report --since 7d                   # что ушло за периметр vs whitelist
+# egress-report включает доставки webhook-раннера ноды (Cycle-B1): их «whitelist» —
+# KALITA_EGRESS_DOMAINS; доставка вне allowlist не выполняется (fail-closed), а в
+# отчёте видна как аномалия только если allowlist был настроен иначе.
 ```
 
 **Критерий успеха:** `verify` печатает «checkpoints ok: history is provably unrewritten».

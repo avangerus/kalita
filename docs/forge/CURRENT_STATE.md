@@ -75,10 +75,8 @@ A5 SEC-2 → exit-review «KERNEL READY FOR PILOT» (skeptic+security).
 
 ## 8. Нужен ли от вас decision?
 
-1. **G4 — коммит day-2 слоя** (92 dirty-файла): инвентаризация + секрет-аудит готовятся
-   Forge-агентом; объём/состав серий коммитов и push — за вами (HUMAN GATE).
-2. **G2 egress-семантика** (webhook-раннер): какие домены/кто решает — до Milestone B.
-3. **SEC-5 scope пилота**: staff-only портал (consumer-auth → KNOWN LIMITATION) или нужен
-   consumer-auth до пилота?
-4. **EVENT-STORE §4** (подписи агентов над мутациями): понизить документ (рекомендую) или реализовать.
-5. **G8 (PII-AAD), G13 (кросс-пак ref)** — когда брать (после пилота?).
+1. ~~G4 — коммит day-2 слоя~~ → **ВЫПОЛНЕН (5 локальных коммитов: 6385409..43f90c7; push — ваш)**.
+2. ~~G2 egress-семантика~~ → **РЕШЕНО владельцем**: node-level KALITA_EGRESS_DOMAINS + audit egress-report; at-least-once + idempotent business effect; Y = reference/mock payment endpoint.
+3. ~~SEC-5 scope пилота~~ → **РЕШЕНО**: staff-only; consumer-auth = KNOWN LIMITATION.
+4. EVENT-STORE §4 (подписи агентов) — понизить документ (рекомендую) или реализовать.
+5. G8 (PII-AAD), G13 (кросс-пак ref) — когда брать (после пилота?).

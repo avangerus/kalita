@@ -11,7 +11,7 @@
 | Persistence/replay | 🟢 GREEN | TestGoldenReplay (замороженные журналы), TestWorkflowReplay, TestReplayBudget1M (<5с), SHA-256 цепочка VerifyChain; PG-триггер неизменяемости. |
 | Permissions | 🟢 GREEN | abac_test, lld20_update_perms_test, deny>allow fail-closed, agent-boundedness dogfood (ap); permitted-set index (ADR-005). |
 | HITL | 🟢 GREEN | Cycle-003: guard перепроверяется в Decide (8 регрессий); LLD-02 WebAuthn + offline-verify; D-009 асимметрия зафиксирована; TestDebtorLifecycle. |
-| Integration | 🔴 RED | egress-доставка отсутствует (D-011, INT-1); inbound.py без теста; reference-сценарий X→approve→Y с retry/restart не доказан (Milestone B). |
+| Integration | 🟢 GREEN | **Milestone B PROVEN**: webhook-раннер (B1) + reference-сценарий X→approve→Y с retry/restart/duplicate без двойного эффекта (B2); ingress (inbound/subscribe) + secrets-модель. KNOWN LIMITATION: IDN/DNS-rebinding (LIM-9). |
 | Packs | 🟢 GREEN | 16 паков + 3 примера компилируются (TestAllPacksCompile); ap live acceptance 19/19 (Cycle-001); finance/servicedesk/crm dogfood. |
 | Agent governance | 🟡 YELLOW | Agents = identity-bound (LLD-20 field-scope, deny-блоки, no-approve) — dogfood-тесты. НО: воркеры вне CI (TST-1); EVENT-STORE §4 open question (G14). |
 | UI | 🟡 YELLOW | buildless preact UI из meta; static-тесты. НО: без браузерных smoke (LIM-2). |
@@ -29,7 +29,7 @@
 | Milestone | Статус | Evidence |
 |---|---|---|
 | A · Trusted Kernel | ✅ **ПРОЙДЕН** | Skeptic + Security «KERNEL READY FOR PILOT» (2026-08); Cycles 003/A2–A5 |
-| B · Real Integration Boundary | 🟡 в работе | План: milestone-b-plan.md; ingress-семантика доказана (subscribe/inbound); B3 secrets-модель ✅ верифицирована; B1 webhook-раннер — HUMAN GATE G2 |
+| B · Real Integration Boundary | 🟢 PROVEN | webhook-раннер (Cycle-B1, D-017) + reference-сценарий X→approve→Y с failure-injection (Cycle-B2): переживает outage/retry/duplicate/restart без двойного эффекта — webhooks_integration_test.go; ingress уже доказан (inbound/subscribe) |
 | C · Enterprise Model Completeness | 🟢 core-exit PROVEN | 3+ домена end-to-end без Go-кода: ap/finance/servicedesk/crm dogfood-тесты зелёные (internal/mcp/*_dogfood_test.go); kernel-pressure-записи в KERNEL_PRESSURE.md |
 | D · Business Expert Layer | 🔴 не начат | после A–C |
 | E · Self-Building Experience | 🔴 не начат | — |
@@ -41,8 +41,9 @@
 
 ## Сводка
 
-- 🟢 7 / 🟡 8 / 🔴 2 (Integration, Business expert).
-- **Milestone A (Trusted Kernel) — ПРОЙДЕН**: Skeptic + Security «KERNEL READY FOR PILOT».
+- 🟢 8 / 🟡 7 / 🔴 1 (Business expert).
+- **Milestone A (Trusted Kernel) — ПРОЙДЕН**; **Milestone B (Integration) — PROVEN**;
+  **Milestone C core-exit — PROVEN**; F/H — GREEN/измерено.
 - Business expert — осознанно RED (Milestone D после A–C).
-- Integration RED — **Milestone B** (G2 webhook-раннер + reference-сценарий X→Y; HUMAN GATE владельца на egress-семантику — см. milestone-b-plan.md).
-- До RC обязательны: все MUST FIX (или явные exceptions), Milestones B, G, I, J.
+- До RC: Milestones G (adversarial security), I (clean-room), J (3 сценария), затем
+  финальный OWNER RELEASE APPROVAL.

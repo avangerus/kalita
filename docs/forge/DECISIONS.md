@@ -118,6 +118,30 @@
   не создают identity) — POST-RELEASE (PR-6). Журнал/DSL не тронуты.
 - **Отмена**: да.
 
+### D-017 · Cycle-B1: webhook delivery runner (G2/D-011, Milestone B)
+- **Проблема**: `webhook out` журналировал TaskWebhook, но нода не доставляла — egress мёртв
+  (D-011); reference-сценарий X→approve→Y невозможен.
+- **Решения владельца**: node-level KALITA_EGRESS_DOMAINS (enforcement) + egress-report
+  (audit); доставка at-least-once, business effect обязан быть idempotent; Y = mock payment.
+- **Решение**: in-process runner в `serve` (тик 10s, gated на непустом allowlist; пустой
+  allowlist = runner выключен, задачи остаются pending). Enforcement fail-closed: host из
+  URL нормализуется (lowercase/trailing-dot/port) и сверяется точно (без префикс-матча);
+  redirect-клиент не следует (CheckRedirect=ErrUseLastResponse). Доставка с retry cap 5 +
+  backoff; payload = {idempotency_key: "webhook:<taskID>" (детерминированный), entity,
+  record_id, values}; успех → SettleWebhookTask(completed) + фолд в egress-report под
+  WebhookRunnerActorID; постоянная ошибка → SettleWebhookTask(failed). Шатдаун оставляет
+  задачу open (повтор при следующем старте с тем же ключом).
+- **Почему**: at-least-once + детерминированный ключ = exactly-once ЭФФЕКТА на приёмнике
+  (паттерн subscribe.py); whitelist enforcement — до любого сетевого вызова.
+- **Последствия**: engine.OpenWebhookTasks/SettleWebhookTask/WebhookRecordValues;
+  cmd/kalita/webhooks.go; egress-report фолдит доставки ноды. 8 тестов (engine 2 + cmd 6).
+  Journal-схема не менялась (task.completed/failed + event.emitted).
+- **Остаточное (reviewers, pilot-grade)**: (1) payload несёт живые values на момент
+  доставки (не на момент задачи) — задокументировано; (2) IDN/punycode-гомограф и
+  DNS-rebinding на allowlist — KNOWN LIMITATION (LIM-9); (3) PII в payload — sealed-шифртекст,
+  приёмник — mock (доверенный).
+- **Отмена**: да.
+
 ### D-011 · Cycle-001 (Skeptic P1): egress-шов — событие + webhook-задача, доставка — kernel-gap
 - **Проблема**: `when status changed to X` — предикат отсутствует в expr-грамматике (молча false); act-переходы не триггерят on-event правила; в cmd/kalita нет webhook-раннера — «интеграция Y» была мёртвым кодом.
 - **Решение**: send_to_payment emits `InvoiceSentToPayment`; automation `on event InvoiceSentToPayment: webhook out ...` журналирует TaskWebhook (проверено тестом). Доставка (runner ноды, retries, egress-whitelist) — kernel-gap, ROADMAP Next (KALITA CORE/PLUGIN).

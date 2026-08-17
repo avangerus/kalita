@@ -254,6 +254,75 @@ func (e *Engine) FailTask(ctx context.Context, actor eventstore.Actor, taskID, r
 	return e.finishTask(ctx, actor, taskID, eventstore.TaskFailed, TaskFailed, reason, idemKey)
 }
 
+// OpenWebhookTasks lists open webhook delivery tasks (Cycle-B1 / D-011).
+// Webhook tasks carry no role, so the role-scoped Tasks() does not see them;
+// the node's webhook runner drives them directly.
+func (e *Engine) OpenWebhookTasks() []*Task {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	var out []*Task
+	for _, t := range e.tasks {
+		if t.Kind == TaskWebhook && t.Status == TaskOpen {
+			out = append(out, t)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// WebhookRecordValues returns the record's current values for a webhook
+// delivery (Cycle-B1 / D-011). It is an INTERNAL read for the node's own
+// trusted runner, not an ABAC subject — the webhook task was already created
+// by automation under the engine's authority. Sealed PII fields are included
+// as their ciphertext (the mock reference endpoint does not unseal them).
+func (e *Engine) WebhookRecordValues(entity, recordID string) (map[string]any, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	rec, ok := e.records[entity][recordID]
+	if !ok {
+		return nil, false
+	}
+	return rec.Values, true
+}
+
+// SettleWebhookTask finishes a webhook delivery attempt (Cycle-B1 / D-011).
+// Webhook tasks are never "taken" through the role-scoped pool (they have no
+// role), so the ordinary finishTask's taken-by check does not apply: the node
+// runner settles an OPEN task directly — completed on success, failed on a
+// permanent delivery error. Idempotent under idemKey; settling an already
+// settled task is a conflict.
+func (e *Engine) SettleWebhookTask(ctx context.Context, taskID string, ok bool, text, idemKey string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	t, found := e.tasks[taskID]
+	if !found {
+		return &Err{Code: CodeNotFound, Message: "task " + taskID + " not found"}
+	}
+	if t.Kind != TaskWebhook {
+		return &Err{Code: CodeConflict, Message: "task " + taskID + " is not a webhook task"}
+	}
+	if t.Status == TaskCompleted || t.Status == TaskFailed {
+		return &Err{Code: CodeConflict, Message: "webhook task already " + string(t.Status)}
+	}
+	kind, status := eventstore.TaskCompleted, TaskCompleted
+	if !ok {
+		kind, status = eventstore.TaskFailed, TaskFailed
+	}
+	payload, _ := json.Marshal(taskPayload{Result: text, Reason: text})
+	if _, err := e.store.Append(ctx, eventstore.AppendInput{
+		Actor: autoActor, Kind: kind,
+		Subject: eventstore.Subject{TaskID: taskID},
+		Payload: payload, DefVersion: e.defVersion,
+		Basis:          &eventstore.Basis{Type: "rule", ID: "webhook-runner"},
+		IdempotencyKey: idemKey,
+	}); err != nil {
+		return err
+	}
+	t.Status = status
+	e.noteScheduleTaskFinished(t)
+	return nil
+}
+
 func (e *Engine) finishTask(ctx context.Context, actor eventstore.Actor, taskID string, kind eventstore.Kind, status TaskStatus, text, idemKey string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

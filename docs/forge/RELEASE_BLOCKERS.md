@@ -22,8 +22,8 @@ _На момент Cycle-003 — пусто. Нет unresolved P0; каждый 
 | SEC-3 | ~~`upgrade --insecure-skip-tls-verify` default true; prometheus insecure_skip_verify~~ → **FIXED Cycle-A3** (default false + ca_file/server_name; D-015) | P2 SECURITY | upgrade.go:102; deploy/prometheus/prometheus.yml:15 | ✅ закрыт |
 | SEC-4 | PII-AAD = только subjectID (поле можно перенести) — перед пилотом с чужими персданными | P2 SECURITY | pii.go:111 vs LLD-16 §1; G8 (gate владельца — миграция ключей) | G8 (HUMAN_GATE) |
 | SEC-5 | consumer-auth отсутствует (portal для внешних пользователей) — **РЕШЕНИЕ ВЛАДЕЛЬЦА: staff-only pilot; consumer-auth = KNOWN LIMITATION** | P1 SECURITY | TECHDEBT.md:144 | ✅ accepted exception (owner, 2026-08) |
-| INT-1 | webhook-доставка: задача есть, runner ноды нет — egress мёртв | P1 MISSING CAPABILITY | engine/automation.go:290-294; D-011; G2 (gate владельца — семантика whitelist) | G2 (HUMAN_GATE) |
-| INT-2 | Reliability-семантика доставки не определена (at-least-once? idempotency? DLQ?) | P1 DESIGN | Milestone B миссии | G2-цикл |
+| INT-1 | ~~webhook-доставка: задача есть, runner ноды нет — egress мёртв~~ → **FIXED Cycle-B1** (D-017: in-process runner + KALITA_EGRESS_DOMAINS fail-closed) | P1 MISSING CAPABILITY | engine/automation.go:290-294; D-011 | ✅ закрыт |
+| INT-2 | ~~Reliability-семантика доставки не определена~~ → **FIXED Cycle-B1/B2** (at-least-once + детерминированный idempotency_key + retry cap 5 + reference-сценарий с failure-injection) | P1 DESIGN | Milestone B | ✅ закрыт |
 | OPS-1 | ~~in-code `version = "0.1.0-dev"` не связан с тегом; upgrade-гейт сравнивает по нему~~ → **FIXED Cycle-F1** (Dockerfile ARG VERSION + Makefile build таргет; `-X main.version` инъекция; проверено `kalita version`) | P2 BUG | cmd/kalita/main.go:31; Dockerfile:6; Makefile | ✅ закрыт |
 | OPS-2 | ~~`verify` читает только PG, а backup советует файл journal.jsonl~~ → **FIXED Cycle-A3** (verify --file через loadVerifiedBackup; D-015) | P2 BUG | backup.go:136-137 vs main.go:89-94 | ✅ закрыт |
 | OPS-3 | `kalita upgrade` неработоспособен из коробки (нет publish/cosign) | P2 MISSING | upgrade.go:108-111; ci.yml без release | Milestone F |
@@ -43,6 +43,7 @@ _На момент Cycle-003 — пусто. Нет unresolved P0; каждый 
 | LIM-6 | federation — уровень воркеров (bridge), не ядра; демо не прогнано end-to-end | deploy/federation-demo | SYSTEM_TRUTH Flow G |
 | LIM-7 | findTransition==nil в Decide — legacy fail-open synthetic-переход (логируется + метрика) | D-013 | DECISIONS D-013 |
 | LIM-8 | prompt-injection периметр — трипвайр (детектор+flag_ingest), НЕ блокирует ingest; бэкстоп = ABAC | TECHDEBT SEC-2 | TECHDEBT.md |
+| LIM-9 | webhook allowlist — IDN/punycode-гомограф и DNS-rebinding не закрыты (pilot-grade; оператор держит ASCII-домены, определения governed) | D-017 | DECISIONS D-017 |
 
 ## POST-RELEASE
 
