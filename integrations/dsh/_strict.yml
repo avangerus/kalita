@@ -1,0 +1,12 @@
+# Temporary strict probe: fail activation loudly if the kalita MCP connection
+# cannot initialize/list tools. Used only to verify wiring; not shipped.
+- insert:
+    - id: mcp-kalita
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: kalita
+        transport: streamable-http
+        url: !!js process.env.KALITA_URL || 'http://127.0.0.1:8080/mcp'
+        headers:
+          Authorization: !!js '`Bearer ${process.env.KALITA_TOKEN}`'
+        failOnStartupError: true
