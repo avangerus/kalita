@@ -105,3 +105,35 @@ permissions:
 		t.Fatalf("chain must stay intact after shred: %v", err)
 	}
 }
+
+// TestPIIFieldTransplantBlocked (SEC-4, RC-fix): a sealed blob is bound to
+// (subject, entity.field). Transplanting it to ANOTHER field of the same
+// subject must not open — the pre-fix AAD bound only the subject, so an
+// attacker with read access could move a sealed value between fields.
+func TestPIIFieldTransplantBlocked(t *testing.T) {
+	piiStore, err := pii.NewStore("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := piiStore.Seal("user-42", "Contract.terms", []byte("secret terms"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// the legitimate location opens
+	if pt, ok := piiStore.Open(sealed, "Contract.terms"); !ok || string(pt) != "secret terms" {
+		t.Fatalf("sealed value must open at its own location, got %q ok=%v", pt, ok)
+	}
+	// a transplant to another field of the SAME subject must fail
+	if _, ok := piiStore.Open(sealed, "Contract.notes"); ok {
+		t.Fatal("field transplant must NOT open (SEC-4)")
+	}
+	// a transplant to another entity must fail
+	if _, ok := piiStore.Open(sealed, "Other.terms"); ok {
+		t.Fatal("entity transplant must NOT open")
+	}
+	// a transplant to another subject must fail (pre-existing behavior)
+	if _, ok := piiStore.Open(sealed, "user-43"); ok {
+		t.Fatal("subject transplant must NOT open")
+	}
+}

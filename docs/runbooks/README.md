@@ -27,19 +27,19 @@ kalita backup verify --dir backup/$(date +%F)
 ## 2. Restore / DR
 
 ```bash
-# пустая машина: поднять Postgres, вернуть файлы и ключ, загрузить журнал
-createdb kalita && psql "$KALITA_PG_DSN" < backup/journal-YYYY-MM-DD.sql
-tar -xzf backup/files-YYYY-MM-DD.tgz -C "$KALITA_FILES_DIR"
-cp backup/node-key-YYYY-MM-DD "$KALITA_NODE_KEY"
+# пустая машина: поднять Postgres, восстановить бэкап (журнал + MANIFEST)
+createdb kalita
+kalita backup restore --dir backup/$(date +%F)       # загружает journal.jsonl в пустой PG
+kalita verify --file backup/$(date +%F) --pub node.pub   # цепочка+якорь БЭКАПА целы (OPS-2)
+# вернуть файлы/ключ ноды (если бэкапились): каталог files/ и node-key — как делались
 kalita serve --pack <packs> --ui-dir web            # переигрывает журнал
-kalita verify --pub "$KALITA_NODE_PUB"             # цепочка + подписи целы (PG)
-# либо проверить БЭКАП-файл напрямую (OPS-2: sha256+цепочка+якорь по MANIFEST):
-kalita verify --file backup/$(date +%F) --pub "$KALITA_NODE_PUB"
 curl -fsS http://127.0.0.1:8080/readyz              # 200 {status:ready}
 ```
 
 **Критерий успеха:** запись, созданная до бэкапа, читается после restore; `verify`
-печатает «checkpoints ok»; `/readyz` = 200.
+печатает «chain ok … head seq»; `/readyz` = 200. (Форматы бэкапа: journal.jsonl +
+MANIFEST.json; файлы/ключи — опциональные компоненты, см. `kalita backup --files
+--pii-keys`.)
 
 ## 3. Lockdown (аварийный тормоз)
 
@@ -64,10 +64,13 @@ kalita agent revoke --id eng-1                   # токен и подписи 
 ## 5. Upgrade и миграция эр
 
 ```bash
-kalita upgrade --to latest --dry-run              # compose-обновление, авто-rollback при сбое
-kalita upgrade --to latest                        # реально, с smoke-проверкой /healthz /readyz
+# upgrade требует --image (registry, где публикуется образ) и --to (тег).
+# NOTE: registry-publish/cosign ещё не настроены (OPS-3, post-release) — до этого
+# апгрейд = пересборка образа: docker compose up --build (VERSION инжектится compose).
+kalita upgrade --image ghcr.io/<org>/kalita --to v1.0.1 --dry-run   # preflight+backup+pull-verify
+kalita upgrade --image ghcr.io/<org>/kalita --to v1.0.1             # реально, с rollback
 # self-signed TLS (дефолтный деплой) → проверка smoke требует явный флаг (SEC-3):
-kalita upgrade --to latest --insecure-skip-tls-verify
+kalita upgrade --image ghcr.io/<org>/kalita --to v1.0.1 --insecure-skip-tls-verify
 # смена эры (ручная миграция): 
 kalita export --pack <dir> --out era.jsonl        # снапшот журнала
 kalita import --pack <new> --in era.jsonl         # НОВАЯ эра (журнал должен быть пуст)

@@ -20,7 +20,7 @@ _На момент Cycle-003 — пусто. Нет unresolved P0; каждый 
 | SEC-1 | ~~setPassword без self/Owner-гейта — impersonation-класс~~ → **FIXED Cycle-A2** (D-014: self-or-admin setPassword/revokeCredential, admin-only disable, admin-role invites reserved) | P1 SECURITY | TECHDEBT.md:258-271; internal/api/login.go:23-42; admin_boundary_test.go | ✅ закрыт |
 | SEC-2 | ~~анти-prompt-injection на ingest — только трипвайр~~ → **ЗАКРЫТ Cycle-A5** (детектор на KnowVault ingest + core `flag_ingest` журналирование; верифицировано Go-тестами) | P1 SECURITY | TECHDEBT.md:155-171; tools.go:98; indexer.py:601-620 | ✅ закрыт (residual: block-vs-tripwire = KNOWN LIMITATION) |
 | SEC-3 | ~~`upgrade --insecure-skip-tls-verify` default true; prometheus insecure_skip_verify~~ → **FIXED Cycle-A3** (default false + ca_file/server_name; D-015) | P2 SECURITY | upgrade.go:102; deploy/prometheus/prometheus.yml:15 | ✅ закрыт |
-| SEC-4 | PII-AAD = только subjectID (поле можно перенести) — перед пилотом с чужими персданными | P2 SECURITY | pii.go:111 vs LLD-16 §1; G8 (gate владельца — миграция ключей) | G8 (HUMAN_GATE) |
+| SEC-4 | ~~PII-AAD = только subjectID (поле можно перенести)~~ → **FIXED RC-fix** (AAD = {subject, entity.field} с legacy-fallback; регрессия TestPIIFieldTransplantBlocked) | P2 SECURITY | pii.go:111; records.go sealPII/openPII | ✅ закрыт (G8-миграция старых ключей не нужна: фикс additive, старые данные открываются fallback) |
 | SEC-5 | consumer-auth отсутствует (portal для внешних пользователей) — **РЕШЕНИЕ ВЛАДЕЛЬЦА: staff-only pilot; consumer-auth = KNOWN LIMITATION** | P1 SECURITY | TECHDEBT.md:144 | ✅ accepted exception (owner, 2026-08) |
 | INT-1 | ~~webhook-доставка: задача есть, runner ноды нет — egress мёртв~~ → **FIXED Cycle-B1** (D-017: in-process runner + KALITA_EGRESS_DOMAINS fail-closed) | P1 MISSING CAPABILITY | engine/automation.go:290-294; D-011 | ✅ закрыт |
 | INT-2 | ~~Reliability-семантика доставки не определена~~ → **FIXED Cycle-B1/B2** (at-least-once + детерминированный idempotency_key + retry cap 5 + reference-сценарий с failure-injection) | P1 DESIGN | Milestone B | ✅ закрыт |
@@ -29,7 +29,7 @@ _На момент Cycle-003 — пусто. Нет unresolved P0; каждый 
 | OPS-3 | `kalita upgrade` неработоспособен из коробки (нет publish/cosign) — **RECLASSIFIED POST-RELEASE**: пилот устанавливается из build (Dockerfile/Makefile), registry-publish + cosign — post-release инфраструктура владельца | P2 MISSING | upgrade.go:108-111 | ⏸ post-release (owner infra) |
 | TST-1 | CI не гоняет Python-воркеры; inbound.py без теста | P2 MISSING | .github/workflows/ci.yml; workers/connectors/ | ✅ **готово в дереве (Cycle-F2)**: test_inbound.py + pytest-джоба (network-free: connectors/lib/perimeter); активация после G4-коммита/push |
 | IDN-1 | ~~LLD-10 PR-1/PR-2: Register не атомарен, инвайты full-scan~~ → **FIXED Cycle-A4** (D-016: mu-сериализация + invites-проекция + атомарный Redeem) | P2 MISSING | registry.go:138-160; invites.go:101-129 | ✅ закрыт |
-| DOC-1 | .env.example не описывает KALITA_PG_DSN/KALITA_SECRETS_FILE | P3 DOC | .env.example | docs-цикл |
+| DOC-1 | ~~.env.example не описывает KALITA_PG_DSN/KALITA_SECRETS_FILE~~ → **FIXED Cycle-A3/RC** (.env.example дополнен) | P3 DOC | .env.example | ✅ закрыт |
 
 ## KNOWN LIMITATION (выпускаем с документацией)
 
@@ -57,8 +57,8 @@ _На момент Cycle-003 — пусто. Нет unresolved P0; каждый 
 
 ## Открытые вопросы владельца (gates)
 
-1. **G4** — коммит day-2 слоя (объём/состав, push) — блокер Cycle-004.
-2. **G2** — семантика egress-whitelist (какие домены, кто решает) — до webhook-раннера.
-3. **G8** — PII-AAD миграция ключей (необратимая) — когда.
+1. ~~G4 — коммит day-2 слоя~~ → **выполнен** (9 локальных коммитов, push — владельцем).
+2. ~~G2 — семантика egress-whitelist~~ → **решено владельцем и реализовано** (Cycle-B1, D-017).
+3. ~~G8 — PII-AAD миграция ключей~~ → **не нужна**: SEC-4 закрыт additive-фиксом (legacy fallback).
 4. **G14** — EVENT-STORE §4 «агент подписывает все мутации»: понизить документ или реализовать.
-5. **SEC-5** — scope пилота: staff-only portal или нужен consumer-auth.
+5. ~~SEC-5 scope пилота~~ → **решено**: staff-only, consumer-auth = KNOWN LIMITATION.

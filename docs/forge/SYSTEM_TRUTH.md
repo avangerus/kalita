@@ -23,7 +23,7 @@ fix_hint}`; исполнять CRUD+workflow+ABAC(row/field/dashboard)+HITL(Ed25
 автоматику (schedule/stuck/event, retry cap 5); computed/агрегаты; undo/rewind;
 журнал с реплеем (1M событий < 5с); 32 MCP-инструмента; UI без сборки; федерацию
 двух нод через bridge-воркер; 16 паков + 3 примера; полный прогон go test ./... — зелёный
-(325 PASS / 12 SKIP / 0 FAIL; ~325 test-функций; Cycle-003: guard Decide перепроверяется).
+(348 PASS / 12 SKIP / 0 FAIL; ~348 test-функций; Cycle-003: guard Decide перепроверяется; RC: clean-room PASS).
 
 ## Architecture map (по реальному коду)
 

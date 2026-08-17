@@ -22,7 +22,12 @@ services:
       retries: 10
 
   kalita:
-    build: .
+    build:
+      context: .
+      args:
+        # OPS-1: the image's reported version comes from here — never the
+        # Dockerfile's dev default. Override with KALITA_VERSION at deploy time.
+        VERSION: ${KALITA_VERSION:-v1.0.0}
     depends_on:
       postgres:
         condition: service_healthy
@@ -30,6 +35,7 @@ services:
       KALITA_PG_DSN: postgres://postgres:${POSTGRES_PASSWORD:-kalita}@postgres:5432/kalita
       KALITA_TLS: ${KALITA_TLS:-self-signed}   # self-contained HTTPS; empty + --insecure-http for proxy mode
       KALITA_TLS_CN: ${KALITA_TLS_CN:-localhost}
+      KALITA_EGRESS_DOMAINS: ${KALITA_EGRESS_DOMAINS:-}   # webhook runner allowlist (empty = disabled)
     command: ["serve", "--listen", ":8443", "--data-dir", "/data",
               "--pack", "${KALITA_PACK:-/opt/kalita/packs/contracts}",
               "--ui-dir", "/opt/kalita/web"]

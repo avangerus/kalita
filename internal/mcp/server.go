@@ -37,6 +37,12 @@ type Server struct {
 	mu      sync.Mutex
 	windows map[string]*rateWindow
 	perMin  int
+
+	// version is reported in serverInfo at the initialize handshake — the
+	// SAME release version as the binary (injected via -X main.version,
+	// OPS-1). A hardcoded fallback here would silently diverge from the
+	// binary's own version, so it defaults empty and the node wires it.
+	version string
 }
 
 type rateWindow struct {
@@ -46,6 +52,9 @@ type rateWindow struct {
 
 // Option configures the Server. Mirrors internal/api's Option pattern.
 type Option func(*Server)
+
+// WithVersion sets the version reported in the MCP initialize handshake.
+func WithVersion(v string) Option { return func(s *Server) { s.version = v } }
 
 // WithRAGSearch enables the search_perimeter MCP tool, delegating to the
 // exact same api.SearchPerimeter governance core the REST /api/search
@@ -108,7 +117,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRPC(w, rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{
 			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "kalita", "version": "0.1.0"},
+			"serverInfo":      map[string]any{"name": "kalita", "version": s.version},
 			// instructions ride once at handshake, not per request: point the
 			// agent at the grammar — the compact normative summary of the whole
 			// language — plus a canonical example to pattern-match against.

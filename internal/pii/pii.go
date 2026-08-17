@@ -84,7 +84,10 @@ func (s *Store) persist() error {
 // journal stores instead of the plaintext: {encrypted:true, key_id, ct}. The
 // key is created on first use and persisted immediately (a sealed value must
 // never be journaled under a key that only exists in memory).
-func (s *Store) Seal(subjectID string, plaintext []byte) (map[string]any, error) {
+// location is the caller-supplied binding context ("entity.field", SEC-4):
+// the ciphertext is bound to (subject, location) — a blob transplanted to
+// another field of the same subject no longer opens.
+func (s *Store) Seal(subjectID, location string, plaintext []byte) (map[string]any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key, ok := s.keys[subjectID]
@@ -106,9 +109,9 @@ func (s *Store) Seal(subjectID string, plaintext []byte) (map[string]any, error)
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
-	// aad binds the ciphertext to (subject, field-is-implicit-by-value): a blob
-	// can never be transplanted to another subject and still open.
-	ct := aead.Seal(nil, nonce, plaintext, []byte("kalita.pii:"+subjectID))
+	// aad binds the ciphertext to (subject, location): a blob can never be
+	// transplanted to another subject OR another field and still open.
+	ct := aead.Seal(nil, nonce, plaintext, []byte("kalita.pii:"+subjectID+":"+location))
 	return map[string]any{
 		"encrypted": true,
 		"key_id":    subjectID,
@@ -116,10 +119,12 @@ func (s *Store) Seal(subjectID string, plaintext []byte) (map[string]any, error)
 	}, nil
 }
 
-// Open decrypts a sealed value. Returns (nil, false) when the value is not a
-// sealed shape (a plain legacy value) or when the subject's key is gone — the
-// latter is the shred: the caller renders a tombstone, never an error.
-func (s *Store) Open(v any) ([]byte, bool) {
+// Open decrypts a sealed value at the given location. Returns (nil, false) when
+// the value is not a sealed shape (a plain legacy value) or when the subject's
+// key is gone — the latter is the shred: the caller renders a tombstone, never
+// an error. Location-bound AAD is tried first (SEC-4); a legacy subject-only
+// fallback keeps data sealed before the fix readable.
+func (s *Store) Open(v any, location string) ([]byte, bool) {
 	m, ok := v.(map[string]any)
 	if !ok || m["encrypted"] != true {
 		return nil, false
@@ -139,6 +144,9 @@ func (s *Store) Open(v any) ([]byte, bool) {
 	aead, err := chacha20poly1305.NewX(key)
 	if err != nil || len(raw) < aead.NonceSize() {
 		return nil, false
+	}
+	if pt, err := aead.Open(nil, raw[:aead.NonceSize()], raw[aead.NonceSize():], []byte("kalita.pii:"+id+":"+location)); err == nil {
+		return pt, true
 	}
 	pt, err := aead.Open(nil, raw[:aead.NonceSize()], raw[aead.NonceSize():], []byte("kalita.pii:"+id))
 	if err != nil {

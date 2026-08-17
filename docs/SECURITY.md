@@ -1,8 +1,10 @@
 # Kalita — Threat Model and Security Status
 
-Status: v0 (2026-06-13). An honest document: what holds, what does not, what to
-fix before which stage. Security in kalita is a product (agents are trusted with
-work), not an appendage to it.
+Status: v1.0 release candidate (staff-only pilot, 2026-08). An honest document:
+what holds, what does not, what to fix before which stage. Security in kalita is
+a product (agents are trusted with work), not an appendage to it. The current
+24-surface threat model with per-threat mitigation and residual risk lives in
+docs/forge/THREAT_MODEL.md (Milestone G verdict: RELEASE CANDIDATE ACCEPT).
 
 ## 1. Threat Model — Who We Are Protecting Against
 

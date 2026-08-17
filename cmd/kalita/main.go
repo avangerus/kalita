@@ -551,6 +551,7 @@ func serve(args []string) {
 	// (internal/api.SearchPerimeter), so it is wired from the SAME --search-*
 	// flags: an agent over MCP gets retrieval only when a human over REST does.
 	var mcpOpts []mcp.Option
+	mcpOpts = append(mcpOpts, mcp.WithVersion(version)) // OPS-1: serverInfo reports the binary's real version
 	if *searchBackend != "" {
 		mcpOpts = append(mcpOpts, mcp.WithRAGSearch(*searchBackend, *searchScope, *searchLog, "Searcher"))
 	}

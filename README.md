@@ -249,11 +249,12 @@ docs/          design documents + ADRs
 
 ## Status
 
-Pre-alpha. The MVP kernel is code-complete and the generated UI runs; the
-Service Desk / HR / CRM cores build on it without kernel gaps. The deploy-blocking
-**P0 security items are closed** (token-only auth, TLS with a non-loopback-plaintext
-refusal, same-origin + CSP); **P1 is implemented** — WebAuthn/passkey non-repudiation
-(`--require-human-signature` prod gate + `kalita verify --require-signed-approvals`),
-secrets management (`KALITA_SECRETS_FILE`/`KALITA_PG_DSN_FILE` chain), token
+**v1.0 release candidate** (staff-only pilot). The kernel passed independent
+Milestone A review («KERNEL READY FOR PILOT»), the integration boundary is proven
+(webhook runner + reference scenario), a 24-surface adversarial security review
+returned «RELEASE CANDIDATE ACCEPT», and a full clean-room acceptance (fresh
+PostgreSQL, build → workflow → HITL → webhook → backup → restore) passed — see
+docs/forge/RELEASE_CANDIDATE.md, docs/forge/RC_CLEANROOM_LOG.md and
+docs/forge/RELEASE_BLOCKERS.md for the current state and known limitations.
 revocation (`agent revoke`) and emergency lockdown (`kalita lockdown`). See
 [SECURITY.md](docs/SECURITY.md).

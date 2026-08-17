@@ -46,7 +46,7 @@ func (e *Engine) sealPII(decl *dsl.EntityDecl, values, existing map[string]any) 
 		if !ok {
 			continue // non-string pii value: stored as-is (validation already passed)
 		}
-		sealed, err := e.pii.Seal(subject, []byte(plain))
+		sealed, err := e.pii.Seal(subject, decl.Name+"."+f.Name, []byte(plain))
 		if err != nil {
 			return err
 		}
@@ -69,7 +69,7 @@ func (e *Engine) openPII(decl *dsl.EntityDecl, values map[string]any) {
 		if !present {
 			continue
 		}
-		if pt, ok := e.pii.Open(v); ok {
+		if pt, ok := e.pii.Open(v, decl.Name+"."+f.Name); ok {
 			values[f.Name] = string(pt)
 			continue
 		}

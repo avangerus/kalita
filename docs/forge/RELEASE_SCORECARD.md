@@ -6,7 +6,7 @@
 
 | Категория | Статус | Evidence |
 |---|---|---|
-| Kernel correctness | 🟢 GREEN | **Milestone A exit: skeptic_pro + review_security_pro → KERNEL READY FOR PILOT** (2026-08). 325 PASS / 12 SKIP / 0 FAIL; golden replay; Cycles 003/A2/A3/A4/A5 закрыли P1 (Decide-guard, impersonation, prompt-injection) и P2 (OPS-2/SEC-3/LLD-10). |
+| Kernel correctness | 🟢 GREEN | **Milestone A exit: skeptic_pro + review_security_pro → KERNEL READY FOR PILOT** (2026-08). 348 PASS / 12 SKIP / 0 FAIL; golden replay; Cycles 003/A2/A3/A4/A5 закрыли P1 (Decide-guard, impersonation, prompt-injection) и P2 (OPS-2/SEC-3/LLD-10). |
 | Security | 🟡 YELLOW | WebAuthn/Ed25519, secrets, shredding, lockdown — в коде+тестах. НО: MUST FIX SEC-1..SEC-5 открыты; Milestone G (adversarial threat model) не проводился. |
 | Persistence/replay | 🟢 GREEN | TestGoldenReplay (замороженные журналы), TestWorkflowReplay, TestReplayBudget1M (<5с), SHA-256 цепочка VerifyChain; PG-триггер неизменяемости. |
 | Permissions | 🟢 GREEN | abac_test, lld20_update_perms_test, deny>allow fail-closed, agent-boundedness dogfood (ap); permitted-set index (ADR-005). |
@@ -17,10 +17,10 @@
 | UI | 🟡 YELLOW | buildless preact UI из meta; static-тесты. НО: без браузерных smoke (LIM-2). |
 | Business modeling | 🟢 GREEN | workflow/guards/HITL/computed/агрегаты/UI-нотация выражают домены; H1 лестница; Milestone C «3 системы без Go-кода» — на проверке KERNEL_PRESSURE.md (создать). |
 | Business expert | 🔴 RED | Milestone D не начат (осознанно: после A–C). |
-| Installability | 🟡 YELLOW | docker-compose + deploy/QUICKSTART. НО: clean-room установка не прогонялась (Milestone I); OPS-3 upgrade. |
+| Installability | 🟢 GREEN | docker-compose (+ VERSION build-arg) + deploy/QUICKSTART; clean-room PASS на свежем PG (RC_CLEANROOM_LOG.md); OPS-3 upgrade-publish — post-release. |
 | Operations | 🟢 GREEN | backup/anchor/TSA/trace/metrics/egress-report в cmd; graceful shutdown + health/readyz + Prometheus — все с тестами; OPS-1 версия FIXED; OPS-2 verify --file FIXED. KNOWN LIMITATION: structured JSON-логи (сейчас log.Printf), tracing. |
 | Documentation | 🟢 GREEN | Cycle-002 doc-truth sync; docs/forge живая карта; MCP-контракт гейтится TestMcpContractMatchesCode. |
-| Tests | 🟡 YELLOW | Go-сьюта зелёная (325 PASS). НО: Python/UI вне CI (TST-1, LIM-2); PG-прогон только в CI. |
+| Tests | 🟢 GREEN | Go-сьюта зелёная (348 PASS / 12 SKIP / 0 FAIL); clean-room PASS (RC_CLEANROOM_LOG.md); pytest-CI в дереве (активация после push); PG-прогон — clean-room. |
 | Performance | 🟡 YELLOW | TestReplayBudget1M, benchmarks в engine. НО: нет зафиксированных throughput/limits первого релиза (Milestone H). |
 | Recovery | 🟡 YELLOW | replay-восстановление доказано; recoverUnclosedOps. НО: backup→restore clean-room не прогонялся. |
 
@@ -36,7 +36,7 @@
 | F · Operability | 🟢 в основном готов | graceful shutdown (main.go:666-708 + shutdown_test), /healthz /readyz (healthz_test), /metrics Prometheus (metrics_test), backup/restore/verify (backup_test), version guard + schema_v (safe startup), crash-recovery op-скобки. Остаточные: structured JSON-логи (сейчас log.Printf), tracing (single-node), OPS-3 upgrade publish (gated) |
 | G · Security Review (adversarial) | 🟢 ACCEPT | THREAT_MODEL.md (24 поверхности): Security Pro → «RELEASE CANDIDATE ACCEPT»; новых P0/P1 нет; остаточные P1 — KNOWN LIMITATION/accepted exception |
 | H · Performance & Resilience | 🟢 измерено (baseline v1.0) | Create 6.6µs, Get+computed 1.3µs, Query-10k 18.8ms, Auth-10k 44.8µs, PermittedSet-index 317µs (vs full-scan 116ms, ~365x), Replay-1M 1.30s (budget 5s). Limits: single-node, in-memory проекции, один мутекс — вертикальный масштаб, НЕ hyperscale; Query/агрегаты O(n) — ok до десятков тысяч записей (permitted-set index снимает ABAC-скан). |
-| I · Release Experience (clean-room) | 🟡 готов чеклист | CLEAN_ROOM_ACCEPTANCE.md (16 шагов); НЕ запущен — требует чистой среды + независимого агента |
+| I · Release Experience (clean-room) | 🟢 PASS | CLEAN_ROOM_ACCEPTANCE.md + RC_CLEANROOM_LOG.md: полный clean-room на свежем PG (16 шагов: build → workflow → HITL → webhook → backup → destroy → restore → re-verify) пройден; среда уничтожена |
 | J · Pilot Acceptance (3 сценария) | 🟢 dogfood-covered | AP (ap_dogfood + webhook reference), Service Desk (servicedesk_dogfood ×2), Agent employee (devtrack_dogfood + people_dogfood) |
 
 ## Сводка

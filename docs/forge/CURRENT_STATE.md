@@ -19,15 +19,16 @@
 - **Поверхности**: 32 MCP-инструмента (контракт-гейт), REST+meta-UI (preact, без сборки), портал.
 - **Сценарий владельца**: packs/ap — входящие счета, лестница ≤100к/≤1М/>1М, агент-проверка,
   hand-off «системе Y» (событие+webhook-задача; доставка — kernel-gap D-011).
-- **Проверено**: `go test ./... -count=1` — **325 PASS / 12 SKIP / 0 FAIL** (skip: PG локально,
-  live-model opt-in); все паки компилируются; live acceptance 19/19 (Cycle-001).
+- **Проверено**: `go test ./... -count=1` — **348 PASS / 12 SKIP / 0 FAIL** (skip: PG локально,
+  live-model opt-in); все паки компилируются; live acceptance 19/19 (Cycle-001);
+  clean-room PASS на свежем PG (RC_CLEANROOM_LOG.md).
 
 ## 3. Что изменилось с прошлого цикла?
 
 - **Release Candidate готов (v1.0, staff-only)**: Milestones A (kernel) / B (integration) /
   C (model) / F (operability) / G (security threat-model ACCEPT) / H (performance) / J
   (сценарии dogfood) — пройдены с evidence; I (clean-room) — чеклист готов, прогнать
-  оператору. Тесты: `go vet` чистый, `go test ./...` **345 PASS / 12 SKIP / 0 FAIL**,
+  оператору. Тесты: `go vet` чистый, `go test ./...` **348 PASS / 12 SKIP / 0 FAIL**,
   golden replay зелёный. 7 локальных коммитов (6385409..eeb0edd), push — владельцем.
   RC-артефакты: RELEASE_CANDIDATE.md, THREAT_MODEL.md, CLEAN_ROOM_ACCEPTANCE.md.
   Финал — **OWNER RELEASE APPROVAL**.
