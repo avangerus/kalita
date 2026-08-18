@@ -1,0 +1,142 @@
+{
+  "meta": {
+    "id": "itsm",
+    "name": "IT Service Management",
+    "version": "1.0.0",
+    "origin": "kalita/frameworks — curated by Kalita Forge, reviewed by Architect Pro + Security Pro (product mission A)",
+    "compatibility": {
+      "builder_protocol": ">=1.0",
+      "dsl_features": ["sla_computed", "business_calendar", "agent_role", "approval_gate", "auto_transitions", "dashboards"]
+    },
+    "supersedes": []
+  },
+  "vocabulary": [
+    {"term": "Incident", "meaning": "Незапланированное нарушение или деградация услуги"},
+    {"term": "ServiceRequest", "meaning": "Плановая заявка пользователя (доступ, техника)"},
+    {"term": "Change", "meaning": "Изменение инфраструктуры/конфигурации, требующее контроля"},
+    {"term": "SLA", "meaning": "Соглашение об уровне услуги: время реакции/решения"},
+    {"term": "CAB", "meaning": "Change Advisory Board — коллегия, утверждающая изменения"},
+    {"term": "Knowledge", "meaning": "Статья базы знаний, фиксирующая решение"}
+  ],
+  "entities": [
+    {"name": "Incident", "kind": "core", "fields": [
+      {"name": "title", "type": "string", "required": true},
+      {"name": "source", "type": "enum", "values": ["Portal", "Email", "Phone", "Monitoring"], "required": true},
+      {"name": "priority", "type": "enum", "values": ["P1", "P2", "P3", "P4"], "required": true},
+      {"name": "status", "type": "workflow"},
+      {"name": "assignee", "type": "ref", "ref": "core.User", "required": false},
+      {"name": "sla_deadline", "type": "datetime", "computed": true, "note": "от SLA-политики и бизнес-календаря"}
+    ]},
+    {"name": "ServiceRequest", "kind": "core", "fields": [
+      {"name": "title", "type": "string", "required": true},
+      {"name": "requester", "type": "ref", "ref": "core.User", "required": true},
+      {"name": "status", "type": "workflow"}
+    ]},
+    {"name": "Change", "kind": "core", "fields": [
+      {"name": "title", "type": "string", "required": true},
+      {"name": "risk", "type": "enum", "values": ["low", "medium", "high"], "required": true},
+      {"name": "status", "type": "workflow"},
+      {"name": "cab_decision", "type": "string", "required": false}
+    ]},
+    {"name": "SLAPolicy", "kind": "core", "fields": [
+      {"name": "priority", "type": "enum", "values": ["P1", "P2", "P3", "P4"], "required": true},
+      {"name": "response_hours", "type": "int", "required": true},
+      {"name": "resolve_hours", "type": "int", "required": true}
+    ]},
+    {"name": "Knowledge", "kind": "core", "fields": [
+      {"name": "title", "type": "string", "required": true},
+      {"name": "body", "type": "text", "required": true},
+      {"name": "incident", "type": "ref", "ref": "Incident", "required": false}
+    ]}
+  ],
+  "roles": [
+    {"name": "EndUser", "human_or_agent": "human", "note": "создаёт инциденты/заявки через портал, видит только свои"},
+    {"name": "ServiceDeskAgent", "human_or_agent": "agent", "note": "триаж, назначение, диагностика по базе знаний"},
+    {"name": "OperatorL2", "human_or_agent": "human", "note": "решает инциденты"},
+    {"name": "ChangeManager", "human_or_agent": "human", "note": "утверждает изменения (CAB)"},
+    {"name": "Supervisor", "human_or_agent": "human", "note": "утверждает/отклоняет service requests"}
+  ],
+  "process_patterns": [
+    {"id": "incident_lifecycle", "stages": [
+      {"stage": "report", "who": "EndUser или monitoring", "what": "инцидент с source и priority"},
+      {"stage": "triage", "who": "ServiceDeskAgent", "what": "категоризация, назначение OperatorL2, привязка знания"},
+      {"stage": "resolve", "who": "OperatorL2", "what": "диагностика и решение; SLA-таймер идёт"},
+      {"stage": "close", "who": "человек", "what": "подтверждение решения; авто-закрытие для мониторинговых"},
+      {"stage": "knowledge", "who": "OperatorL2", "what": "фиксация решения в Knowledge после закрытия"}
+    ]},
+    {"id": "change_control", "stages": [
+      {"stage": "draft", "who": "инициатор", "what": "описание изменения и риска"},
+      {"stage": "cab", "who": "ChangeManager", "what": "requires approval — HITL перед выполнением"},
+      {"stage": "implement", "who": "исполнитель", "what": "после подписи"},
+      {"stage": "review", "who": "ChangeManager", "what": "пост-ревью"}
+    ]}
+  ],
+  "segregation_of_duties": [
+    {"rule": "Исполнитель change не утверждает его сам (CAB-гейт)"},
+    {"rule": "Агент назначает и диагностирует, но не закрывает инциденты без подтверждения (close — HITL или auto только для monitoring)"}
+  ],
+  "control_points": [
+    {"point": "sla_deadline", "what": "вычисляется от SLAPolicy по бизнес-календарю; breach — виден в дашборде и эскалируется"},
+    {"point": "cab_gate", "what": "Change требует подписи ChangeManager до implement"},
+    {"point": "auto_close", "what": "только для инцидентов из monitoring (машина сама себя не закрывает для людей)"},
+    {"point": "knowledge_after_close", "what": "решение без знания = потерянное знание; напоминание"}
+  ],
+  "kpis": [
+    {"id": "open_incidents", "label": "Открытые инциденты по приоритету"},
+    {"id": "sla_breach_rate", "label": "Доля инцидентов с нарушением SLA"},
+    {"id": "mttr", "label": "Среднее время решения"}
+  ],
+  "risks": [
+    {"id": "silent_sla_breach", "likelihood": "medium", "impact": "medium", "mitigation": "sla_deadline computed + дашборд + эскалация при подходе"},
+    {"id": "unauthorized_change", "likelihood": "low", "impact": "high", "mitigation": "CAB HITL-гейт"},
+    {"id": "lost_knowledge", "likelihood": "high", "impact": "medium", "mitigation": "knowledge_after_close"},
+    {"id": "agent_self_close", "likelihood": "low", "impact": "medium", "mitigation": "deny на close для агента (кроме monitoring-auto)"}
+  ],
+  "discovery": {
+    "required": [
+      {"id": "what_is_incident", "question": "Что считается инцидентом у вас?", "why": "Граница инцидент/заявка определяет сущности и SLA"},
+      {"id": "who_resolves", "question": "Кто решает инциденты — своя команда или подрядчик?", "why": "Определяет роли и HITL-гейты"}
+    ],
+    "important": [
+      {"id": "sla_levels", "question": "Есть ли SLA по приоритетам (часы реакции/решения)?", "default": "типовые: P1 1ч/4ч, P2 4ч/8ч, P3 8ч/24ч, P4 24ч/72ч", "why": "SLA — ядро ITSM; default разумен, но лучше спросить"},
+      {"id": "change_control", "question": "Нужен ли контроль изменений (CAB)?", "default": "да, для medium/high риска", "why": "Изменения без контроля — главный источник аварий"},
+      {"id": "portal_self_service", "question": "Пользователи создают заявки сами (портал) или через службу?", "default": "портал", "why": "Меняет права EndUser"}
+    ],
+    "optional": [
+      {"id": "monitoring_integration", "question": "Есть ли мониторинг, который должен создавать инциденты?", "why": "Добавляет inbound-интеграцию и auto-close; можно отложить", "deferrable": true},
+      {"id": "knowledge_base", "question": "Ведёте базу знаний?", "why": "Добавляет сущность Knowledge и напоминания; можно отложить", "deferrable": true}
+    ]
+  },
+  "alternatives": [
+    {"id": "full_itsm", "when": "зрелая IT-функция", "tradeoffs": "инциденты+заявки+изменения+SLA+знания; больше ролей"},
+    {"id": "incidents_only", "when": "небольшая команда", "tradeoffs": "только инциденты и SLA; изменения добавить потом"}
+  ],
+  "anti_patterns": [
+    {"id": "no_sla_visibility", "why": "SLA без таймера и дашборда — не SLA, а обещание"},
+    {"id": "changes_without_cab", "why": "изменения без HITL — статистически главная причина инцидентов"},
+    {"id": "agent_closes_user_tickets", "why": "подтверждение решения — за человеком"}
+  ],
+  "regulatory": [
+    {"note": "Для регулируемых отраслей — политики управления изменениями могут быть обязательными", "region": "generic", "optional": true}
+  ],
+  "automations": [
+    {"id": "sla_escalation", "what": "эскалация при приближении/нарушении SLA"},
+    {"id": "stuck_escalation", "what": "инцидент без движения — эскалация Supervisor"},
+    {"id": "auto_close_monitoring", "what": "мониторинговые инциденты закрываются автоматически после решения"},
+    {"id": "knowledge_reminder", "what": "напоминание о фиксации знания после закрытия"}
+  ],
+  "agent_roles": [
+    {"name": "ServiceDeskAgent", "permitted_actions": ["read Incident/Knowledge", "create comment", "update Incident.assignee"], "denied": ["approve", "delete", "act close (кроме monitoring-auto)"], "note": "триаж и диагностика, решения за людьми"}
+  ],
+  "approvals": [
+    {"gate": "change_cab", "what": "Change → implement требует подписи ChangeManager"},
+    {"gate": "service_request", "what": "ServiceRequest — approve/reject Supervisor"}
+  ],
+  "dashboards": [
+    {"title": "Operator board", "tiles": ["open incidents", "SLA breach", "by priority", "MTTR"]}
+  ],
+  "integrations": [
+    {"id": "monitoring", "direction": "inbound", "pattern": "emit_event/инbound от системы мониторинга"},
+    {"id": "portal", "direction": "human", "pattern": "REST/UI для EndUser"}
+  ]
+}

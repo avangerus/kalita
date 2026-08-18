@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "frameworks": [
+    {
+      "id": "ap",
+      "file": "ap.json",
+      "name": "Accounts Payable / Invoice Approval",
+      "version": "1.0.0",
+      "origin": "kalita/frameworks — curated by Kalita Forge, reviewed by Architect Pro + Security Pro (product mission A)",
+      "sha256": "d507f7c77141550181cc49976a2326caf03094d8f53555caea2742115d41df7b",
+      "compatibility": {
+        "builder_protocol": ">=1.0",
+        "dsl_features": ["approval_ladder", "agent_role", "guard_when", "events", "dashboards", "computed", "integration_declaration"]
+      }
+    },
+    {
+      "id": "itsm",
+      "file": "itsm.json",
+      "name": "IT Service Management",
+      "version": "1.0.0",
+      "origin": "kalita/frameworks — curated by Kalita Forge, reviewed by Architect Pro + Security Pro (product mission A)",
+      "sha256": "7c52856a0feafa4c6b487084b373904843504196f3f6e84e9ca05ad83c8e3aa5",
+      "compatibility": {
+        "builder_protocol": ">=1.0",
+        "dsl_features": ["sla_computed", "business_calendar", "agent_role", "approval_gate", "auto_transitions", "dashboards"]
+      }
+    },
+    {
+      "id": "crm",
+      "file": "crm.json",
+      "name": "Sales CRM",
+      "version": "1.0.0",
+      "origin": "kalita/frameworks — curated by Kalita Forge, reviewed by Architect Pro + Security Pro (product mission A)",
+      "sha256": "4db425f9df4345d4e3a3da801b8573a6892233997ec29b56f54712eeaf6c6dd3",
+      "compatibility": {
+        "builder_protocol": ">=1.0",
+        "dsl_features": ["pipeline_workflow", "agent_role", "approval_gate", "dashboards", "automation_stale"]
+      }
+    }
+  ]
+}

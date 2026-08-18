@@ -1,0 +1,25 @@
+{
+  "_comment": "Shared differential corpus pinning the builder's walker to the engine's evalWhere. internal/engine/walker_golden_test.go runs every case through the REAL evaluator; workers/builder/test_synthesizer.py runs them through synthesizer.eval_guard_subset. Both suites must agree with `want` — a divergence between walker and engine fails one of them. Keep every expr INSIDE the walker subset (numbers, and/or/not, parens, = != > < >= <=, quoted strings, bareword field refs).",
+  "cases": [
+    {"expr": "amount > 0", "record": {"amount": 50000}, "want": true},
+    {"expr": "amount > 0", "record": {"amount": 0}, "want": false},
+    {"expr": "amount > 0 and amount <= 100000", "record": {"amount": 50000}, "want": true},
+    {"expr": "amount > 0 and amount <= 100000", "record": {"amount": 100000}, "want": true},
+    {"expr": "amount > 0 and amount <= 100000", "record": {"amount": 100001}, "want": false},
+    {"expr": "amount > 100000 and amount <= 1000000", "record": {"amount": 500000}, "want": true},
+    {"expr": "amount > 100000 and amount <= 1000000", "record": {"amount": 100000}, "want": false},
+    {"expr": "amount > 1000000", "record": {"amount": 1500000}, "want": true},
+    {"expr": "amount > 1000000", "record": {"amount": 999999}, "want": false},
+    {"expr": "amount > 2000000", "record": {"amount": 2500000}, "want": true},
+    {"expr": "(amount > 0 and amount <= 100000) or amount > 1000000", "record": {"amount": 50000}, "want": true},
+    {"expr": "(amount > 0 and amount <= 100000) or amount > 1000000", "record": {"amount": 2000000}, "want": true},
+    {"expr": "(amount > 0 and amount <= 100000) or amount > 1000000", "record": {"amount": 500000}, "want": false},
+    {"expr": "not (amount > 1000000)", "record": {"amount": 50000}, "want": true},
+    {"expr": "status = \"Received\"", "record": {"status": "Received"}, "want": true},
+    {"expr": "status = \"Received\"", "record": {"status": "Checking"}, "want": false},
+    {"expr": "amount != 0", "record": {"amount": 1}, "want": true},
+    {"expr": "amount >= 100000 and amount < 1000000", "record": {"amount": 100000}, "want": true},
+    {"expr": "amount >= 100000 and amount < 1000000", "record": {"amount": 999999}, "want": true},
+    {"expr": "amount >= 100000 and amount < 1000000", "record": {"amount": 1000000}, "want": false}
+  ]
+}

@@ -1,0 +1,122 @@
+{
+  "meta": {
+    "id": "crm",
+    "name": "Sales CRM",
+    "version": "1.0.0",
+    "origin": "kalita/frameworks — curated by Kalita Forge, reviewed by Architect Pro + Security Pro (product mission A)",
+    "compatibility": {
+      "builder_protocol": ">=1.0",
+      "dsl_features": ["pipeline_workflow", "agent_role", "approval_gate", "dashboards", "automation_stale"]
+    },
+    "supersedes": []
+  },
+  "vocabulary": [
+    {"term": "Lead", "meaning": "Потенциальный клиент, ещё не квалифицированный"},
+    {"term": "Account", "meaning": "Компания-клиент"},
+    {"term": "Opportunity", "meaning": "Конкретная сделка с суммой и этапом"},
+    {"term": "Pipeline", "meaning": "Воронка этапов сделки"},
+    {"term": "Forecast", "meaning": "Прогноз выручки по этапам и вероятностям"}
+  ],
+  "entities": [
+    {"name": "Lead", "kind": "core", "fields": [
+      {"name": "name", "type": "string", "required": true},
+      {"name": "contact", "type": "email", "required": false},
+      {"name": "source", "type": "enum", "values": ["Web", "Referral", "Event", "Cold"], "required": true},
+      {"name": "status", "type": "workflow"},
+      {"name": "owner", "type": "ref", "ref": "core.User"}
+    ]},
+    {"name": "Account", "kind": "core", "fields": [
+      {"name": "name", "type": "string", "required": true, "unique": true},
+      {"name": "owner", "type": "ref", "ref": "core.User"}
+    ]},
+    {"name": "Opportunity", "kind": "core", "fields": [
+      {"name": "account", "type": "ref", "ref": "Account", "required": true},
+      {"name": "title", "type": "string", "required": true},
+      {"name": "amount", "type": "money", "required": true},
+      {"name": "stage", "type": "workflow"},
+      {"name": "probability", "type": "percent", "required": false},
+      {"name": "expected_close", "type": "date", "required": false}
+    ]}
+  ],
+  "roles": [
+    {"name": "SalesRep", "human_or_agent": "human", "note": "ведёт лиды и сделки"},
+    {"name": "SalesAgent", "human_or_agent": "agent", "note": "квалификация лидов, напоминания, обогащение"},
+    {"name": "SalesManager", "human_or_agent": "human", "note": "утверждает скидки, forecast"}
+  ],
+  "process_patterns": [
+    {"id": "lead_to_opportunity", "stages": [
+      {"stage": "capture", "who": "форма/агент", "what": "лид с source"},
+      {"stage": "qualify", "who": "SalesAgent", "what": "обогащение, скоринг, предложение квалификации"},
+      {"stage": "convert", "who": "SalesRep", "what": "лид → Account + Opportunity"},
+      {"stage": "advance", "who": "SalesRep", "what": "движение по pipeline; скидка выше порога — HITL SalesManager"},
+      {"stage": "win_loss", "who": "SalesRep", "what": "закрытие сделки; потеря — с причиной"}
+    ]}
+  ],
+  "segregation_of_duties": [
+    {"rule": "Продавец не утверждает собственную скидку выше порога"},
+    {"rule": "Forecast утверждает SalesManager, а не тот, кто его собрал"}
+  ],
+  "control_points": [
+    {"point": "duplicate_account", "what": "unique name + проверка агентом при конвертации"},
+    {"point": "discount_threshold", "what": "скидка выше порога — requires approval(SalesManager)"},
+    {"point": "stale_opportunity", "what": "сделка без движения N дней — напоминание/эскалация"},
+    {"point": "loss_reason", "what": "потерянная сделка без причины не закрывается"}
+  ],
+  "kpis": [
+    {"id": "pipeline_value", "label": "Сумма открытых сделок по этапам"},
+    {"id": "conversion_rate", "label": "Доля лидов, ставших сделками"},
+    {"id": "forecast_accuracy", "label": "Прогноз vs факт"}
+  ],
+  "risks": [
+    {"id": "lost_leads", "likelihood": "high", "impact": "medium", "mitigation": "stale-напоминания и эскалации"},
+    {"id": "duplicate_accounts", "likelihood": "medium", "impact": "medium", "mitigation": "unique + агентская проверка"},
+    {"id": "overoptimistic_forecast", "likelihood": "medium", "impact": "medium", "mitigation": "вероятности по этапам + утверждение менеджером"},
+    {"id": "uncontrolled_discounts", "likelihood": "medium", "impact": "high", "mitigation": "порог + HITL"}
+  ],
+  "discovery": {
+    "required": [
+      {"id": "sales_object", "question": "Что вы продаёте и как выглядит сделка — разовая продажа или длинный цикл?", "why": "Определяет сущности и этапы pipeline"},
+      {"id": "who_sells", "question": "Кто ведёт продажи — свои продавцы, партнёры, оба?", "why": "Определяет роли и ownership-правила"}
+    ],
+    "important": [
+      {"id": "pipeline_stages", "question": "Какие этапы проходит сделка?", "default": "типовые: Qualification → Proposal → Negotiation → Closed", "why": "Pipeline — сердце CRM; default разумен"},
+      {"id": "discount_policy", "question": "Есть ли порог скидки, выше которого нужно утверждение?", "default": "нет", "why": "Контроль маржи — типовой HITL-гейт"},
+      {"id": "forecast_needed", "question": "Нужен ли прогноз выручки?", "default": "да", "why": "Меняет дашборды и права менеджера"}
+    ],
+    "optional": [
+      {"id": "email_sync", "question": "Подключать почту/календарь?", "why": "Интеграция, влияющая на напоминания; можно отложить", "deferrable": true},
+      {"id": "lead_scoring", "question": "Нужен скоринг лидов?", "why": "Меняет работу агента по квалификации; можно отложить", "deferrable": true}
+    ]
+  },
+  "alternatives": [
+    {"id": "full_pipeline", "when": "активные продажи", "tradeoffs": "лиды+счета+сделки+forecast; больше дисциплины"},
+    {"id": "leads_only", "when": "начало продаж", "tradeoffs": "только лиды и их статусы; сделками заняться позже"}
+  ],
+  "anti_patterns": [
+    {"id": "no_owner", "why": "сделка без владельца не двигается — ownership обязателен"},
+    {"id": "forecast_from_memory", "why": "прогноз должен считаться из этапов, а не из ощущений"},
+    {"id": "discount_without_gate", "why": "неконтролируемые скидки разрушают маржу"}
+  ],
+  "regulatory": [
+    {"note": "Хранение персональных данных клиентов — PII-поля и shredding (существующий pii-слой)", "region": "generic", "optional": true}
+  ],
+  "automations": [
+    {"id": "lead_qualification", "what": "агент обогащает и скорит новый лид"},
+    {"id": "stale_reminder", "what": "напоминание владельцу при простое сделки"},
+    {"id": "followup_reminder", "what": "следующее действие после каждого этапа"}
+  ],
+  "agent_roles": [
+    {"name": "SalesAgent", "permitted_actions": ["read Lead/Account/Opportunity", "create comment", "update Lead.status"], "denied": ["approve", "delete", "update Opportunity.amount/stage"], "note": "квалифицирует и напоминает, не торгует"}
+  ],
+  "approvals": [
+    {"gate": "discount", "what": "скидка выше порога — requires approval(SalesManager)"},
+    {"gate": "forecast", "what": "forecast-отчёт утверждается SalesManager"}
+  ],
+  "dashboards": [
+    {"title": "Pipeline", "tiles": ["sum amount by stage", "conversion rate", "open by owner"]}
+  ],
+  "integrations": [
+    {"id": "lead_source", "direction": "inbound", "pattern": "inbound connector (веб-формы)"},
+    {"id": "email_calendar", "direction": "outbound", "pattern": "напоминания/события", "notes": "optional"}
+  ]
+}
