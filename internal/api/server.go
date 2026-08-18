@@ -427,18 +427,28 @@ func coerce(s string) any {
 }
 
 var statusByCode = map[string]int{
-	engine.CodePermissionDenied:  http.StatusForbidden,
-	engine.CodeValidation:        http.StatusUnprocessableEntity,
-	engine.CodeNotFound:          http.StatusNotFound,
-	engine.CodeConflict:          http.StatusConflict,
-	engine.CodeBasisRequired:     http.StatusUnprocessableEntity,
-	engine.CodeSignatureRequired: http.StatusForbidden,
+	engine.CodePermissionDenied:   http.StatusForbidden,
+	engine.CodeValidation:         http.StatusUnprocessableEntity,
+	engine.CodeNotFound:           http.StatusNotFound,
+	engine.CodeConflict:           http.StatusConflict,
+	engine.CodeBasisRequired:      http.StatusUnprocessableEntity,
+	engine.CodeSignatureRequired:  http.StatusForbidden,
+	engine.CodeGuardFailed:        http.StatusConflict,
+	engine.CodeStaleBase:          http.StatusConflict,
+	engine.CodeRecordInconsistent: http.StatusConflict,
 }
 
 func writeErr(w http.ResponseWriter, err error) {
 	var e *engine.Err
 	if errors.As(err, &e) {
-		writeJSON(w, statusByCode[e.Code], e)
+		// an UNMAPPED code must still produce a response — the pre-hardening
+		// map lookup returned 0 for GUARD_FAILED/STALE_BASE and WriteHeader(0)
+		// panicked the whole handler goroutine (clean-room acceptance finding).
+		status, ok := statusByCode[e.Code]
+		if !ok {
+			status = http.StatusInternalServerError
+		}
+		writeJSON(w, status, e)
 		return
 	}
 	writeJSON(w, http.StatusInternalServerError, &engine.Err{Code: "INTERNAL", Message: err.Error()})
