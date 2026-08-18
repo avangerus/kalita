@@ -27,7 +27,7 @@ credentials file:
 
 ```powershell
 New-Item -ItemType Directory -Force tmp\en-cleanroom\secrets | Out-Null
-Set-Content tmp\en-cleanroom\secrets\egress.json '{"127.0.0.1":"Bearer sk_test_en"}'
+Set-Content tmp\en-cleanroom\secrets\egress.json '{"127.0.0.1":"Bearer <destination-token>"}'
 # on POSIX: chmod 600; on Windows the loader only checks existence
 ```
 
