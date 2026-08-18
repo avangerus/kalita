@@ -36,13 +36,34 @@ services:
       KALITA_TLS: ${KALITA_TLS:-self-signed}   # self-contained HTTPS; empty + --insecure-http for proxy mode
       KALITA_TLS_CN: ${KALITA_TLS_CN:-localhost}
       KALITA_EGRESS_DOMAINS: ${KALITA_EGRESS_DOMAINS:-}   # webhook runner allowlist (empty = disabled)
+      # Ask Kalita worker URL advertised to the UI (same host, builder port;
+      # put a TLS proxy in front of :8400 in production)
+      KALITA_BUILDER_URL: ${KALITA_BUILDER_URL:-}
     command: ["serve", "--listen", ":8443", "--data-dir", "/data",
-              "--pack", "${KALITA_PACK:-/opt/kalita/packs/contracts}",
+              "--pack", "${KALITA_PACK:-/opt/kalita/packs/builder}",
+              "--approver", "${KALITA_APPROVER:-Owner}",
               "--ui-dir", "/opt/kalita/web"]
     volumes:
       - nodedata:/data                      # node key + self-signed cert: persist for audit continuity
     ports:
       - "${KALITA_PORT:-8443}:8443"
+
+  # Ask Kalita — the self-building product's conversational layer
+  # (Product Skeptic BLOCKER-1: the builder must ship in the one-command deploy)
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.builder
+    depends_on:
+      - kalita
+    environment:
+      KALITA_URL: https://kalita:8443
+      KALITA_BUILDER_LISTEN: "0.0.0.0:8400"
+      KALITA_LLM_URL: ${KALITA_LLM_URL:-}          # empty = deterministic expert mode
+      KALITA_LLM_MODEL: ${KALITA_LLM_MODEL:-openai/gpt-oss-20b}
+      KALITA_LLM_KEY: ${KALITA_LLM_KEY:-lm-studio}
+    ports:
+      - "${KALITA_BUILDER_PORT:-8400}:8400"
 
   prometheus:
     image: prom/prometheus:latest

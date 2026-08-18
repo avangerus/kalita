@@ -13,6 +13,93 @@ import { reclabel, humanize, fieldSpan, fmtPlain } from '../packages/kalita-ui/t
 
 // --- session & api -----------------------------------------------------------
 
+// WebAuthn helpers for the definition-decision ceremony (signed changes):
+// the challenge arrives base64url; the assertion payload fields go back as
+// standard base64 (Go json.Marshal([]byte) convention — internal/identity
+// HumanSignaturePayload).
+const b64u = {
+  decode(str) {
+    str = String(str || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    const s = atob(str); const out = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+    return out;
+  },
+};
+const b64std = {
+  encode(buf) {
+    let s = ''; const b = new Uint8Array(buf);
+    for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s);
+  },
+};
+
+// humanizeError — the Error UX contract (PRODUCT_UX §4): a business user never
+// sees a bare engine code as the only answer. The human text leads; the code
+// and the engine's own message stay available as advanced details.
+const ERROR_HINTS = {
+  GUARD_FAILED: 'Данные изменились после того, как действие было запрошено — условия согласования больше не выполняются.',
+  PERMISSION_DENIED: 'У вашей роли нет права на это действие. Запросите нужную роль у администратора (раздел Agents → приглашения) или войдите под другой ролью.',
+  SIGNATURE_REQUIRED: 'Требуется подпись владельца (passkey). Без неё изменение не применится.',
+  VALIDATION_ERROR: 'Проверьте введённые данные.',
+  STALE_BASE: 'Система изменилась, пока вы работали. Обновите страницу и повторите.',
+  AUTH_REQUIRED: 'Сессия истекла. Войдите заново.',
+  NOT_FOUND: 'Объект не найден — возможно, он скрыт вашими правами.',
+  CONFLICT: 'Объект уже изменён. Обновите страницу и повторите.',
+  BASIS_REQUIRED: 'Действие не привязано к обоснованию — повторите из рабочего экрана.',
+};
+function humanizeError(e) {
+  const code = (e && e.code) || 'ERROR';
+  const msg = (e && e.message) || String(e);
+  const lead = ERROR_HINTS[code] || '';
+  return {
+    code,
+    text: (lead ? lead + ' ' : '') + (msg && msg !== code ? msg : ''),
+    advanced: msg,
+    rule: e && e.rule,
+    fix_hint: e && e.fix_hint,
+  };
+}
+
+// ErrBox: the ONE error presentation — human text first (язык бизнеса),
+// engine details collapsed under «Детали» (PRODUCT_UX §4: никаких голых
+// кодов как единственного ответа).
+function ErrBox({ err }) {
+  if (!err) return null;
+  const h = err.human || humanizeError(err);
+  const hasDetails = !!(h.code || h.rule || h.fix_hint || (h.advanced && h.advanced !== h.text));
+  return html`<div class="err" role="alert">
+    <div>${h.text}</div>
+    ${hasDetails && html`<details class="err-details"><summary>Детали</summary>
+      <code>${h.code}</code>${h.rule ? html` <span class="muted">· ${h.rule}</span>` : ''}
+      ${h.fix_hint ? html`<div class="muted">${h.fix_hint}</div>` : ''}
+    </details>`}
+  </div>`;
+}
+
+async function signProposalWithPasskey(id, grant) {
+  try {
+    const chal = await api(`/api/proposals/${id}/challenge?decision=${grant ? 'grant' : 'deny'}`);
+    if (!window.PublicKeyCredential || !chal.challenge) return null;
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge: b64u.decode(chal.challenge),
+        rpId: chal.rp_id,
+        timeout: 60000,
+        userVerification: 'preferred',
+      },
+    });
+    return {
+      credential_id: assertion.id,
+      authenticator_data: b64std.encode(assertion.response.authenticatorData),
+      client_data_json: b64std.encode(assertion.response.clientDataJSON),
+      signature: b64std.encode(assertion.response.signature),
+    };
+  } catch (e) {
+    return null; // no passkey / no challenge support → token-only decide path
+  }
+}
+
 const session = {
   get() { try { return JSON.parse(localStorage.kalitaSession || 'null'); } catch { return null; } },
   set(s) { localStorage.kalitaSession = JSON.stringify(s); },
@@ -30,7 +117,7 @@ async function api(path, opts = {}) {
     },
   });
   const body = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw body;
+  if (!resp.ok) { body.human = humanizeError(body); throw body; }
   return body;
 }
 
@@ -40,9 +127,9 @@ const basis = () => ({ type: 'human', id: me.id });
 // --- routing (hash) ------------------------------------------------------------
 
 function useRoute() {
-  const [route, setRoute] = useState(location.hash.slice(1) || '/inbox');
+  const [route, setRoute] = useState(location.hash.slice(1) || '/home');
   useEffect(() => {
-    const f = () => setRoute(location.hash.slice(1) || '/inbox');
+    const f = () => setRoute(location.hash.slice(1) || '/home');
     addEventListener('hashchange', f);
     return () => removeEventListener('hashchange', f);
   }, []);
@@ -317,9 +404,10 @@ async function loadBrand() {
 // --- views ----------------------------------------------------------------------
 
 function Login() {
-  const [mode, setMode] = useState('token'); // 'token' | 'invite'
+  const [mode, setMode] = useState('password'); // 'password' | 'token' | 'invite'
   const [token, setToken] = useState('');
   const [invite, setInvite] = useState(''); const [id, setId] = useState('');
+  const [login, setLogin] = useState(''); const [password, setPassword] = useState('');
   const [err, setErr] = useState(null);
   const signInToken = () => { if (token.trim()) { session.set({ token: token.trim() }); location.reload(); } };
   const redeem = async () => {
@@ -329,15 +417,30 @@ function Login() {
       if (r.token) { session.set({ token: r.token }); location.reload(); }
     } catch (e) { setErr(e); }
   };
+  const signInPassword = async () => {
+    setErr(null);
+    try {
+      const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ login: login.trim(), password }) });
+      if (r.token) { session.set({ token: r.token }); location.reload(); }
+    } catch (e) { setErr(e); }
+  };
   return html`<div class="login card">
     <h2>${BRAND.name}</h2>
     <div class="muted" style="margin-bottom:10px">${BRAND.tagline || ''}</div>
     <div class="tabs" style="margin-bottom:12px">
-      <a class=${mode === 'token' ? 'on' : ''} onClick=${() => setMode('token')}>Access token</a>
-      <a class=${mode === 'invite' ? 'on' : ''} onClick=${() => setMode('invite')}>I have an invite</a>
+      <a class=${mode === 'password' ? 'on' : ''} onClick=${() => setMode('password')}>Вход</a>
+      <a class=${mode === 'token' ? 'on' : ''} onClick=${() => setMode('token')}>Токен</a>
+      <a class=${mode === 'invite' ? 'on' : ''} onClick=${() => setMode('invite')}>Приглашение</a>
     </div>
-    ${err && html`<div class="err">${err.message || 'invalid invite'}</div>`}
-    ${mode === 'token' ? html`
+    ${err && html`<${ErrBox} err=${err} />`}
+    ${mode === 'password' ? html`
+      <label>Логин</label>
+      <input value=${login} onInput=${e => setLogin(e.target.value)} autocomplete="username" />
+      <label>Пароль</label>
+      <input type="password" value=${password} onInput=${e => setPassword(e.target.value)} onKeyDown=${e => e.key === 'Enter' && signInPassword()} autocomplete="current-password" />
+      <button class="btn green" onClick=${signInPassword}>Войти</button>
+      <div class="muted" style="margin-top:8px;font-size:12px">Учётная запись создаётся администратором при установке (<code>kalita user add --password</code>).</div>`
+    : mode === 'token' ? html`
       <label>Access token</label>
       <input type="password" value=${token} onInput=${e => setToken(e.target.value)} onKeyDown=${e => e.key === 'Enter' && signInToken()} />
       <button class="btn green" onClick=${signInToken}>Sign in</button>`
@@ -357,8 +460,12 @@ function Inbox({ meta, refresh }) {
   const [data, setData] = useState({ approvals: [], proposals: [], tasks: [] });
   const [err, setErr] = useState(null);
   const load = async () => {
+    // proposals are approver-only (definition sources); other roles see an
+    // empty section instead of a broken inbox
     const [a, p, t] = await Promise.all([
-      api('/api/approvals'), api('/api/proposals'), api('/api/tasks?status=open')]);
+      api('/api/approvals'),
+      api('/api/proposals').catch(() => ({ proposals: [] })),
+      api('/api/tasks?status=open')]);
     setData({ approvals: a.approvals || [], proposals: p.proposals || [], tasks: t.tasks || [] });
   };
   useEffect(() => { load(); }, []);
@@ -369,25 +476,34 @@ function Inbox({ meta, refresh }) {
   };
   const decideProposal = async (id, grant) => {
     setErr(null);
-    try { await api(`/api/proposals/${id}/decide`, { method: 'POST', body: JSON.stringify({ grant, basis: basis() }) }); await load(); refresh(); }
-    catch (e) { setErr(e); }
+    try {
+      // definition decisions are SIGNED changes: try the passkey ceremony
+      // first (GET challenge -> webauthn.get -> human_signature); fall back
+      // to a token-only decide when no passkey/challenge is available
+      // (dev-mode nodes accept it; production rejects SIGNATURE_REQUIRED).
+      const humanSignature = await signProposalWithPasskey(id, grant);
+      await api(`/api/proposals/${id}/decide`, { method: 'POST', body: JSON.stringify({ grant, basis: basis(), ...(humanSignature ? { human_signature: humanSignature } : {}) }) });
+      await load(); refresh();
+    } catch (e) { setErr(e); }
   };
   return html`<div>
     <h2>Inbox</h2>
-    ${err && html`<div class="err">${err.message || JSON.stringify(err)}</div>`}
-    <h3>Signatures requested · ${data.approvals.length}</h3>
+    <${ErrBox} err=${err} />
+    <h3>Подписи ожидаются · ${data.approvals.length}</h3>
     ${data.approvals.map(a => html`<${ApprovalCard} a=${a}
       ent=${meta.entities.find(e => e.name === a.entity) || { name: a.entity, fields: [] }}
       onDecide=${decide} onOpenRecord=${gotoRef} fetchRecord=${refFetcher}
       renderRelated=${({ ent, id }) => html`<${RelatedPanel} ent=${ent} id=${id} meta=${meta} readOnly=${true} />`} />`)}
-    <h3>Definition changes · ${data.proposals.length}</h3>
+    <h3>Изменения модели · ${data.proposals.length}</h3>
     ${data.proposals.map(p => html`<div class="card">
-      <b>${p.description || 'proposal'}</b> <span class="muted">by ${p.author.id}</span>
+      <b>${p.description || 'proposal'}</b> <span class="muted">от ${p.author.id}</span>
+      ${(p.description || '').includes('[builder session ') && html`<div>
+        <a href=${'#/ask?sid=' + (p.description.match(/\[builder session ([^\]]+)\]/) || [])[1]}>открыть сессию проектирования →</a></div>`}
       <pre>${(p.plan || []).join('\n')}</pre>
-      <button class="btn green" onClick=${() => decideProposal(p.id, true)}>Sign & apply</button>
-      <button class="btn red" onClick=${() => decideProposal(p.id, false)}>Reject</button>
+      <button class="btn green" onClick=${() => decideProposal(p.id, true)}>Подписать и применить</button>
+      <button class="btn red" onClick=${() => decideProposal(p.id, false)}>Отклонить</button>
     </div>`)}
-    <h3>My role's tasks · ${data.tasks.length}</h3>
+    <h3>Задачи моей роли · ${data.tasks.length}</h3>
     ${data.tasks.map(t => html`<div class="card">
       <span class="pill">${t.kind}</span> ${t.action || ''} ${t.entity ? html` on <a onClick=${() => nav(`/e/${t.entity}/${t.record_id}`)}>${t.entity}</a>` : ''}
       <div class="muted">${t.args || ''}</div></div>`)}
@@ -412,7 +528,7 @@ function CreateForm({ ent, onDone, initial, hide }) {
         <${FieldInput} field=${f} entity=${ent.name} value=${vals[f.name]} onChange=${v => setVals({ ...vals, [f.name]: v })} />
       </div>`)}
     </div>
-    ${err && html`<div class="err">${err.message} ${err.fix_hint ? `— ${err.fix_hint}` : ''}</div>`}
+    ${err && html`<${ErrBox} err=${err} />`}
     <button class="btn green" onClick=${submit}>Create</button>
   </div>`;
 }
@@ -630,7 +746,7 @@ function InviteForm({ meta }) {
         <select value=${bindField} onChange=${e => setBindField(e.target.value)}>
           <option value="">—</option>${bindFields.map(f => html`<option value=${f.name}>${flab(f)}</option>`)}</select></div>`}
     </div>
-    ${err && html`<div class="err">${err.message} ${err.fix_hint || ''}</div>`}
+    ${err && html`<${ErrBox} err=${err} />`}
     <button class="btn green" style="margin-top:8px" onClick=${create} disabled=${!role}>Create invite</button>
     ${code && html`<div style="margin-top:10px;padding:10px;background:#161b22;border-radius:6px">
       <div class="muted" style="font-size:12px">Share this one-time code (the user redeems it at the login screen):</div>
@@ -649,7 +765,7 @@ function AgentsView({ meta }) {
     try { await api(`/api/actors/${id}/disable`, { method: 'POST', body: '{}' }); load(); }
     catch (e) { setErr(e); }
   };
-  if (err) return html`<div class="err">${err.message || 'humans only'}</div>`;
+  if (err) return html`<${ErrBox} err=${err} />`;
   if (!actors) return html`<div class="muted">loading…</div>`;
   return html`<div>
     <h2>Agents & users</h2>
@@ -759,7 +875,7 @@ function LinksPanel({ ent, id }) {
   const targetOf = (name) => (defs.find(d => d.name === name) || {}).target;
   return html`<div class="card">
     <h3 style="margin-top:0">Links</h3>
-    ${err && html`<div class="err">${err.message} ${err.fix_hint || ''}</div>`}
+    ${err && html`<${ErrBox} err=${err} />`}
     ${Object.keys(byName).length === 0 && html`<div class="muted">no links yet</div>`}
     ${Object.entries(byName).map(([name, items]) => html`<div style="margin-bottom:8px">
       <div class="muted" style="font-size:12px">${humanize(name)}</div>
@@ -812,7 +928,7 @@ function Timeline({ ent, id, canRevert, onChanged }) {
       <b style="flex:1">History · ${events.length} events</b>
       ${canRevert && lastMutSeq > 0 && html`<button class="btn" disabled=${busy} onClick=${undoLast} title="undo the most recent change">↩ Undo last</button>`}
     </div>
-    ${err && html`<div class="err">${err.message} ${err.fix_hint || ''}</div>`}
+    ${err && html`<${ErrBox} err=${err} />`}
     ${events.map(e => html`<${TimelineItem} e=${e} canRevert=${canRevert} busy=${busy} onRewind=${rewindTo} lastMutSeq=${lastMutSeq} />`)}
   </div>`;
 }
@@ -845,7 +961,7 @@ function ChildTable({ parent, child, meta, readOnly }) {
   if (rows.length === 0 && (readOnly || !cm.can_create)) return null;
   return html`<div class="card">
     <h3 style="margin-top:0">${child.label || child.entity}${rows.length ? ` · ${rows.length}` : ''}</h3>
-    ${err && html`<div class="err">${err.message}</div>`}
+    ${err && html`<${ErrBox} err=${err} />`}
     ${rows.length === 0 ? html`<div class="muted">none yet</div>` : html`
       <table><thead><tr>${cols.map(c => html`<th>${colLabel(cm, c)}</th>`)}${!readOnly ? html`<th></th>` : ''}</tr></thead>
       <tbody>${rows.map(r => {
@@ -872,7 +988,7 @@ function RecordView({ ent, id, refresh, meta }) {
   const load = () => api(`/api/records/${ent.name}/${id}`).then(setRec).catch(setErr);
   useEffect(() => { load(); setShowHist(false); setEdit({}); setEditing(false); }, [ent.name, id]);
 
-  if (err && !rec) return html`<div class="err">${err.message}</div>`;
+  if (err && !rec) return html`<${ErrBox} err=${err} />`;
   if (!rec) return html`<div class="muted">loading…</div>`;
   const state = rec.values[ent.workflow_field];
   const actions = (ent.actions || []).filter(a => a.can_act && (a.from === state || a.from === 'any'));
@@ -952,7 +1068,7 @@ function Thread({ ent, id }) {
       <div style="white-space:pre-wrap">${c.body}</div>
     </div>`)}
     ${(items && items.length === 0) && html`<div class="muted">no messages yet</div>`}
-    ${err && html`<div class="err">${err.message}</div>`}
+    ${err && html`<${ErrBox} err=${err} />`}
     <div style="margin-top:8px">
       <textarea rows="2" placeholder="write a message…" value=${body} onInput=${e => setBody(e.target.value)} />
       <div style="display:flex;align-items:center;gap:10px">
@@ -978,7 +1094,7 @@ function Dashboards() {
     if (ds.length) setActive(ds[0].name);
   }).catch(setErr); }, []);
   useEffect(() => { if (active) { setData(null); api(`/api/dashboards/${active}`).then(setData).catch(setErr); } }, [active]);
-  if (err) return html`<div class="err">${err.message}</div>`;
+  if (err) return html`<${ErrBox} err=${err} />`;
   if (!list) return html`<div class="muted">loading…</div>`;
   if (!list.length) return html`<div class="muted">no dashboards in this pack</div>`;
   return html`<div>
@@ -1000,7 +1116,7 @@ function AgentBoard() {
   const [tasks, setTasks] = useState(null); const [err, setErr] = useState(null);
   const load = () => api('/api/agent-board').then(r => setTasks(r.tasks || [])).catch(setErr);
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
-  if (err) return html`<div class="err">${err.message || 'humans only'}</div>`;
+  if (err) return html`<${ErrBox} err=${err} />`;
   if (!tasks) return html`<div class="muted">loading…</div>`;
   const cols = [
     { title: 'Waiting for an agent', f: t => t.status === 'open' },
@@ -1024,12 +1140,375 @@ function AgentBoard() {
   </div>`;
 }
 
+// HomeView: «что требует моего внимания» — pending signatures, definition
+// changes, my role's tasks, failed agent work, and key business indicators
+// (top dashboard tiles). Aggregation of EXISTING REST endpoints only; no
+// business logic in the UI (PRODUCT_UX §2.1).
+function HomeView({ meta, refresh }) {
+  const [data, setData] = useState(null); const [err, setErr] = useState(null);
+  const load = () => Promise.all([
+    api('/api/approvals'),
+    api('/api/proposals').catch(() => ({ proposals: [] })),
+    api('/api/tasks?status=open'), api('/api/tasks?status=failed'),
+    api('/api/dashboards'),
+  ]).then(([a, p, t, f, d]) => setData({
+    approvals: a.approvals || [], proposals: p.proposals || [],
+    tasks: t.tasks || [], failed: f.tasks || [], dashboards: d.dashboards || [],
+  })).catch(setErr);
+  useEffect(() => { load(); const t = setInterval(load, 10000); return () => clearInterval(t); }, []);
+  if (err) return html`<div><h2>Home</h2><${ErrBox} err=${err} /></div>`;
+  if (!data) return html`<div><h2>Home</h2><div class="muted">loading…</div></div>`;
+  const attention = [
+    { n: data.approvals.length, label: 'Подписей ждут', to: '#/inbox', icon: '✍' },
+    { n: data.proposals.length, label: 'Изменений модели ждут подписи', to: '#/inbox', icon: '🧾' },
+    { n: data.tasks.length, label: 'Задач вашей роли', to: '#/inbox', icon: '📌' },
+    { n: data.failed.length, label: 'Проваленных задач агентов', to: '#/agent-board', icon: '⚠' },
+  ];
+  const dash = (data.dashboards || []).slice(0, 3);
+  return html`<div>
+    <h2>Home</h2>
+    <div class="cols" style="margin-bottom:14px">
+      ${attention.map(a => html`<div class="kcard"><a href=${a.to} style="display:block">
+        <div style="font-size:26px">${a.n}</div>
+        <div class="muted" style="font-size:13px">${a.icon} ${a.label}</div>
+      </a></div>`)}
+    </div>
+    <div class="cols">
+      <div class="col">
+        <h4>Начать</h4>
+        <div class="kcard"><a href="#/ask">✨ Построить или изменить процесс — Ask Kalita</a></div>
+        <div class="kcard"><a href="#/company-model">🏛 Модель компании (v${meta.def_version})</a></div>
+        <div class="kcard"><a href="#/changes">🕘 Кто и что менял</a></div>
+      </div>
+      <div class="col">
+        <h4>Ключевые показатели</h4>
+        ${dash.length === 0 ? html`<div class="muted">Дашбордов пока нет — они появятся из построенных процессов.</div>`
+          : dash.map(d => html`<div class="kcard">
+            <b>${d.title || d.name}</b>
+            ${(d.tiles || []).slice(0, 3).map(t => html`<div style="font-size:13px;margin-top:2px">
+              ${t.title || ''}: <b>${t.value ?? '—'}</b></div>`)}
+          </div>`)}
+      </div>
+    </div>
+  </div>`;
+}
+
+// CompanyModelView: the HUMAN view of the executable model — entities, roles,
+// processes (workflow actions with ✍ approval gates), agents. Not a YAML
+// editor: everything is read from /api/meta (PRODUCT_UX §2.6).
+function CompanyModelView({ meta }) {
+  // the FULL model structure (approver-gated /api/model) so the person who
+  // signs a model sees what they signed; other roles fall back to their
+  // scoped meta (product finding F1)
+  const [full, setFull] = useState(null);
+  useEffect(() => {
+    api('/api/model').then(setFull).catch(() => setFull(meta));
+  }, []);
+  const m = full || meta;
+  const policyLines = [];
+  for (const ent of m.entities) {
+    for (const a of (ent.actions || [])) {
+      if (a.requires_approval) policyLines.push(`${elab(ent)}: «${a.action}» требует подписи человека`);
+    }
+  }
+  const agentRoles = (m.roles || []).filter(r => r.is_agent).map(r => r.name);
+  return html`<div>
+    <h2>Модель компании <span class="muted" style="font-size:13px">пак ${m.pack || '(genesis)'} · версия модели ${m.def_version}${full ? '' : ' · (ограниченная вашими правами)'}</span></h2>
+    <div class="cols">
+      <div class="col">
+        <h4>Сущности · ${m.entities.length}</h4>
+        ${m.entities.map(e => html`<div class="kcard">
+          <b><a href=${'#/e/' + e.name}>${elab(e)}</a></b>
+          <div class="muted" style="font-size:12px">${e.fields.length} полей · ${(e.actions || []).length} действий</div>
+        </div>`)}
+      </div>
+      <div class="col">
+        <h4>Процессы</h4>
+        ${m.entities.filter(e => (e.actions || []).length > 0).map(e => html`<div class="kcard">
+          <b>${elab(e)}</b>
+          ${(e.actions || []).map(a => html`<div style="font-size:13px">
+            ${a.from} → ${a.to} <code>${a.action}</code>${a.requires_approval ? ' ✍ подпись' : ''}</div>`)}
+        </div>`)}
+      </div>
+      <div class="col">
+        <h4>Роли · ${m.roles.length}</h4>
+        ${m.roles.map(r => html`<div class="kcard">
+          <b>${r.name}</b> ${r.is_agent ? html`<span class="pill">агент</span>` : ''}
+        </div>`)}
+        <h4>Политики (где нужен человек)</h4>
+        ${policyLines.length === 0 ? html`<div class="muted">HITL-гейтов в модели нет.</div>`
+          : policyLines.map(p => html`<div class="kcard" style="font-size:13px">✍ ${p}</div>`)}
+        <h4>Агенты</h4>
+        ${agentRoles.length === 0 ? html`<div class="muted">Агентских ролей нет.</div>`
+          : agentRoles.map(a => html`<div class="kcard" style="font-size:13px">🤖 ${a}</div>`)}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ChangesView: кто изменил компанию, что и когда — the definition timeline
+// from the engine's proposal history (uuid v7 = time-ordered) plus the
+// design-session provenance links (PRODUCT_UX §2.8).
+const PROP_STATUS_LABELS = {
+  pending: 'ждёт подписи', approved: 'подписано', rejected: 'отклонено', applied: 'применено',
+};
+function ChangesView() {
+  const [data, setData] = useState(null); const [err, setErr] = useState(null);
+  const load = () => api('/api/proposals?all=1')
+    .then(r => setData((r.proposals || []).filter(p => p.status !== 'pending' || true)))
+    .catch(setErr);
+  useEffect(() => { load(); }, []);
+  if (err) return html`<div><h2>Изменения</h2><${ErrBox} err=${err} /></div>`;
+  if (!data) return html`<div><h2>Изменения</h2><div class="muted">loading…</div></div>`;
+  const sessionLink = (desc) => {
+    const m = (desc || '').match(/\[builder session ([^\]]+)\]/);
+    return m ? html` <a href=${'#/ask?sid=' + m[1]}>(сессия →)</a>` : '';
+  };
+  return html`<div>
+    <h2>Изменения модели</h2>
+    ${data.length === 0 ? html`<div class="card muted">Изменений пока не было — модель создана при запуске ноды или ждёт первого предложения.</div>` : ''}
+    ${data.map(p => html`<div class="card">
+      <div><b>${p.description || 'proposal'}</b>${sessionLink(p.description)}
+        <span class="pill">${PROP_STATUS_LABELS[p.status] || p.status}</span></div>
+      <div class="muted" style="font-size:12px">
+        инициатор ${p.author.id} · на базе версии ${p.base_def_version}
+        ${p.created_at ? ' · предложено ' + new Date(p.created_at).toLocaleString() : ''}
+        ${p.decided_at ? ' · решено ' + new Date(p.decided_at).toLocaleString() : ''}
+        ${p.reason ? ' · причина: ' + p.reason : ''}</div>
+      <pre style="margin-top:6px">${(p.plan || []).join('\n')}</pre>
+    </div>`)}
+  </div>`;
+}
+
+// IntegrationsView: the OPERATIONAL view of the semantic integrations declared
+// in the live definition (get_definition via MCP under the same bearer) —
+// with an HONEST delivery status: what is declared vs what this node can
+// actually deliver (PRODUCT_UX §2.7; webhook delivery = known gap D-011).
+function IntegrationsView() {
+  const [data, setData] = useState(null); const [err, setErr] = useState(null);
+  const load = async () => {
+    const s = session.get();
+    const resp = await fetch('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': s?.token ? `Bearer ${s.token}` : '' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_definition', arguments: {} } }),
+    });
+    const out = await resp.json();
+    const text = out && out.result && out.result.content && out.result.content[0] && out.result.content[0].text;
+    const defn = text ? JSON.parse(text) : {};
+    const files = defn.files || {};
+    const integrations = [], subscriptions = [], webhooks = [], connectors = [];
+    for (const [name, src] of Object.entries(files)) {
+      for (const line of src.split('\n')) {
+        const t = line.trim();
+        if (t.startsWith('integration ')) integrations.push(t.replace('integration ', '').split(':')[0]);
+        else if (t.startsWith('subscription ')) subscriptions.push(t.replace('subscription ', '').split(':')[0]);
+        else if (t.includes('webhook out')) webhooks.push('webhook: ' + t.split('webhook out')[0].trim());
+        else if (t.startsWith('tool ') && t.includes('.')) connectors.push(t.replace('tool ', '').split(' ')[0]);
+      }
+    }
+    setData({ integrations, subscriptions, webhooks, connectors, def_version: defn.def_version });
+  };
+  useEffect(() => { load().catch(setErr); }, []);
+  if (err) return html`<div><h2>Интеграции</h2><${ErrBox} err=${err} /></div>`;
+  if (!data) return html`<div><h2>Интеграции</h2><div class="muted">loading…</div></div>`;
+  const row = (title, items, empty) => html`<div class="kcard">
+    <b>${title}</b>
+    ${items.length === 0 ? html`<div class="muted" style="font-size:13px">${empty}</div>`
+      : items.map(i => html`<div style="font-size:13px">· ${i}</div>`)}
+  </div>`;
+  return html`<div>
+    <h2>Интеграции <span class="muted" style="font-size:13px">по модели v${data.def_version}</span></h2>
+    ${row('Подключения (integration)', data.integrations, 'деклараций нет')}
+    ${row('Подписки на события (subscription)', data.subscriptions, 'нет')}
+    ${row('Исходящие вебхуки', data.webhooks, 'нет')}
+    ${row('Продуктовые фасады (product.mcp)', data.connectors, 'нет')}
+    <div class="card">
+      <b>Статус доставки (честно)</b>
+      <div style="font-size:13px;margin-top:4px">
+        · Входящие события: принимаются через MCP emit_event / inbound-коннекторы (least-privilege роли).<br/>
+        · Исходящий webhook: намерение журналируется; раннер доставки на ноде — известный gap D-011. Подключите внешний доставщик или ждите kernel-фикса.<br/>
+        · Последний обмен/ошибки/DLQ: отображаются, когда на ноде работает коннектор (workers/lib/subscribe.py).
+      </div>
+    </div>
+  </div>`;
+}
+
+// AskView: the conversational interface to the Business Expert / Builder
+// (product mission B/D, PRODUCT_UX §2.3). Chat on the left, the governed
+// DesignSession on the right. Every message shown here is journaled data read
+// back from the node (ABAC `where owner = $me`) — the UI holds no business
+// logic and renders model text as DATA, never as HTML (chat_runner rule:
+// agent output is domain data; presentation is the renderer's job).
+const ASK_KIND_LABELS = {
+  fact: 'Факт', preference: 'Предпочтение', answer: 'Ответ', goal: 'Цель',
+  decision: 'Решение', question: 'Вопрос', recommendation: 'Рекомендация',
+  risk: 'Риск', required_decision: 'Требуется решение', explanation: 'Объяснение',
+  validation_error: 'Ошибка валидации', proposal_summary: 'Предложение',
+  simulation: 'Симуляция', status: 'Статус',
+};
+const ASK_STATUS_LABELS = {
+  open: 'Идёт разговор', modeling: 'Модель собрана', validating: 'Валидация',
+  proposed: 'Ждёт подписи', applied: 'Применено', rejected: 'Отклонено',
+  abandoned: 'Брошено',
+};
+
+function AskView({ meta }) {
+  const hasBuilder = !!(meta && meta.entities && meta.entities.find(x => x.name === 'DesignSession'));
+  const [messages, setMessages] = useState([]);
+  const [sessions, setSessions] = useState(null);
+  const [sessionId, setSessionId] = useState(() => {
+    // deep link #/ask?sid=<id> from Inbox/Changes opens that session
+    const qs = new URLSearchParams((location.hash || '').split('?')[1] || '');
+    const sid = qs.get('sid');
+    if (sid) { localStorage.kalitaAskSession = sid; return sid; }
+    return localStorage.kalitaAskSession || '';
+  });
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [lastState, setLastState] = useState(null);
+  const [builderUrl, setBuilderUrl] = useState(() => localStorage.kalitaBuilderUrl || '');
+  useEffect(() => {
+    // server-advertised worker URL wins (deploy config, Product Skeptic
+    // BLOCKER-1); otherwise derive the same-host default
+    if (!localStorage.kalitaBuilderUrl) {
+      // Product Skeptic R2: the compose builder serves plain HTTP — derive
+      // http://<host>:8400 (browsers allow http://localhost from https pages;
+      // remote deployments set KALITA_BUILDER_URL behind a TLS proxy)
+      setBuilderUrl(meta.builder_url || `http://${location.hostname}:8400`);
+    } else if (!builderUrl) {
+      setBuilderUrl(localStorage.kalitaBuilderUrl);
+    }
+  }, []);
+
+  const loadSessions = () => {
+    if (!hasBuilder) { setSessions([]); return; }
+    api('/api/query/DesignSession', { method: 'POST', body: JSON.stringify({ sort: ['-created_at'], limit: 20 }) })
+      .then(r => setSessions(r.records || [])).catch(() => setSessions([]));
+  };
+  const loadMessages = (sid) => {
+    if (!sid || !hasBuilder) { setMessages([]); return; }
+    api('/api/query/SessionMessage', { method: 'POST', body: JSON.stringify({ where: `session = "${sid}"`, sort: ['turn', 'created_at'], limit: 500 }) })
+      .then(r => setMessages(r.records || [])).catch(setErr);
+  };
+  useEffect(() => { loadSessions(); loadMessages(sessionId); }, []);
+  const openSession = (sid) => {
+    setSessionId(sid); setLastState(null);
+    if (sid) localStorage.kalitaAskSession = sid; else localStorage.removeItem('kalitaAskSession');
+    loadMessages(sid);
+  };
+  const newChat = () => openSession('');
+  const saveUrl = () => { localStorage.kalitaBuilderUrl = builderUrl.trim(); setErr(null); };
+
+  const send = async () => {
+    const t = text.trim();
+    if (!t || busy) return;
+    setBusy(true); setErr(null);
+    setMessages(msgs => [...(msgs || []), { id: 'local-' + Date.now(), values: { author: 'user', kind: 'goal', body: t, provenance: 'user statement' } }]);
+    setText('');
+    try {
+      const s = session.get();
+      const resp = await fetch(builderUrl.replace(/\/+$/, '') + '/build/turn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': s?.token ? `Bearer ${s.token}` : '' },
+        body: JSON.stringify({ message: t, session_id: sessionId }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.code) throw data;
+      setLastState(data.state || null);
+      if (data.session_id && data.session_id !== sessionId) {
+        setSessionId(data.session_id);
+        localStorage.kalitaAskSession = data.session_id;
+        loadSessions();
+      }
+      await loadMessages(data.session_id || sessionId);
+    } catch (e) {
+      // a network failure here almost always means the builder worker is
+      // down — say it in human words, not "Failed to fetch" (Product Skeptic)
+      if (e instanceof TypeError) {
+        setErr({ code: 'BUILDER_UNREACHABLE',
+          message: 'Ask Kalita недоступен по адресу ' + builderUrl +
+            '. Проверьте, что воркер запущен (или укажите другой адрес ниже).' });
+      } else { setErr(e); }
+    }
+    finally { setBusy(false); }
+  };
+
+  if (!hasBuilder) return html`<div>
+    <h2>Ask Kalita</h2>
+    <div class="card muted">На этой ноде не загружен пак <code>builder</code> — разговорное проектирование недоступно. Запустите ноду с паком builder и воркером <code>workers/builder</code>.</div>
+  </div>`;
+
+  const msgRow = (m) => {
+    const v = m.values || {};
+    const mine = v.author === 'user';
+    return html`<div class="ask-msg ${mine ? 'mine' : 'expert'}">
+      <div class="ask-meta">
+        <b>${mine ? 'Вы' : 'Эксперт'}</b>
+        <span class="pill ask-kind">${ASK_KIND_LABELS[v.kind] || v.kind || ''}</span>
+        ${v.provenance ? html`<span class="muted ask-prov" title=${'Источник: ' + v.provenance}>· ${v.provenance}</span>` : ''}
+      </div>
+      <div class="ask-body">${v.body || ''}</div>
+    </div>`;
+  };
+
+  return html`<div class="ask">
+    <div class="ask-chat">
+      <div class="ask-head">
+        <h2>Ask Kalita <span class="muted" style="font-size:13px">построить процесс · изменить систему · спросить о компании</span></h2>
+        <button class="btn" onClick=${newChat} title="Новый разговор">＋ Новый разговор</button>
+      </div>
+      <div class="ask-scroll">
+        ${messages.length === 0 && html`<div class="card muted">
+          <p>Опишите цель обычными словами — например:</p>
+          <p>«Создай систему согласования счетов»<br/>
+          «Теперь счета выше 2М должен утверждать собственник»<br/>
+          «Нам нужен service desk с SLA»</p>
+          <p>Kalita задаст уточняющие вопросы, покажет предложение и применит его только после вашей подписи.</p>
+        </div>`}
+        ${messages.map(msgRow)}
+        ${busy && html`<div class="muted">думаю…</div>`}
+      </div>
+      ${err && html`<${ErrBox} err=${err} />`}
+      ${lastState && lastState.proposal_id && html`<div class="card">
+        Предложение <b>${lastState.proposal_id}</b> ждёт вашей подписи — <a href="#/inbox">открыть Inbox</a>.
+      </div>`}
+      <form class="ask-input" onSubmit=${e => { e.preventDefault(); send(); }}>
+        <input value=${text} onInput=${e => setText(e.target.value)} placeholder="Что нужно сделать?" disabled=${busy} aria-label="Сообщение Kalita" />
+        <button class="btn green" type="submit" disabled=${busy || !text.trim()}>Отправить</button>
+      </form>
+      <div class="muted ask-url">
+        Builder: <input value=${builderUrl} onInput=${e => setBuilderUrl(e.target.value)} style="width:220px" aria-label="Адрес воркера builder" />
+        <button class="btn" onClick=${saveUrl}>Сохранить</button>
+      </div>
+    </div>
+    <div class="ask-side">
+      <h3>Мои сессии проектирования</h3>
+      ${sessions === null ? html`<div class="muted">загрузка…</div>`
+        : sessions.length === 0 ? html`<div class="muted">Пока нет. Начните разговор.</div>`
+        : html`${sessions.map(s => html`<div class="kcard ask-session ${s.id === sessionId ? 'on' : ''}" onClick=${() => openSession(s.id)}>
+            <div><b>${(s.values.goal || '').slice(0, 60)}</b></div>
+            <div class="muted" style="font-size:12px">
+              ${s.values.framework || '—'} · ${ASK_STATUS_LABELS[s.values.status] || s.values.status}
+              ${s.values.mode === 'change' ? ' · изменение' : ''}
+            </div>
+          </div>`)}`}
+      ${lastState && html`<div class="kcard"><b>Фаза:</b> ${lastState.phase}${lastState.framework ? ' · ' + lastState.framework : ''}</div>`}
+    </div>
+  </div>`;
+}
+
 // --- shell ----------------------------------------------------------------------
 
 function App() {
   const route = useRoute();
   const [meta, setMeta] = useState(null); const [err, setErr] = useState(null);
   const [inboxCount, setInboxCount] = useState(0);
+  // UX level: business (default) / operator / developer — nav visibility +
+  // detail depth (PRODUCT_UX §3). Pure UI state, persisted locally.
+  const [level, setLevel] = useState(() => localStorage.kalitaUxLevel || 'business');
+  const setLvl = (l) => { setLevel(l); localStorage.kalitaUxLevel = l; };
   // ENH-03: collapsible sidebar, persisted across reloads (pure UI state —
   // no server round-trip, no domain knowledge).
   const [collapsed, setCollapsed] = useState(() => localStorage.kalitaSidebarCollapsed === '1');
@@ -1062,8 +1541,13 @@ function App() {
   // button, so a role without create rights never sees a dead-end page.
   const sourceEnt = meta.entities.find(x => x.name === 'Source');
   const canUpload = !!(sourceEnt && sourceEnt.can_create);
-  let view = html`<${Inbox} meta=${meta} refresh=${refresh} />`;
-  if (parts[0] === 'search') view = html`<${SearchView} />`;
+  let view = html`<${HomeView} meta=${meta} refresh=${refresh} />`;
+  if (parts[0] === 'home') view = html`<${HomeView} meta=${meta} refresh=${refresh} />`;
+  else if (parts[0] === 'ask') view = html`<${AskView} meta=${meta} />`;
+  else if (parts[0] === 'company-model') view = html`<${CompanyModelView} meta=${meta} />`;
+  else if (parts[0] === 'changes') view = html`<${ChangesView} />`;
+  else if (parts[0] === 'integrations') view = html`<${IntegrationsView} />`;
+  else if (parts[0] === 'search') view = html`<${SearchView} />`;
   else if (parts[0] === 'upload' && canUpload) view = html`<${UploadView} meta=${meta} />`;
   else if (parts[0] === 'dashboards') view = html`<${Dashboards} />`;
   else if (parts[0] === 'agent-board') view = html`<${AgentBoard} />`;
@@ -1082,23 +1566,38 @@ function App() {
           title=${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>${collapsed ? '»' : '«'}</button>
       </div>
       <div class="who"><span class="lbl">${meta.pack || '(genesis)'} · v${meta.def_version}<br/>${meta.actor_id} — ${meta.role}</span>
+        <div class="lvl" role="radiogroup" aria-label="Уровень интерфейса">
+          <button class=${'btn lvl-btn ' + (level === 'business' ? 'green' : '')} title="Бизнес — понятно руководителю" onClick=${() => setLvl('business')}>B</button>
+          <button class=${'btn lvl-btn ' + (level === 'operator' ? 'green' : '')} title="Оператор — операционные детали" onClick=${() => setLvl('operator')}>O</button>
+          <button class=${'btn lvl-btn ' + (level === 'developer' ? 'green' : '')} title="Разработчик — все детали" onClick=${() => setLvl('developer')}>D</button>
+        </div>
         <a href="#" class="lbl" style="display:block" onClick=${e => { e.preventDefault(); session.clear(); location.reload(); }}>sign out</a></div>
       <nav class="nav" aria-label="Main navigation">
-        ${meta.search && html`<a href="#/search" class=${route === '/search' ? 'on' : ''} aria-current=${route === '/search' ? 'page' : undefined} title="Search">
+        <a href="#/home" class=${route === '/home' ? 'on' : ''} aria-current=${route === '/home' ? 'page' : undefined} title="Home">
+          <span aria-hidden="true">🏠</span><span class="navdot">H</span><span class="lbl">Home</span></a>
+        <a href="#/ask" class=${route === '/ask' ? 'on' : ''} aria-current=${route === '/ask' ? 'page' : undefined} title="Ask Kalita">
+          <span aria-hidden="true">✨</span><span class="navdot">K</span><span class="lbl">Ask Kalita</span></a>
+        ${level !== 'business' && meta.search && html`<a href="#/search" class=${route === '/search' ? 'on' : ''} aria-current=${route === '/search' ? 'page' : undefined} title="Search">
           <span aria-hidden="true">🔍</span><span class="navdot">S</span><span class="lbl">Search</span></a>`}
-        ${canUpload && html`<a href="#/upload" class=${route === '/upload' ? 'on' : ''} aria-current=${route === '/upload' ? 'page' : undefined} title="Upload">
+        ${level !== 'business' && canUpload && html`<a href="#/upload" class=${route === '/upload' ? 'on' : ''} aria-current=${route === '/upload' ? 'page' : undefined} title="Upload">
           <span aria-hidden="true">⬆</span><span class="navdot">U</span><span class="lbl">Upload</span></a>`}
         <a href="#/inbox" class=${route === '/inbox' ? 'on' : ''} aria-current=${route === '/inbox' ? 'page' : undefined} title="Inbox">
           <span aria-hidden="true">📥</span><span class="navdot">I</span><span class="lbl">Inbox</span>${inboxCount > 0 && html`<span class="badge">${inboxCount}</span>`}</a>
         <a href="#/dashboards" class=${route === '/dashboards' ? 'on' : ''} aria-current=${route === '/dashboards' ? 'page' : undefined} title="Dashboards">
           <span aria-hidden="true">📊</span><span class="navdot">D</span><span class="lbl">Dashboards</span></a>
-        <a href="#/agent-board" class=${route === '/agent-board' ? 'on' : ''} aria-current=${route === '/agent-board' ? 'page' : undefined} title="Agent board">
-          <span aria-hidden="true">🤖</span><span class="navdot">A</span><span class="lbl">Agent board</span></a>
+        ${level !== 'business' && html`<a href="#/agent-board" class=${route === '/agent-board' ? 'on' : ''} aria-current=${route === '/agent-board' ? 'page' : undefined} title="Agent board">
+          <span aria-hidden="true">🤖</span><span class="navdot">A</span><span class="lbl">Agent board</span></a>`}
         ${meta.entities.map(e => html`<a href="#/e/${e.name}" class=${parts[1] === e.name ? 'on' : ''} aria-current=${parts[1] === e.name ? 'page' : undefined} title=${elab(e)}>
           <span class="navdot" aria-hidden="true">${elab(e)[0]}</span><span class="lbl">${elab(e)}</span></a>`)}
-        <a href="#/agents" class=${route === '/agents' ? 'on' : ''} aria-current=${route === '/agents' ? 'page' : undefined} title="Agents & users"
+        <a href="#/company-model" class=${route === '/company-model' ? 'on' : ''} aria-current=${route === '/company-model' ? 'page' : undefined} title="Модель компании">
+          <span aria-hidden="true">🏛</span><span class="navdot">M</span><span class="lbl">Модель компании</span></a>
+        <a href="#/changes" class=${route === '/changes' ? 'on' : ''} aria-current=${route === '/changes' ? 'page' : undefined} title="Изменения и аудит">
+          <span aria-hidden="true">🕘</span><span class="navdot">C</span><span class="lbl">Изменения</span></a>
+        ${level !== 'business' && html`<a href="#/integrations" class=${route === '/integrations' ? 'on' : ''} aria-current=${route === '/integrations' ? 'page' : undefined} title="Интеграции">
+          <span aria-hidden="true">🔌</span><span class="navdot">N</span><span class="lbl">Интеграции</span></a>`}
+        ${level !== 'business' && html`<a href="#/agents" class=${route === '/agents' ? 'on' : ''} aria-current=${route === '/agents' ? 'page' : undefined} title="Agents & users"
           style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
-          <span aria-hidden="true">👤</span><span class="navdot">A</span><span class="lbl">Agents</span></a>
+          <span aria-hidden="true">👤</span><span class="navdot">A</span><span class="lbl">Agents</span></a>`}
       </nav>
     </div>
     <div class="main">${view}</div>

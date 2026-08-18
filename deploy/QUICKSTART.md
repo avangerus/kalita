@@ -1,20 +1,23 @@
-# Run a Kalita node on your own iron
+# Run Kalita — the self-building business system — on your own iron
 
-One command brings up a self-contained node — HTTPS, a Postgres journal, and a
-persistent node key — inside your own perimeter. This is the "agent inside the
-client's contour" promise made concrete.
+One command brings up the PRODUCT: the Kalita node (HTTPS, Postgres journal,
+persistent key) AND the Ask Kalita builder worker — the conversational layer
+that builds and changes your business processes.
 
 ## One command
 
 ```bash
-cp .env.example .env          # set POSTGRES_PASSWORD
+cp .env.example .env          # set POSTGRES_PASSWORD (and KALITA_LLM_URL if you use a model)
 docker compose up --build
 ```
 
 You get:
-- **HTTPS** on `https://localhost:8443` — the node generates a self-signed
-  certificate on first boot (no public domain needed). Accept the cert warning,
-  or trust `node.crt` from the `nodedata` volume.
+- **The product UI** at `https://localhost:8443` — Home / Ask Kalita / Work /
+  Approvals / Model / Changes (self-signed cert on first boot; accept it or
+  trust `node.crt` from the `nodedata` volume).
+- **Ask Kalita** — the builder worker on `http://localhost:8400` (the UI
+  derives this automatically; behind a TLS proxy for remote deployments —
+  set `KALITA_BUILDER_URL`).
 - **MCP** for agents at `https://localhost:8443/mcp` (`Authorization: Bearer <token>`).
 - The **journal in Postgres** (`journal` volume) — the single source of truth.
 - The **node key** persisted (`nodedata` volume) so signed checkpoints stay
@@ -24,12 +27,23 @@ Restart-safe: `docker compose restart kalita` (or a full `down`/`up`) replays th
 journal — records, identities and history survive (a 100k-event journal replays
 in ~1 s; see ADR-001).
 
-## First tokens
+## First user (the owner / approver)
 
-A fresh node is empty (genesis). Mint identities through the journal:
+A fresh node is empty (genesis). Create the first account with a PASSWORD —
+that person signs in through the web UI (вкладка «Вход»):
 
 ```bash
-docker compose exec kalita kalita user add --id alice --role ContractManager
+docker compose exec kalita kalita user add --id owner --role Owner --password change-me-on-first-login
+```
+
+Every further user onboards through the product itself: Agents → приглашение →
+the person redeems the invite code at the login screen («Приглашение»).
+The role `Owner` (KALITA_APPROVER) is the one whose signature applies model
+changes built in Ask Kalita.
+
+Additional identities via CLI when needed:
+
+```bash
 docker compose exec kalita kalita agent add --id legal-bot --role Legal
 ```
 

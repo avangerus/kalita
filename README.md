@@ -58,7 +58,7 @@ an e-shop. One operator covers the whole map.
 ```mermaid
 flowchart TD
     H["Humans"] --> UI["Web UI<br/>notation-driven"]
-    A["AI agents"] --> MCP["MCP gateway<br/>32 tools"]
+    A["AI agents"] --> MCP["MCP gateway<br/>33 tools"]
     UI -->|REST| ENG
     MCP -->|JSON-RPC| ENG
     ENG["ENGINE<br/>DSL compiler · ABAC permissions<br/>workflows + HITL · automation<br/>computed fields · dashboards"]
