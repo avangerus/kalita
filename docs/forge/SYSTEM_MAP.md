@@ -18,7 +18,7 @@ flowchart LR
     subgraph NODE["⬢ Один узел Kalita (один бинарник)"]
         UI["web/ — preact UI без сборки"]
         API["internal/api — REST + /api/meta"]
-        MCP["internal/mcp — JSON-RPC /mcp, 32 инструмента"]
+        MCP["internal/mcp — JSON-RPC /mcp, 33 инструмента"]
         T["internal/transport — общая обвязка акторов/мутаций"]
         E["internal/engine — CRUD · workflow · ABAC · HITL · automation · computed · dashboards · undo"]
         I["internal/identity — токены, роли, WebAuthn, lockdown"]
@@ -53,7 +53,7 @@ flowchart LR
 |---|---|---|---|
 | `web/` | Notation UI: из метаданных строит списки, формы, канбан, дашборды, approval inbox, agent-board | человек, `/api/meta` | REST-вызовы |
 | `internal/api` | REST-сервер: CRUD/act/revert/rewind/diff, meta, портал-инвайты, healthz, metrics | браузер | transport → engine |
-| `internal/mcp` | MCP-шлюз: 32 инструмента, токен→identity/роль, idempotency | агенты (воркеры, DSH) | transport → engine |
+| `internal/mcp` | MCP-шлюз: 33 инструмента, токен→identity/роль, idempotency | агенты (воркеры, DSH) | transport → engine |
 | `internal/transport` | Общая обвязка запросов (актор, basis, мутации) — parity REST↔MCP | api, mcp | engine |
 | `internal/engine` | Вся бизнес-семантика: CRUD, workflow+HITL, ABAC, automation, computed, dashboards, undo/rewind | transport | eventstore (append), журнал (replay) |
 | `internal/dsl` | Компилятор: packs → проверенные определения; ошибки {code,file:line,message,fix_hint} | packs/*.dsl | definition-события |

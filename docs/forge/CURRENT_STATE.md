@@ -16,7 +16,7 @@
 - **Ядро**: DSL (16 паков + 3 примера компилируются), CRUD, workflow+HITL (Ed25519/WebAuthn),
   ABAC (row/field/dashboard), automation (schedule/stuck/event, retry cap 5), computed,
   undo/rewind, task pool; журнал с реплеем (1M событий < 5с, golden-гейт).
-- **Поверхности**: 32 MCP-инструмента (контракт-гейт), REST+meta-UI (preact, без сборки), портал.
+- **Поверхности**: 33 MCP-инструмента (контракт-гейт), REST+meta-UI (preact, без сборки), портал.
 - **Сценарий владельца**: packs/ap — входящие счета, лестница ≤100к/≤1М/>1М, агент-проверка,
   hand-off «системе Y» (событие+webhook-задача; доставка — kernel-gap D-011).
 - **Проверено**: `go test ./... -count=1` — **348 PASS / 12 SKIP / 0 FAIL** (skip: PG локально,
@@ -25,24 +25,31 @@
 
 ## 3. Что изменилось с прошлого цикла?
 
-- **РЕЛИЗ ОПУБЛИКОВАН: v1.0.0-rc.2** (staff-only pilot). Release baseline: commit
-  `359da54`, tag `v1.0.0-rc.2` (main + tag в origin; push одобрен владельцем).
-  Артефакты: Docker-образ `kalita:v1.0.0-rc.2` (VERSION=v1.0.0-rc.2) + бинарник
-  (sha256 в RELEASE_CANDIDATE.md); version identity проверена (CLI/образ/MCP
-  serverInfo). Все RC-гейты зелёные: clean-room PASS (RC_CLEANROOM_LOG.md),
-  independent RC Skeptic ACCEPT, Security ACCEPT, 0 BLOCKER, 348 PASS / 12 SKIP /
-  0 FAIL, чистое дерево. Пост-релиз: POST_RELEASE.md (known limitations,
-  monitoring, rollback, критерии RC→v1.0.0).
+- **Round-9/10**: **Milestone E PASS** — независимый clean-room оператор прошёл
+  20/20 шагов + второй домен (вердикт: «да, для основного цикла — без
+  разработчика»). Оператор нашёл 2 реальных дефекта — оба исправлены и
+  закреплены live-регрессиями: N2 (approval-гранты: act+approve; полный HITL
+  live) и N3 (union-база изменений: второе изменение сохраняет опции). F-ревью:
+  Architecture Skeptic ACCEPT (6 findings закрыты), Security Pro ACCEPT (нет
+  обхода авторизации; контент-хэш в подписи, честный diffPlan, лимит парковок),
+  Product Skeptic REJECT→fixes (compose+builder, парольный вход, UX-фиксы) →
+  повторный вердикт — сейчас. Rate-limit экономия воркера (TTL-кэши: вызовов
+  243→<240 на полный поток). Evidence: PRODUCT_ACCEPTANCE.md.
+- **Round-5**: milestone D (shell + error UX + уровни B/O/D).
+- **Round-4**: #/ask UI + ITSM generality (live).
+- **Round-3**: change разговором live (diff/impact, walker↔engine corpus).
+- **Round-2/1**: слайс create live; kernel CompileMulti/get_definition; архитектура.
+- **РЕЛИЗ v1.0.0-rc.2** — baseline продукт-миссии.
 
 ## 4. Над чем работают агенты?
 
 | Роль | Модель | Статус |
 |---|---|---|
-| Ведущий (эта сессия) | deepseek-v4-pro | Cycle-003 завершён: оба reviewers ACCEPT, доки обновлены |
-| Chief Architect | deepseek-v4-pro | Cycle-003 план: ACCEPT (11/11); два прогона — расхождение решено ruling reviewers (D-013) |
-| Skeptic | deepseek-v4-pro | Cycle-003: ACCEPT-WITH-NOTES → заметки учтены (метрика, документирование) |
-| Security reviewer | deepseek-v4-pro | Cycle-003: ACCEPT (TOCTOU закрыт; edge fail-open — кандидат в Next) |
-| Cartographer | deepseek-v4-pro* | trace park→decide: no contradictions (cycle-003-trace.md) |
+| Ведущий (эта сессия) | deepseek-v4-pro | Round-1 продуктовая миссия: архитектура + P0/P1/P2/P3, тесты зелёные |
+| Architect Pro | deepseek-v4-pro | Round-1: ACCEPT-WITH-NOTES; findings Round-1 закрываются, финальный вердикт — в arch-review.md |
+| Skeptic | deepseek-v4-pro | ранее Cycle-003 ACCEPT-WITH-NOTES; продуктовые ревью — по плану P1–P9 |
+| Security reviewer | deepseek-v4-pro | ранее Cycle-003 ACCEPT; P0 (сигнатуры definition) — план ревью security_pro |
+| Cartographer | deepseek-v4-pro* | ранее trace park→decide; для продуктовой миссии — по необходимости |
 
 ## 5. Какая модель у каждого агента?
 
@@ -62,15 +69,15 @@ security), Flash исследует и исполняет (чтение, реа�
 
 ## 7. Какой цикл следующий?
 
-**Активная миссия**: довести Kalita до первого пригодного для внешнего пилота релиза
-(**release target: v1.0**). Трекинг: RELEASE_BLOCKERS.md, RELEASE_SCORECARD.md.
-Milestones A→J по фактам; Portfolio Review каждые 5 циклов.
-
-**Сейчас — HUMAN GATE G4** (ждёт вашего слова: «коммить по плану»). Параллельно идёт
-**Milestone A** (kernel readiness): Cycle-A1 аудит → Cycle-A2 identity admin boundary ✅ →
-**Cycle-A3 operator trust** (verify --file + TLS-флаги, PROPOSE готов) → A4 LLD-10 →
-A5 SEC-2 → exit-review «KERNEL READY FOR PILOT» (skeptic+security).
-Полный граф: DEVELOPMENT_GRAPH.md.
+**Активная миссия (продуктовая)**: self-building enterprise product.
+**Достигнут Definition of Done**: A–D ✅, E ✅ (20/20 + ITSM, независимый
+оператор), F ✅ (Architecture Skeptic ACCEPT, Security Pro ACCEPT, Product
+Skeptic ACCEPT-WITH-NOTES с закрытыми блокерами), 0 BLOCKER. Создан
+Industrial Release Candidate: **docs/forge/INDUSTRIAL_RELEASE.md** (walkthrough,
+architecture, scorecard, tests, clean-room evidence, limitations, artifacts).
+**ОСТАНОВКА: OWNER INDUSTRIAL RELEASE APPROVAL** — решение владельца
+(утвердить / доработки / отложить); автопубликации нет. Незакоммиченное
+дерево (~40 файлов продукт-миссии) — коммит по решению владельца.
 
 ## 8. Нужен ли от вас decision?
 

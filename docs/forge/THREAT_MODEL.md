@@ -10,7 +10,7 @@
 2. Authorization / ABAC fail-closed
 3. Agent privilege boundaries (LLD-20 field-scope, deny, no-approve)
 4. Human/agent impersonation
-5. MCP exposure (32 tools, bearer→identity, rate-limit)
+5. MCP exposure (33 tools, bearer→identity, rate-limit)
 6. Prompt/tool abuse (perimeter tripwire + ABAC backstop)
 7. DSL mutation authority (definition approval = defApprover)
 8. Signed diff (definition change = proposal → signature)

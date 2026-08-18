@@ -21,9 +21,14 @@ agent-harness — заменяемые внешние слои.
 **Что реально умеет**: компилировать DSL с агентскими ошибками `{code, file:line,
 fix_hint}`; исполнять CRUD+workflow+ABAC(row/field/dashboard)+HITL(Ed25519/WebAuthn);
 автоматику (schedule/stuck/event, retry cap 5); computed/агрегаты; undo/rewind;
-журнал с реплеем (1M событий < 5с); 32 MCP-инструмента; UI без сборки; федерацию
-двух нод через bridge-воркер; 16 паков + 3 примера; полный прогон go test ./... — зелёный
-(348 PASS / 12 SKIP / 0 FAIL; ~348 test-функций; Cycle-003: guard Decide перепроверяется; RC: clean-room PASS).
+журнал с реплеем (1M событий < 5с); 33 MCP-инструмента; UI без сборки; федерацию
+двух нод через bridge-воркер; 16 паков + 3 примера + новый packs/builder (продуктовая
+миссия); **мульти-пак definition changes** (Round-2: dsl.CompileMulti + MCP
+get_definition — proposals работают additive на мульти-пак нодах);
+**WebAuthn-подпись на definition-решениях** (Round-1: DecideProposal с
+сигнатурной лестницей, GET /api/proposals/{id}/challenge — паритет с approvals);
+полный прогон go test ./... — зелёный (360 PASS / 8 SKIP / 0 FAIL по -v подсчёту;
++7 тестов Round-2; Cycle-003: guard Decide перепроверяется; RC: clean-room PASS).
 
 ## Architecture map (по реальному коду)
 
@@ -41,7 +46,7 @@ flowchart LR
     subgraph N["Нода Kalita (один процесс; основной мьютекс engine.go:19 + idxMu для индексов)"]
         UI2["webui: статика с диска или go:embed (-tags embedui)"]
         API["internal/api: REST /api/*, /api/meta, портал, CSP"]
-        MCP["internal/mcp: JSON-RPC /mcp, 32 тула, Bearer→identity"]
+        MCP["internal/mcp: JSON-RPC /mcp, 33 тула, Bearer→identity"]
         T["internal/transport: общая обвязка акторов/мутаций (parity)"]
         E["internal/engine: CRUD, workflow+HITL, ABAC, automation, computed, undo, тени"]
         D["internal/dsl: компилятор packs → определения"]
@@ -74,13 +79,15 @@ approvals, actors, credentials, shadow, индексы) — in-memory проек
 | Identity | акторы, токены, WebAuthn, lockdown | internal/identity (7/1719) | Register/RegisterWithToken/Authenticate/VerifyApprovalAssertion/Lockdown/Password/Invites | api, mcp, engine | eventstore | 🟡 (LLD-10 PR-1/2, LLD-18 §2 не реализованы) |
 | PII / Secrets | шифрование полей+шреддинг; секреты | internal/pii, internal/secrets | Seal/Open/Destroy; Loader | engine, cmd | x/crypto | 🟢 (PII-AAD слабее LLD-16) |
 | REST API | поверхность для людей/UI | internal/api (14 src/1930 строк) | /api/* (роуты server.go:115-182), meta, portal, CSP | браузер, воркеры (bootstrap) | engine, identity, webui | 🟡 |
-| MCP gateway | поверхность для агентов | internal/mcp (4 src/946 строк) | 32 тула (tools.go:39-101), contract | воркеры, DSH | engine, identity, transport | 🟡 |
+| MCP gateway | поверхность для агентов | internal/mcp (4 src/946 строк) | 33 тула (tools.go:39-101), contract | воркеры, DSH | engine, identity, transport | 🟡 |
 | Transport | общая обвязка REST↔MCP | internal/transport | ActorFromInfo, MutationRequest, ActionRequest | api, mcp | — | 🟢 |
-| WebUI | статика/embed UI | internal/webui, web/ (app.js 1109 стр, preact) | DirHandler, embed | cmd, браузер | — | 🟡 |
+| WebUI | статика/embed UI | internal/webui, web/ (app.js, preact) | DirHandler, embed | cmd, браузер | — | 🟢 (продуктовый shell Round-5: Home/Ask/Company Model/Changes/Integrations + error UX + уровни B/O/D) |
 | SDK/UI-kit | React SDK + preact kit + storybook | packages/kalita-sdk, packages/kalita-ui, web/catalog | client.js, react.js, atoms/molecules/organisms | внешние интеграторы | — | 🟡 (двойной стек, TECHDEBT) |
 | CLI | все подкоманды | cmd/kalita (serve/check/agent/user/verify/lockdown/backup/anchor/trace/logs/export/import/era/upgrade/product/report/egress-report/shadow/mcp) | флаги | оператор | всё | 🟡 (backup/anchor/TSA/trace untracked) |
 | Workers | агенты/интеграции вне ядра | workers/* (Python, stdlib-only) | MCP-тулы, REST bootstrap | оператор/нода | kalita node | 🟡 (вне CI) |
-| Packs | домены | packs/* (16) + examples/* (3) | .dsl | компилятор | core.* | 🟡 |
+| Workers/builder | Business Expert + Conversational Builder (продуктовая миссия A/B/C) | workers/builder/ (builder.py, frameworks.py, synthesizer.py; 47 pytest + live) | HTTP /build/turn (pass-through bearer), MCP | web #/ask (Round-4) | kalita node, frameworks/ | 🟡 NEW (create+change+2 домена live; shell — Round-5) |
+| Frameworks | curated business knowledge (слой 2) | frameworks/*.json + manifest (sha256) | read-only loader с верификацией | workers/builder | — | 🟡 NEW (3 фреймворка: ap/itsm/crm) |
+| Packs | домены | packs/* (17) + examples/* (3) | .dsl | компилятор | core.* | 🟡 |
 | CI | Go-проверки | .github/workflows/ci.yml | vet/build/test/golden/govulncheck/race/passport | GitHub | — | 🟡 (pytest/docker вне CI) |
 
 ## Runtime flows (entry → … → response, по коду)
@@ -97,7 +104,7 @@ UI не содержит логики прав — только проекция
 ### Flow B — Agent action через MCP
 `POST /mcp` (mcp/server.go:90, JSON-RPC) → toolsCall:129 → authenticate:159
 (Bearer → identity.Registry.Authenticate, tokenIndex O(1), constant-time) →
-rate-limit 240/мин → dispatch (tools.go:122, 32 тула) → requireIdemKey (все
+rate-limit 240/мин → dispatch (tools.go:122, 33 тула) → requireIdemKey (все
 мутации) → engine.* → событие в журнал → writeToolResult. Тот же движок, что у REST
 (parity-тест байт-идентичности, tests/transport_parity_test.go:239).
 
@@ -115,7 +122,11 @@ reject-путь освобождён — D-009)** → applyTransitionAndEmit:456
 строятся ДО append; ошибка payload = атомарный откат; op-скобка) →
 runAutoTransitions:505. Edge: findTransition==nil (переход удалён из DSL) —
 legacy synthetic-переход без guard, логируется + метрика DecideFallbackSynthetic
-(D-013).
+(D-013). **Definition-решения (Round-1, P0): тот же церемониал** — DecideProposal
+(proposals.go) с сигнатурной лестницей (humanSig pre-verified / requireHumanSig
+→ SIGNATURE_REQUIRED / raw sig над DefinitionMessage / requireSig), human_signature
+журналируется; REST: GET /api/proposals/{id}/challenge (гейт human+defApprover) →
+POST decide; UI-церемониал web/app.js signProposalWithPasskey.
 
 ### Flow D — Automation
 Tick (нода раз в минуту, cmd/kalita/main.go:598) → automation.go:115: schedule
@@ -166,6 +177,7 @@ TestGoldenReplay (замороженный журнал → точные про�
 | Capability | Syntax | Runtime | Tests | Пример | Status |
 |---|---|---|---|---|---|
 | pack header | `pack X / version / requires / depends` | merge.go (мульти-пак, коллизии) | compile_test.go | pangram | ✅ |
+| мульти-пак proposals | плоская карта files с несколькими `pack X` заголовками | dsl.CompileMulti (группировка по заголовку + MergeModels; single-group = Compile, I-1); engine хранит sources (WithSources/DefinitionSources); MCP get_definition | compile_multi_test, proposal_multipack_test | builder-миссия | ✅ (Round-2) |
 | entity (+singleton, label) | `entity Name ["Label"] [singleton]:` | records.go (singleton=1 запись) | engine_test.go | pangram | ✅ |
 | constraints | `unique(a,b)` (композитный) | validate.go:293 | engine_test.go:243 | pangram | ✅ |
 | roles (agent, rate, hours) | `Name [agent] [rate N] [hours N]` | E019/E031; report.go | compile_test.go | pangram | ✅ |
@@ -235,7 +247,7 @@ TestGoldenReplay (замороженный журнал → точные про�
 | MCP-шлюз, REST | **KALITA CORE** (поверхность) | оба транспорта ведут в ядро |
 | deploy/docker/upgrade/backup/TSA | **EXTERNAL INFRASTRUCTURE** (обвязка ноды) | операции вне семантики предприятия |
 | DSH Forge / Harness | **AGENT HARNESS** | намеренно вне Kalita |
-| Business frameworks (пока нет) | **BUSINESS FRAMEWORK** | curated-знания — не построены |
+| Business frameworks (frameworks/*.json, packs/builder, workers/builder) | **BUSINESS FRAMEWORK + BUILDER** | продуктовая миссия Round-1: curated-знания + governed design-сессии (см. PRODUCT_ARCHITECTURE.md) |
 | definition.validated/reverted, projection.rebuilt, actor.role_changed (мёртвые kinds) | **LEGACY / CANDIDATE FOR REMOVAL** | не пишутся и не фолдятся нигде |
 | core.reference/Department (заявлены, нет) | не классифицируется — отсутствует | см. PLATFORM-STDLIB |
 
