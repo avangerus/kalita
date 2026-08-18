@@ -70,14 +70,13 @@ security), Flash исследует и исполняет (чтение, реа�
 ## 7. Какой цикл следующий?
 
 **Активная миссия (продуктовая)**: self-building enterprise product.
-**Достигнут Definition of Done**: A–D ✅, E ✅ (20/20 + ITSM, независимый
-оператор), F ✅ (Architecture Skeptic ACCEPT, Security Pro ACCEPT, Product
-Skeptic ACCEPT-WITH-NOTES с закрытыми блокерами), 0 BLOCKER. Создан
-Industrial Release Candidate: **docs/forge/INDUSTRIAL_RELEASE.md** (walkthrough,
-architecture, scorecard, tests, clean-room evidence, limitations, artifacts).
-**ОСТАНОВКА: OWNER INDUSTRIAL RELEASE APPROVAL** — решение владельца
-(утвердить / доработки / отложить); автопубликации нет. Незакоммиченное
-дерево (~40 файлов продукт-миссии) — коммит по решению владельца.
+**Миссия выполнена (Round-13)**: Definition of Done достигнут по всем пунктам —
+A–D ✅, E ✅ (20/20 + ITSM независимым оператором), F ✅ (три скептика), 0
+BLOCKER, все suites зелёные на чистом дереве (5 коммитов RC: 05a0dc3..7351206
+над baseline v1.0.0-rc.2). Industrial Release Candidate:
+docs/forge/INDUSTRIAL_RELEASE.md. **Единственный внешний остаток — решение
+владельца: OWNER INDUSTRIAL RELEASE APPROVAL** (утвердить → push+публикация /
+доработки / отложить); автопубликации нет, push не выполнялся.
 
 ## 8. Нужен ли от вас decision?
 
