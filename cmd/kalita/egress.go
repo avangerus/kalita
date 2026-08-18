@@ -2,9 +2,13 @@
 // English-first release): `kalita egress dlq` lists deliveries that exhausted
 // their retries; `kalita egress retry <id>` journals a fresh delivery of the
 // SAME per-firing identity. Same one-shot family as `kalita shadow`/
-// `kalita lockdown`: replays the journal into a fresh engine and exits; a
-// RUNNING `kalita serve` picks the new task up on its next runner tick (the
-// runner polls OpenWebhookTasks every tick, no restart needed for retries).
+// `kalita lockdown`: replays the journal into a fresh engine and exits. A
+// RUNNING `kalita serve` holds its own in-memory Engine and does NOT re-fold
+// the new task event — restart it to pick up a CLI-journaled retry (the same
+// v0 limitation `kalita agent add`/`kalita lockdown` carry). To retry on a
+// LIVE node without a restart, use the approver-gated REST/UI path
+// (POST /api/egress/retry/{id}), which journals the retry through the running
+// engine and folds it live.
 package main
 
 import (
@@ -76,7 +80,7 @@ func egressCmd(args []string) {
 		}
 		fmt.Printf("retry journaled: task %s -> %s (delivery identity %s, destination %s)\n",
 			taskID, task.ID, task.DeliveryID, task.Args)
-		fmt.Println("the running node picks it up on its next webhook-runner tick (10s); a stopped node delivers it at its next serve start")
+		fmt.Println("restart the node to pick up the CLI-journaled retry (v0); on a LIVE node use the Integrations page Retry button instead")
 	}
 }
 

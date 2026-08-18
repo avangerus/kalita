@@ -26,7 +26,12 @@ import (
 //     per-firing delivery identity (DeliveryID) as `idempotency_key`, stable
 //     across redeliveries and manual retries, so a correct receiver collapses
 //     them to one business effect;
-//   - exactly-once is NEVER promised.
+//   - exactly-once is NEVER promised;
+//   - the payload carries the record's values AS OF DELIVERY TIME (the intent
+//     journals entity+record, not a values snapshot): a record that changed
+//     between firing and delivery is delivered with its newer values under
+//     the firing's identity — receivers must not treat the payload as the
+//     firing-time state.
 //
 // Business semantics stay in the DSL (`webhook out` creates the intent); this
 // file is pure delivery infrastructure.
