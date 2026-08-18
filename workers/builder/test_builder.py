@@ -43,6 +43,7 @@ class FakeNode:
         self.live_invoices = []    # what query(VendorInvoice) returns
         self.deny_invoices = False  # simulate the caller lacking read rights
         self.has_ap_model = False  # what describe_system reports
+        self.reject_proposal = False  # propose_change answers ok:false with errors
 
     def mcp(self, bearer, tool, arguments):
         self.calls.append((tool, bearer, arguments))
@@ -111,6 +112,12 @@ class FakeNode:
                     "def_version": 3}, False
         if tool == "propose_change":
             self.proposed = arguments
+            if self.reject_proposal:
+                # the REAL node answers a rejected DSL as a NORMAL result:
+                # {"ok": false, "errors": [...]} with isError=false (MCP
+                # dispatch) — the builder must treat it as a rejection
+                return {"ok": False, "errors": [
+                    {"code": "E1", "message": "entity X removed"}]}, False
             return {"ok": True, "proposal_id": "prop-1"}, False
         return {"code": "NO_TOOL", "message": tool}, True
 
@@ -319,6 +326,29 @@ def test_rejecting_build_confirm_changes_nothing(monkeypatch):
     reply, session_id, state = builder.handle_turn("tok", session_id, "no, not yet")
     assert "won't change anything" in reply
     assert not any(tool in ("compose_pack", "propose_change") for tool, _, _ in node.calls)
+
+
+def test_propose_ok_false_is_a_rejection_not_a_signature_wait(monkeypatch):
+    """Regression (English clean-room acceptance): the node answers a rejected
+    DSL as {'ok': false, 'errors': [...]} with isError=false. The builder used
+    to print 'Proposal <EMPTY> created and AWAITING your signature' for that —
+    telling the user a proposal exists that the journal never saw."""
+    node = _fresh(monkeypatch, FakeNode())
+    node.reject_proposal = True
+    _, session_id, _ = builder.handle_turn("tok", None, "Create an invoice approval system")
+    _run_discovery(node, session_id)
+    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    _, session_id, _ = builder.handle_turn("tok", session_id, "yes, build")
+    assert node.records["DesignSession"][session_id]["status"] == "modeling"
+    reply, session_id, state = builder.handle_turn("tok", session_id, "yes, propose")
+    assert state["phase"] == "propose_failed", state
+    assert "rejected by the node" in reply
+    assert "AWAITING your signature" not in reply, \
+        "a rejected proposal must never be reported as awaiting a signature"
+    assert "entity X removed" in reply, "the node's own errors must reach the user"
+    sess = node.records["DesignSession"][session_id]
+    assert sess["status"] != "proposed", \
+        "the session must not be marked proposed when the journal has no proposal"
 
 
 def _build_live_model(node):

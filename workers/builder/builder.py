@@ -709,17 +709,24 @@ def _approve_phase(bearer, session, session_id, decs, turn):
         "basis": {"type": "design_session", "id": session_id},
         "idempotency_key": _idem("prop", session_id, base_def),
     })
-    if is_err:
-        reply = "The proposal was rejected by the node: %s" % (prop,)
+    # The node reports a parked proposal as {"ok": true, "proposal_id": ...}.
+    # A NON-ok payload (e.g. {"ok": false, "errors": [...]} for a DSL the
+    # node rejected) is a REJECTION — reporting it as "awaiting signature"
+    # would tell the user a proposal exists that the journal never saw
+    # (English clean-room acceptance finding: the success message used to
+    # print with an empty proposal id).
+    proposal_id = (prop or {}).get("proposal_id", "")
+    if is_err or not (prop or {}).get("ok") or not proposal_id:
+        detail = prop if is_err else (prop or {}).get("errors")
+        reply = "The proposal was rejected by the node: %s" % (detail,)
         _post_message(bearer, session_id, "expert", "validation_error", reply,
                       provenance="node", turn=turn)
         return reply, session_id, {"phase": "propose_failed", "framework": ""}
-    proposal_id = (prop or {}).get("proposal_id", "")
     _update_session(bearer, session_id, {
         "status": "proposed", "proposal_id": proposal_id, "def_before": base_def})
     reply = ("Proposal %s created and AWAITING your signature (Approvals "
-             "section, Owner role). Nothing will be applied without a "
-             "signature."
+             "section — the definition approver role). Nothing will be applied "
+             "without a signature."
              % proposal_id)
     _post_message(bearer, session_id, "expert", "status", reply,
                   provenance="node", turn=turn)
