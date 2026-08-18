@@ -90,8 +90,17 @@ PRODUCT_ACCEPTANCE.md — 20/20 шагов + второй домен незав�
   Dockerfile.builder + docker-compose.yml (node + builder + postgres +
   prometheus).
 - Пакеты: packs/builder (+ ap/itsm генерируются разговором); frameworks/.
-- Рабочее дерево: 40+ изменённых/новых файлов с Round-1 (не закоммичены —
-  коммит по плану владельца; точный commit будет зафиксирован при приёмке).
+- **Exact commit (Industrial Release Candidate, main, локально — push по
+  решению владельца)**:
+  - `05a0dc3` kernel: definition-change hardening (content-hash signatures,
+    rich diffPlan, caps, CompileMulti, get_definition, ModelMeta)
+  - `ca0be9c` product: frameworks + packs/builder + workers/builder (51 pytest
+    + live vertical slice)
+  - `2b38147` product: web shell + Ask Kalita + deploy (compose/Dockerfile.builder)
+  - `1065df8` docs: product-mission artifacts (A–F, acceptance, reviews)
+  - baseline: `12fb6f7` (v1.0.0-rc.2, `359da54`)
+- Дерево чистое; финальный прогон на этих коммитах: go ./... — все пакеты
+  ok (0 FAIL); pytest 50+1 live зелёные; app.js syntax OK.
 
 ---
 
