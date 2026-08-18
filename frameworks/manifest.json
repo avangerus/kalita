@@ -7,7 +7,7 @@
       "name": "Accounts Payable / Invoice Approval",
       "version": "1.0.0",
       "origin": "kalita/frameworks — curated by Kalita Forge, reviewed by Architect Pro + Security Pro (product mission A)",
-      "sha256": "d507f7c77141550181cc49976a2326caf03094d8f53555caea2742115d41df7b",
+      "sha256": "32922b2ba46c9ae00ab0ffd4392972c81d79e091db5f476b3f93e9fc05bd7663",
       "compatibility": {
         "builder_protocol": ">=1.0",
         "dsl_features": ["approval_ladder", "agent_role", "guard_when", "events", "dashboards", "computed", "integration_declaration"]
@@ -19,7 +19,7 @@
       "name": "IT Service Management",
       "version": "1.0.0",
       "origin": "kalita/frameworks — curated by Kalita Forge, reviewed by Architect Pro + Security Pro (product mission A)",
-      "sha256": "7c52856a0feafa4c6b487084b373904843504196f3f6e84e9ca05ad83c8e3aa5",
+      "sha256": "ba52bcee62d4dfa4957d6bc8e5e1c32a41ab92a08a82aafa879ac28de20bcc24",
       "compatibility": {
         "builder_protocol": ">=1.0",
         "dsl_features": ["sla_computed", "business_calendar", "agent_role", "approval_gate", "auto_transitions", "dashboards"]
@@ -31,7 +31,7 @@
       "name": "Sales CRM",
       "version": "1.0.0",
       "origin": "kalita/frameworks — curated by Kalita Forge, reviewed by Architect Pro + Security Pro (product mission A)",
-      "sha256": "4db425f9df4345d4e3a3da801b8573a6892233997ec29b56f54712eeaf6c6dd3",
+      "sha256": "343857d50cfaf180a3ca9ab78750a0f57d49c3250ec3ed39485419f2f6ba10df",
       "compatibility": {
         "builder_protocol": ">=1.0",
         "dsl_features": ["pipeline_workflow", "agent_role", "approval_gate", "dashboards", "automation_stale"]

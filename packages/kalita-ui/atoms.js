@@ -8,7 +8,7 @@
 // nothing pack-specific: zero entity names, zero domain knowledge. An atom
 // renders EDIT mode when `onChange` is supplied, READ mode otherwise — this
 // keeps FieldInput/FieldValue in web/app.js as thin dispatchers (per the LLD:
-// "те остаются ДИСПЕТЧЕРОМ ... логика типов не дублируется") without forcing
+// "they stay DISPATCHERS ... type logic is not duplicated") without forcing
 // two separate atoms per type for the common case.
 //
 // Network capability injection: some atoms need I/O (RefLink resolves a ref

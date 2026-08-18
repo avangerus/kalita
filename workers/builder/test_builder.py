@@ -128,7 +128,7 @@ def _fresh(monkeypatch, node):
 
 def test_pass_through_bearer_on_every_call(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
-    builder.handle_turn("token-human-1", None, "Создай систему согласования счетов")
+    builder.handle_turn("token-human-1", None, "Create an invoice approval system")
     assert node.calls, "the builder must talk to the node"
     for tool, bearer, _args in node.calls:
         assert bearer == "token-human-1", "every call must carry the caller's bearer, got %r" % (bearer,)
@@ -137,7 +137,7 @@ def test_pass_through_bearer_on_every_call(monkeypatch):
 def test_understand_creates_session_with_framework(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
     reply, session_id, state = builder.handle_turn(
-        "tok", None, "У нас счета приходят из системы X, надо согласование")
+        "tok", None, "We get invoices from system X, need approval")
     assert state["framework"] == "ap"
     sess = node.records["DesignSession"][session_id]
     assert sess["framework"].startswith("ap@")
@@ -147,7 +147,7 @@ def test_understand_creates_session_with_framework(monkeypatch):
 def test_first_question_is_blocking(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
     _, session_id, state1 = builder.handle_turn(
-        "tok", None, "Создай систему согласования счетов")
+        "tok", None, "Create an invoice approval system")
     assert state1["phase"] == "discover"
     assert state1["class"] == "required", "first question must be blocking, got %r" % (state1,)
     # the recorded expert question carries provenance + topic
@@ -159,9 +159,9 @@ def test_first_question_is_blocking(monkeypatch):
 
 def test_one_question_per_turn(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
-    _, session_id, _ = builder.handle_turn("tok", None, "Создай систему согласования счетов")
+    _, session_id, _ = builder.handle_turn("tok", None, "Create an invoice approval system")
     for _ in range(3):
-        _, _, state = builder.handle_turn("tok", session_id, "не знаю")
+        _, _, state = builder.handle_turn("tok", session_id, "don't know")
         if state["phase"] != "discover":
             break
     q_msgs = [m for m in node.records["SessionMessage"].values()
@@ -173,17 +173,17 @@ def test_one_question_per_turn(monkeypatch):
 def test_answer_becomes_accepted_decision_fact_does_not(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
     _, session_id, state1 = builder.handle_turn(
-        "tok", None, "Создай систему согласования счетов")
+        "tok", None, "Create an invoice approval system")
     topic = state1["topic"]
 
     # a plain fact (no open question) must NOT become a decision
     builder.classify_statement = lambda q, text: ("fact", "")  # type: ignore[assignment]
-    _, _, _ = builder.handle_turn("tok", session_id, "Все счета утверждает директор")
+    _, _, _ = builder.handle_turn("tok", session_id, "All invoices are approved by the director")
     assert not node.records.get("DesignDecision", {}), "a bare fact must not become a decision"
 
     # an answer to the open question DOES become an accepted decision
     builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
-    _, _, state2 = builder.handle_turn("tok", session_id, "Утверждает директор")
+    _, _, state2 = builder.handle_turn("tok", session_id, "Approved by the director")
     decs = node.records.get("DesignDecision", {}).values()
     assert any(d["topic"] == topic and d["status"] == "accepted" for d in decs)
     if state2["phase"] == "discover":
@@ -192,21 +192,21 @@ def test_answer_becomes_accepted_decision_fact_does_not(monkeypatch):
 
 def test_no_framework_asks_honestly(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
-    reply, session_id, state = builder.handle_turn("tok", None, "хочу что-то автоматизировать")
+    reply, session_id, state = builder.handle_turn("tok", None, "I want to automate something")
     assert state["framework"] == ""
-    assert "области" in reply or "подробнее" in reply
+    assert "domain" in reply or "detail" in reply
 
 
 def test_discovery_completion_is_labeled_not_applied(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
-    _, session_id, state1 = builder.handle_turn("tok", None, "Создай систему согласования счетов")
+    _, session_id, state1 = builder.handle_turn("tok", None, "Create an invoice approval system")
     _run_discovery(node, session_id)
     last_q = [m for m in node.records["SessionMessage"].values()
               if m["kind"] == "question"][-1]
     assert last_q["topic"] == "build_confirm"
     assert last_q["provenance"].startswith("ap@")
-    assert "рекомендую" in last_q["body"]
-    assert "не правило" in last_q["body"]
+    assert "recommend" in last_q["body"]
+    assert "not a rule" in last_q["body"]
     # nothing was applied: no propose_change call ever happened in discovery
     assert not any(tool == "propose_change" for tool, _, _ in node.calls)
 
@@ -215,9 +215,9 @@ def test_session_is_scoped_by_mcp_not_by_worker(monkeypatch):
     """The worker stores NO local state: session contents come back from the
     node each turn (governed store), the worker is stateless between turns."""
     node = _fresh(monkeypatch, FakeNode())
-    _, session_id, _ = builder.handle_turn("tok", None, "Создай систему согласования счетов")
+    _, session_id, _ = builder.handle_turn("tok", None, "Create an invoice approval system")
     before = len(node.records["SessionMessage"])
-    builder.handle_turn("tok", session_id, "ответ")
+    builder.handle_turn("tok", session_id, "answer")
     after = len(node.records["SessionMessage"])
     assert after == before + 2, "each turn journals user + expert messages"
 
@@ -226,12 +226,12 @@ def _run_discovery(node, session_id):
     """Answer every required/important question deterministically; STOP when
     the build_confirm question appears (its answer belongs to the test)."""
     answers = {
-        "what_is_invoice": "счета поставщиков к оплате",
-        "approval_authority": "директор",
-        "amount_thresholds": "до 100к руководитель, до 1М финдир, выше гендир",
-        "contract_matching": "да, сверяем",
-        "po_matching": "нет",
-        "org_roles": "есть руководители и финдир",
+        "what_is_invoice": "supplier invoices to pay",
+        "approval_authority": "director",
+        "amount_thresholds": "up to 100k manager, up to 1M CFO, above CEO",
+        "contract_matching": "yes, we match",
+        "po_matching": "no",
+        "org_roles": "there are managers and a CFO",
     }
     state = None
     for _ in range(8):
@@ -242,7 +242,7 @@ def _run_discovery(node, session_id):
             break  # do not consume the build question here
         builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
         _, _, state = builder.handle_turn(
-            "tok", session_id, answers.get(topic, "да, так и сделаем"))
+            "tok", session_id, answers.get(topic, "yes, let's do that"))
     return state
 
 
@@ -252,7 +252,7 @@ def test_full_vertical_slice_model_then_propose(monkeypatch):
     parked with the session id in the description)."""
     node = _fresh(monkeypatch, FakeNode())
     _, session_id, state1 = builder.handle_turn(
-        "tok", None, "Создай систему согласования счетов")
+        "tok", None, "Create an invoice approval system")
     assert state1["framework"] == "ap"
 
     # answer discovery until the build question
@@ -263,7 +263,7 @@ def test_full_vertical_slice_model_then_propose(monkeypatch):
 
     # CONFIRM -> MODEL phase
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    reply, session_id, state = builder.handle_turn("tok", session_id, "да, построй")
+    reply, session_id, state = builder.handle_turn("tok", session_id, "yes, build")
     assert state["phase"] == "modeling"
     kinds = [m["kind"] for m in node.records["SessionMessage"].values()]
     assert "proposal_summary" in kinds, "EXPLAIN must be journaled before propose"
@@ -275,7 +275,7 @@ def test_full_vertical_slice_model_then_propose(monkeypatch):
 
     # second CONFIRM -> APPROVE phase (parked, never applied)
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    reply, session_id, state = builder.handle_turn("tok", session_id, "да, предложи")
+    reply, session_id, state = builder.handle_turn("tok", session_id, "yes, propose")
     assert state["phase"] == "proposed"
     assert state["proposal_id"] == "prop-1"
     assert node.proposed["files"].get("ap.dsl"), "proposal must carry rendered DSL"
@@ -287,12 +287,12 @@ def test_full_vertical_slice_model_then_propose(monkeypatch):
     sess = node.records["DesignSession"][session_id]
     assert sess["status"] == "proposed"
     assert sess["proposal_id"] == "prop-1"
-    assert "ЖДЁТ вашей подписи" in reply
+    assert "AWAITING your signature" in reply
 
 
 def test_model_phase_validation_failure_never_proposes(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
-    _, session_id, _ = builder.handle_turn("tok", None, "Создай систему согласования счетов")
+    _, session_id, _ = builder.handle_turn("tok", None, "Create an invoice approval system")
     _run_discovery(node, session_id)
     # force the fake validator to fail
     orig = node.mcp
@@ -304,33 +304,33 @@ def test_model_phase_validation_failure_never_proposes(monkeypatch):
 
     node.mcp = failing
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    reply, session_id, state = builder.handle_turn("tok", session_id, "да, построй")
+    reply, session_id, state = builder.handle_turn("tok", session_id, "yes, build")
     assert state["phase"] == "validate_failed"
-    assert "не проходит" in reply or "валидац" in reply
+    assert "fails" in reply or "validation" in reply
     assert not any(tool == "propose_change" for tool, _, _ in node.calls), \
         "an invalid model must never be proposed"
 
 
 def test_rejecting_build_confirm_changes_nothing(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
-    _, session_id, _ = builder.handle_turn("tok", None, "Создай систему согласования счетов")
+    _, session_id, _ = builder.handle_turn("tok", None, "Create an invoice approval system")
     _run_discovery(node, session_id)
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    reply, session_id, state = builder.handle_turn("tok", session_id, "нет, рано")
-    assert "ничего не меняю" in reply
+    reply, session_id, state = builder.handle_turn("tok", session_id, "no, not yet")
+    assert "won't change anything" in reply
     assert not any(tool in ("compose_pack", "propose_change") for tool, _, _ in node.calls)
 
 
 def _build_live_model(node):
     """Drive a full create flow to a proposed session, then simulate the human
     decision (engine applied) — the precondition for a conversational CHANGE."""
-    _, session_id, state1 = builder.handle_turn("tok", None, "Создай систему согласования счетов")
+    _, session_id, state1 = builder.handle_turn("tok", None, "Create an invoice approval system")
     assert state1["framework"] == "ap"
     _run_discovery(node, session_id)
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    _, session_id, state = builder.handle_turn("tok", session_id, "да, построй")
+    _, session_id, state = builder.handle_turn("tok", session_id, "yes, build")
     assert state["phase"] == "modeling", state
-    _, session_id, state = builder.handle_turn("tok", session_id, "да, предложи")
+    _, session_id, state = builder.handle_turn("tok", session_id, "yes, propose")
     assert state["phase"] == "proposed", state
     node.proposal_status = {"status": "applied", "def_version": 2}
     node.has_ap_model = True
@@ -363,7 +363,7 @@ def test_change_model_phase_business_diff_and_impact(monkeypatch):
         "tok", sid, "до 100к руководитель, до 1М финдир, до 2М гендир, выше собственник")
     assert state["phase"] == "discover"
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    reply, sid, state = builder.handle_turn("tok", sid, "да, построй")
+    reply, sid, state = builder.handle_turn("tok", sid, "yes, build")
     assert state["phase"] == "modeling", state
     summaries = [m["body"] for m in node.records["SessionMessage"].values()
                  if m["kind"] == "proposal_summary"]
@@ -384,8 +384,8 @@ def test_change_approve_proposes_merged_sources(monkeypatch):
     builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
     _, sid, _ = builder.handle_turn("tok", sid, "до 1М финдир, выше собственник")
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    _, sid, _ = builder.handle_turn("tok", sid, "да, построй")
-    reply, sid, state = builder.handle_turn("tok", sid, "да, предложи")
+    _, sid, _ = builder.handle_turn("tok", sid, "yes, build")
+    reply, sid, state = builder.handle_turn("tok", sid, "yes, propose")
     assert state["phase"] == "proposed", (state, reply)
     assert node.proposed["files"].get("ap.dsl")
     assert node.proposed["files"].get("builder.dsl"), "change proposals merge the definition too"
@@ -411,7 +411,7 @@ def test_change_impact_honest_when_caller_cannot_read(monkeypatch):
     builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
     _, sid, _ = builder.handle_turn("tok", sid, "до 1М финдир, выше собственник")
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    reply, sid, state = builder.handle_turn("tok", sid, "да, построй")
+    reply, sid, state = builder.handle_turn("tok", sid, "yes, build")
     assert state["phase"] == "modeling"
     assert "не посчитано" in reply and "недостаточно прав" in reply, reply
 
@@ -429,8 +429,8 @@ def test_second_change_preserves_original_options(monkeypatch):
     builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
     _, sid, _ = builder.handle_turn("tok", sid, "до 100к руководитель, до 1М финдир, до 2М гендир, выше собственник")
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    _, sid, _ = builder.handle_turn("tok", sid, "да, построй")
-    _, sid, state = builder.handle_turn("tok", sid, "да, предложи")
+    _, sid, _ = builder.handle_turn("tok", sid, "yes, build")
+    _, sid, state = builder.handle_turn("tok", sid, "yes, propose")
     assert state["phase"] == "proposed"
     node.proposal_status = {"status": "applied", "def_version": 3}
 
@@ -440,13 +440,13 @@ def test_second_change_preserves_original_options(monkeypatch):
     builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
     _, sid2, _ = builder.handle_turn("tok", sid2, "до 50к руководитель, до 1М финдир, до 2М гендир, выше собственник")
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    reply, sid2, state = builder.handle_turn("tok", sid2, "да, построй")
+    reply, sid2, state = builder.handle_turn("tok", sid2, "yes, build")
     assert state["phase"] == "modeling", (state, reply)
     names = [e["name"] for e in node.composed.get("entities", [])]
     assert "Contract" in names, \
         "the second change must keep the original Contract option: %r" % names
     assert "Сущности не меняются." in reply, reply
-    _, sid2, state = builder.handle_turn("tok", sid2, "да, предложи")
+    _, sid2, state = builder.handle_turn("tok", sid2, "yes, propose")
     assert state["phase"] == "proposed", (state,)
 
 
@@ -475,7 +475,7 @@ def test_itsm_vertical_slice_e2e(monkeypatch):
         _, sid, state = builder.handle_turn("tok", sid, answers.get(topic, "да"))
 
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    reply, sid, state = builder.handle_turn("tok", sid, "да, построй")
+    reply, sid, state = builder.handle_turn("tok", sid, "yes, build")
     assert state["phase"] == "modeling", (state, reply)
     summaries = [m["body"] for m in node.records["SessionMessage"].values()
                  if m["kind"] == "proposal_summary"]
@@ -484,7 +484,7 @@ def test_itsm_vertical_slice_e2e(monkeypatch):
     assert "Incident" in summaries[-1] and "Change" in summaries[-1]
     assert "P1: реакция 1ч / решение 4ч" in summaries[-1]
 
-    reply, sid, state = builder.handle_turn("tok", sid, "да, предложи")
+    reply, sid, state = builder.handle_turn("tok", sid, "yes, propose")
     assert state["phase"] == "proposed", (state, reply)
     assert node.proposed["files"].get("itsm.dsl"), "proposal must carry the itsm pack"
     assert node.proposed["files"].get("builder.dsl"), "merged definition"

@@ -164,27 +164,27 @@ func BuildReport(events []*eventstore.Event, roles map[string]*dsl.RoleDecl, sin
 // catalog's static HTML).
 func (r *Report) RenderMarkdown() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Kalita — неделя в цифрах\n\n")
-	fmt.Fprintf(&b, "Период: %s — %s", r.Since.Format(time.RFC3339), r.Until.Format(time.RFC3339))
+	fmt.Fprintf(&b, "# Kalita — week in numbers\n\n")
+	fmt.Fprintf(&b, "Period: %s — %s", r.Since.Format(time.RFC3339), r.Until.Format(time.RFC3339))
 	if r.Role != "" {
-		fmt.Fprintf(&b, " (роль: %s)", r.Role)
+		fmt.Fprintf(&b, " (role: %s)", r.Role)
 	}
 	b.WriteString("\n\n")
 
-	fmt.Fprintf(&b, "## Действия\n\n")
-	fmt.Fprintf(&b, "- всего: **%d**\n", r.Actions.Total)
-	fmt.Fprintf(&b, "- люди: %d\n", r.Actions.Human)
-	fmt.Fprintf(&b, "- агенты: %d\n", r.Actions.Agent)
-	fmt.Fprintf(&b, "- система: %d\n\n", r.Actions.System)
+	fmt.Fprintf(&b, "## Actions\n\n")
+	fmt.Fprintf(&b, "- total: **%d**\n", r.Actions.Total)
+	fmt.Fprintf(&b, "- humans: %d\n", r.Actions.Human)
+	fmt.Fprintf(&b, "- agents: %d\n", r.Actions.Agent)
+	fmt.Fprintf(&b, "- system: %d\n\n", r.Actions.System)
 
-	fmt.Fprintf(&b, "## По ролям\n\n")
+	fmt.Fprintf(&b, "## By role\n\n")
 	if !r.PackKnown {
-		fmt.Fprintf(&b, "_pack не передан (--pack) — часы×ставка недоступны для всех ролей._\n\n")
+		fmt.Fprintf(&b, "_no --pack given — hours×rate unavailable for every role._\n\n")
 	}
 	if len(r.ByRole) == 0 {
-		b.WriteString("_нет действий за период._\n\n")
+		b.WriteString("_no actions in the period._\n\n")
 	} else {
-		b.WriteString("| роль | действий | часы | стоимость | примечание |\n")
+		b.WriteString("| role | actions | hours | cost | note |\n")
 		b.WriteString("|---|---|---|---|---|\n")
 		for _, rs := range r.ByRole {
 			hours := "—"
@@ -200,16 +200,16 @@ func (r *Report) RenderMarkdown() string {
 		b.WriteString("\n")
 	}
 
-	fmt.Fprintf(&b, "## Очередь подписей\n\n")
-	fmt.Fprintf(&b, "- в очереди: **%d**\n", r.Approvals.Pending)
+	fmt.Fprintf(&b, "## Signature queue\n\n")
+	fmt.Fprintf(&b, "- pending: **%d**\n", r.Approvals.Pending)
 	if r.Approvals.Pending > 0 {
-		fmt.Fprintf(&b, "- возраст самой старой: %s\n", r.Approvals.OldestAge.Round(time.Minute))
+		fmt.Fprintf(&b, "- oldest age: %s\n", r.Approvals.OldestAge.Round(time.Minute))
 	}
 	b.WriteString("\n")
 
-	fmt.Fprintf(&b, "## Нарушения SLA (automation)\n\n")
-	fmt.Fprintf(&b, "- провалов с ретраем: %d\n", r.SLA.Failed)
-	fmt.Fprintf(&b, "- окончательно заброшено (retries исчерпаны): %d\n", r.SLA.Abandoned)
+	fmt.Fprintf(&b, "## SLA breaches (automation)\n\n")
+	fmt.Fprintf(&b, "- failures still retrying: %d\n", r.SLA.Failed)
+	fmt.Fprintf(&b, "- finally abandoned (retries exhausted): %d\n", r.SLA.Abandoned)
 
 	return b.String()
 }
@@ -221,28 +221,28 @@ func (r *Report) RenderMarkdown() string {
 func (r *Report) RenderHTML() string {
 	var b strings.Builder
 	b.WriteString("<!doctype html><html><head><meta charset=\"utf-8\">")
-	b.WriteString("<title>Kalita — неделя в цифрах</title>")
+	b.WriteString("<title>Kalita — week in numbers</title>")
 	b.WriteString("<style>body{font:14px/1.5 -apple-system,Segoe UI,sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem;color:#1a1a1a}" +
 		"table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:4px 8px;text-align:left}" +
 		"h1{font-size:1.4rem}h2{font-size:1.1rem;margin-top:1.5rem}.note{color:#666;font-size:0.9em}</style></head><body>")
-	fmt.Fprintf(&b, "<h1>Kalita — неделя в цифрах</h1>")
-	fmt.Fprintf(&b, "<p>Период: %s — %s", html.EscapeString(r.Since.Format(time.RFC3339)), html.EscapeString(r.Until.Format(time.RFC3339)))
+	fmt.Fprintf(&b, "<h1>Kalita — week in numbers</h1>")
+	fmt.Fprintf(&b, "<p>Period: %s — %s", html.EscapeString(r.Since.Format(time.RFC3339)), html.EscapeString(r.Until.Format(time.RFC3339)))
 	if r.Role != "" {
-		fmt.Fprintf(&b, " (роль: %s)", html.EscapeString(r.Role))
+		fmt.Fprintf(&b, " (role: %s)", html.EscapeString(r.Role))
 	}
 	b.WriteString("</p>")
 
-	fmt.Fprintf(&b, "<h2>Действия</h2><ul><li>всего: <b>%d</b></li><li>люди: %d</li><li>агенты: %d</li><li>система: %d</li></ul>",
+	fmt.Fprintf(&b, "<h2>Actions</h2><ul><li>total: <b>%d</b></li><li>humans: %d</li><li>agents: %d</li><li>system: %d</li></ul>",
 		r.Actions.Total, r.Actions.Human, r.Actions.Agent, r.Actions.System)
 
-	b.WriteString("<h2>По ролям</h2>")
+	b.WriteString("<h2>By role</h2>")
 	if !r.PackKnown {
-		b.WriteString("<p class=\"note\">pack не передан (--pack) — часы×ставка недоступны для всех ролей.</p>")
+		b.WriteString("<p class=\"note\">no --pack given — hours×rate unavailable for every role.</p>")
 	}
 	if len(r.ByRole) == 0 {
-		b.WriteString("<p class=\"note\">нет действий за период.</p>")
+		b.WriteString("<p class=\"note\">no actions in the period.</p>")
 	} else {
-		b.WriteString("<table><tr><th>роль</th><th>действий</th><th>часы</th><th>стоимость</th><th>примечание</th></tr>")
+		b.WriteString("<table><tr><th>role</th><th>actions</th><th>hours</th><th>cost</th><th>note</th></tr>")
 		for _, rs := range r.ByRole {
 			hours := "—"
 			if rs.HasHours {
@@ -258,13 +258,13 @@ func (r *Report) RenderHTML() string {
 		b.WriteString("</table>")
 	}
 
-	fmt.Fprintf(&b, "<h2>Очередь подписей</h2><ul><li>в очереди: <b>%d</b></li>", r.Approvals.Pending)
+	fmt.Fprintf(&b, "<h2>Signature queue</h2><ul><li>pending: <b>%d</b></li>", r.Approvals.Pending)
 	if r.Approvals.Pending > 0 {
-		fmt.Fprintf(&b, "<li>возраст самой старой: %s</li>", r.Approvals.OldestAge.Round(time.Minute))
+		fmt.Fprintf(&b, "<li>oldest age: %s</li>", r.Approvals.OldestAge.Round(time.Minute))
 	}
 	b.WriteString("</ul>")
 
-	fmt.Fprintf(&b, "<h2>Нарушения SLA (automation)</h2><ul><li>провалов с ретраем: %d</li><li>окончательно заброшено: %d</li></ul>",
+	fmt.Fprintf(&b, "<h2>SLA breaches (automation)</h2><ul><li>failures still retrying: %d</li><li>finally abandoned: %d</li></ul>",
 		r.SLA.Failed, r.SLA.Abandoned)
 
 	b.WriteString("</body></html>")

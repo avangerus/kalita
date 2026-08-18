@@ -31,24 +31,31 @@
 ## План (только release blockers)
 
 ### P-1 Egress hardening (kernel+runner, без смешивания уровней)
-- **Engine**: TaskWebhook получает deterministic business identity
-  (`wh:<entity>:<record>:<ruleHash:actionIndex>` в taskPayload) — ключ
-  стабилен через requeue/recovery; новый eventstore kind `WebhookAttempt`
-  (additive; fold — receipts-проекция) с {attempt, outcome, category,
-  destination, latency_ms}; листинг failed webhook tasks + `RetryWebhookTask`
-  (новый open-таск с ТОЙ ЖЕ identity, basis «manual retry»); egress-метрики
-  из проекций.
-- **Runner**: классификация failure (4xx кроме 408/425/429 → non-retryable →
-  сразу DLQ с категорией); per-attempt receipts в журнал; секреты через
+> ИМПЛЕМЕНТИРОВАНО (commit `1a6c126`), с поправкой Architect Pro: identity —
+> НЕ business-coordinate hash (`ruleKey` нестабилен file:line), а per-firing
+> `DeliveryID` (uuid v7) в taskPayload, переносится вперёд через
+> requeue/DLQ-retry. Остальное — по плану ниже.
+- **Engine**: TaskWebhook получает per-firing `DeliveryID` (uuid v7) в
+  taskPayload — ключ стабилен через requeue/recovery; новый eventstore kind
+  `WebhookAttempt` (additive; fold — receipts-проекция, с event-id dedup
+  guard) с {attempt, outcome, category, destination, latency_ms}; листинг
+  failed webhook tasks + `RetryWebhookTask` (новый open-таск с ТОЙ ЖЕ
+  identity, role-gated defApprover); egress-метрики из проекций.
+- **Runner**: классификация failure (3xx и 4xx кроме 408/425/429 →
+  non-retryable → сразу DLQ с категорией; network/timeout/5xx retry, 5
+  попыток, backoff 2s×attempt); per-attempt receipts в журнал; секреты через
   runtime injection: `KALITA_EGRESS_SECRETS` = путь к 0600-JSON
-  {"domain": "Bearer …"} (в .gitignore, НИКОГДА в DSL/prompt/journal/git);
-  отсутствующий секрет → fail safely (категория auth, без утечки); payload
+  {"domain": "Bearer …"} (валидация формата+0600 на boot, читается один раз;
+  НИКОГДА в DSL/prompt/journal/git); отсутствующий секрет при
+  configured=true → fail safely (категория auth_missing, без утечки); payload
   без секретов; метрики.
 - **Ops surface**: `kalita egress dlq` (список) + `kalita egress retry <id>`
+  + REST GET /api/egress/dlq и POST /api/egress/retry/{id} (defApprover-gated)
   + UI (Integrations: DLQ-список + Retry). Бизнес-семантика в DSL не меняется
   (intent остаётся TaskWebhook из automation `webhook out`).
 - **Semantics-контракт**: at-least-once delivery + idempotent business effect
-  (детерминированный ключ) — exactly-once НЕ обещаем; документируем.
+  (per-firing DeliveryID как idempotency_key) — exactly-once НЕ обещаем;
+  документируем.
 
 ### P-2 Failure-injection acceptance (сценарии A–H)
 Автоматизированный harness: mock Y (контролируемые 500/timeout/dup/crash/

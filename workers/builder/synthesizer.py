@@ -22,15 +22,15 @@ import re
 # --- free-text threshold parsing (LLM-assisted with deterministic fallback) --
 
 _ROLE_NORMALIZE = [
-    (re.compile(r"руковод", re.I), "Manager"),
-    (re.compile(r"фин\w*дир|финанс|cf[oо]", re.I), "CFO"),
-    (re.compile(r"собственник|владел", re.I), "Owner"),
-    (re.compile(r"ген\w*дир|генеральн|директор|ce[oо]|руководител", re.I), "CEO"),
+    (re.compile(r"manager", re.I), "Manager"),
+    (re.compile(r"cfo|financ", re.I), "CFO"),
+    (re.compile(r"owner|proprietor", re.I), "Owner"),
+    (re.compile(r"ceo|director|chief|executiv", re.I), "CEO"),
 ]
 
-# amount words: "100к", "100 тысяч", "100k", "1М", "1 млн", "1000000"
+# amount words: "100k", "100 thousand", "1M", "1 million", "1000000"
 _AMOUNT_RE = re.compile(
-    r"(\d+(?:[.,]\d+)?)\s*(млн|м|тыс\.?|тысяч|к|k|₽|руб)?\b", re.I)
+    r"(\d+(?:[.,]\d+)?)\s*(million|mln|m|thousand|thous|k)?\b", re.I)
 
 
 def _parse_amount(text):
@@ -39,9 +39,9 @@ def _parse_amount(text):
         return None
     val = float(m.group(1).replace(",", "."))
     unit = (m.group(2) or "").lower()
-    if unit.startswith("млн") or unit in ("м",):
+    if unit.startswith("million") or unit in ("m", "mln"):
         val *= 1_000_000
-    elif unit.startswith("тыс") or unit in ("к", "k"):
+    elif unit.startswith("thous") or unit in ("k",):
         val *= 1_000
     return val
 
@@ -54,17 +54,17 @@ def _role_for(text):
 
 
 def parse_thresholds(text):
-    """Parse 'до 100к руководитель, до 1М финдир, выше гендир' into
+    """Parse 'up to 100k manager, up to 1M CFO, above CEO' into
     [{min, max, role}]. Deterministic segment splitter supporting:
-      'до X <role>' (max=X), 'выше/более/свыше X <role>' (min=X),
-      'X-Y <role>' / 'от X до Y <role>' (min=X, max=Y),
-      'выше <role>' with no amount (min=previous max).
+      'up to X <role>' (max=X), 'above/more than/over X <role>' (min=X),
+      'X-Y <role>' / 'from X to Y <role>' (min=X, max=Y),
+      'above <role>' with no amount (min=previous max).
     A segment must carry a role and enough amount info, otherwise [] (the
     caller then asks the LLM / the user — never guesses)."""
     text = (text or "").strip()
     if not text:
         return []
-    segments = [s.strip() for s in re.split(r"[,;]|\s+и\s+", text) if s.strip()]
+    segments = [s.strip() for s in re.split(r"[,;]|\s+and\s+", text) if s.strip()]
     raw = []
     for seg in segments:
         role = _role_for(seg)
@@ -73,16 +73,17 @@ def parse_thresholds(text):
         amounts = [_parse_amount(m.group(0)) for m in _AMOUNT_RE.finditer(seg)]
         amounts = [a for a in amounts if a is not None]
         low = seg.lower()
-        if any(w in low for w in ("выше", "более", "свыше", "больше")):
+        if any(w in low for w in ("above", "more than", "over", "greater",
+                                  "exceeding")):
             if len(amounts) >= 1:
                 raw.append({"min": amounts[0], "max": None, "role": role})
             else:
-                raw.append({"min": None, "max": None, "role": role})  # 'выше <role>'
-        elif "от" in low and len(amounts) >= 2:
+                raw.append({"min": None, "max": None, "role": role})  # 'above <role>'
+        elif "from" in low and len(amounts) >= 2:
             raw.append({"min": amounts[0], "max": amounts[1], "role": role})
         elif len(amounts) == 2:
             raw.append({"min": amounts[0], "max": amounts[1], "role": role})
-        elif "до" in low and len(amounts) >= 1:
+        elif "to" in low and len(amounts) >= 1:
             raw.append({"min": None, "max": amounts[0], "role": role})
         elif len(amounts) == 1:
             raw.append({"min": None, "max": amounts[0], "role": role})
@@ -129,15 +130,16 @@ def decision_map(decisions):
 
 def has_yes(dmap, topic):
     v = dmap.get(topic, "").lower()
-    return any(w in v for w in ("да", "yes", "нужн", "использ", "есть", "сверя"))
+    return any(w in v for w in ("yes", "yeah", "yep", "need", "use", "using",
+                                "have", "match", "check", "verify", "want"))
 
 
 def _tier_label(t):
-    """Human tier line: 'до 100000 — Manager' / 'выше 1000000 — CEO'."""
+    """Human tier line: 'up to 100000 — Manager' / 'above 1000000 — CEO'."""
     if t["min"] == 0:
-        return "до %s — %s" % (_fmt(t["max"]), t["role"]) if t["max"] is not None else "любая сумма — %s" % t["role"]
+        return "up to %s — %s" % (_fmt(t["max"]), t["role"]) if t["max"] is not None else "any amount — %s" % t["role"]
     if t["max"] is None:
-        return "выше %s — %s" % (_fmt(t["min"]), t["role"])
+        return "above %s — %s" % (_fmt(t["min"]), t["role"])
     return "%s–%s — %s" % (_fmt(t["min"]), _fmt(t["max"]), t["role"])
 
 
@@ -146,15 +148,15 @@ def ladder_of(spec):
 
 
 def business_diff_ladder(old_spec, new_spec):
-    """Business diff of the approval ladder: human 'было/станет' lines derived
+    """Business diff of the approval ladder: human 'before/after' lines derived
     from the two specs (never LLM prose). Returns a list of lines; empty when
     the ladders are identical."""
     old, new = ladder_of(old_spec), ladder_of(new_spec)
     if old == new:
         return []
-    lines = ["Было:"]
+    lines = ["Before:"]
     lines.extend("  " + _tier_label(t) for t in old)
-    lines.append("Станет:")
+    lines.append("After:")
     lines.extend("  " + _tier_label(t) for t in new)
     return lines
 
@@ -187,15 +189,15 @@ def impact_report_ladder(old_spec, new_spec, live_records):
         elif ot["tier_role"] != nt["tier_role"]:
             changed.append((nt["record_id"], nt["amount"],
                             ot["tier_role"], nt["tier_role"]))
-    lines = ["Проверка по живым записям (если бы новая модель была активна "
-             "сейчас):"]
-    lines.append("- открытых счетов рассмотрено: %d" % len(live_records))
-    lines.append("- сменили бы маршрут: %d" % len(changed))
+    lines = ["Check against live records (if the new model were active "
+             "now):"]
+    lines.append("- open invoices reviewed: %d" % len(live_records))
+    lines.append("- would change route: %d" % len(changed))
     for rid, amount, was, now in changed[:10]:
-        lines.append("  · счёт %s (сумма %s): %s → %s" % (rid, amount, was, now))
+        lines.append("  · invoice %s (amount %s): %s → %s" % (rid, amount, was, now))
     if len(changed) > 10:
-        lines.append("  · … и ещё %d" % (len(changed) - 10))
-    lines.append("- маршрут не определим (вне подмножества walker'а): %d" % len(unknown))
+        lines.append("  · … and %d more" % (len(changed) - 10))
+    lines.append("- route undeterminable (outside the walker subset): %d" % len(unknown))
     return lines
 
 
@@ -221,17 +223,17 @@ def change_topic_for(fwid):
 
 
 def business_diff(fwid, old_spec, new_spec):
-    """Per-domain business diff ('было/станет' human lines, never LLM prose)."""
+    """Per-domain business diff ('before/after' human lines, never LLM prose)."""
     if fwid == "ap":
         return business_diff_ladder(old_spec, new_spec)
     if fwid == "itsm":
         old, new = (s.get("_sla", []) for s in (old_spec, new_spec))
         if old == new:
             return []
-        lines = ["Было (SLA):"]
-        lines.extend("  %s: %sч/%sч" % (s["priority"], s["response_hours"], s["resolve_hours"]) for s in old)
-        lines.append("Станет (SLA):")
-        lines.extend("  %s: %sч/%sч" % (s["priority"], s["response_hours"], s["resolve_hours"]) for s in new)
+        lines = ["Before (SLA):"]
+        lines.extend("  %s: %sh/%sh" % (s["priority"], s["response_hours"], s["resolve_hours"]) for s in old)
+        lines.append("After (SLA):")
+        lines.extend("  %s: %sh/%sh" % (s["priority"], s["response_hours"], s["resolve_hours"]) for s in new)
         return lines
     return []
 
@@ -245,7 +247,7 @@ def build_itsm_spec(dmap):
     change_control = has_yes(dmap, "change_control")
     sla_levels = dmap.get("sla_levels", "")
 
-    # SLA policy rows: parse "P1 1ч/4ч ..." conservatively; fall back to the
+    # SLA policy rows: parse "P1 1h/4h ..." conservatively; fall back to the
     # framework defaults when unparseable (defaults are shown to the user as
     # such in EXPLAIN, never silently invented beyond them).
     sla = _parse_sla(sla_levels) or [
@@ -386,7 +388,7 @@ def build_itsm_spec(dmap):
 
 
 def _parse_sla(text):
-    """Parse 'P1 1ч/4ч, P2 4ч/8ч' into policy rows; [] when unparseable (the
+    """Parse 'P1 1h/4h, P2 4h/8h' into policy rows; [] when unparseable (the
     caller falls back to framework defaults — shown to the user as such)."""
     import re as _re
     rows = []
@@ -394,7 +396,7 @@ def _parse_sla(text):
         seg = seg.strip()
         if not seg:
             continue
-        m = _re.match(r"(P\d)\s+(\d+)\s*(?:ч|h)\s*/\s*(\d+)\s*(?:ч|h)", seg, _re.I)
+        m = _re.match(r"(P\d)\s+(\d+)\s*(?:hrs?|h)\s*/\s*(\d+)\s*(?:hrs?|h)", seg, _re.I)
         if not m:
             return []
         rows.append({"priority": m.group(1).upper(),
@@ -426,29 +428,29 @@ def explain_itsm(spec, fragments):
         for t in wf["transitions"]:
             line = "%s → %s (%s)" % (t["from"], t["to"], t["action"])
             if t.get("requires_approval"):
-                line += "  ✍ подпись: " + t["requires_approval"]
+                line += "  ✍ signature: " + t["requires_approval"]
             if t.get("assignee_agent"):
-                line += "  [агент: %s]" % t["assignee_agent"]
+                line += "  [agent: %s]" % t["assignee_agent"]
             process.append(line)
     gates = [line for line in process if "✍" in line]
-    sla_lines = ["%s: реакция %dч / решение %dч" % (s["priority"], s["response_hours"], s["resolve_hours"])
+    sla_lines = ["%s: response %dh / resolve %dh" % (s["priority"], s["response_hours"], s["resolve_hours"])
                  for s in spec.get("_sla", [])]
     agent_actions = []
     for p in spec["permissions"]:
         if p["role"] == "ServiceDeskAgent":
-            agent_actions.append("может: %s" % "; ".join(r for r in p["rules"] if not r.startswith("deny")))
-            agent_actions.append("НЕ может: %s" % "; ".join(r for r in p["rules"] if r.startswith("deny")))
+            agent_actions.append("can: %s" % "; ".join(r for r in p["rules"] if not r.startswith("deny")))
+            agent_actions.append("CANNOT: %s" % "; ".join(r for r in p["rules"] if r.startswith("deny")))
     return {
-        "Что создаётся": ["%s (%d полей)" % (n, c) for n, c in entities],
-        "Кто участвует": roles,
-        "Как идёт процесс": process,
-        "Где нужен человек (подписи)": gates or ["(нет HITL-гейтов — проверьте решения)"],
-        "Что делает агент": agent_actions,
-        "SLA-политика": sla_lines,
-        "Какие системы подключаются": [
-            "Вход: мониторинг/портал (события, inbound-паттерн)",
+        "What is created": ["%s (%d fields)" % (n, c) for n, c in entities],
+        "Who participates": roles,
+        "How the process runs": process,
+        "Where a human is needed (signatures)": gates or ["(no HITL gates — check the decisions)"],
+        "What the agent does": agent_actions,
+        "SLA policy": sla_lines,
+        "Which systems connect": [
+            "Input: monitoring/portal (events, inbound pattern)",
         ],
-        "Открытые вопросы": ["(нет — все blocking/important вопросы закрыты)"],
+        "Open questions": ["(none — all blocking/important questions are closed)"],
     }
 
 # --- AP spec assembler (deterministic, golden-derived) -----------------------
@@ -546,9 +548,10 @@ def build_ap_spec(dmap):
     for t in ladder:
         permissions.append({"role": t["role"], "rules": [
             "read [Vendor, VendorInvoice, PaymentHandoff]",
-            # approve = решает подпись; act = ЗАПРАШИВАЕТ гейт (переход сам —
-            # HITL-парковка). Без act approver не может даже запросить
-            # approval (clean-room N2: 403 → approvals никогда не создаются)
+            # approve = decides the signature; act = REQUESTS the gate (the
+            # transition itself is the HITL parking). Without act the approver
+            # cannot even request approval (clean-room N2: 403 -> approvals are
+            # never created)
             "approve [approve_tier_%d]" % (ladder.index(t) + 1),
             "act [approve_tier_%d, reject, reopen]" % (ladder.index(t) + 1),
         ]})
@@ -619,17 +622,17 @@ def explain_spec(spec, fragments):
         for t in wf["transitions"]:
             line = "%s → %s (%s)" % (t["from"], t["to"], t["action"])
             if t.get("requires_approval"):
-                line += "  ✍ подпись: " + t["requires_approval"]
+                line += "  ✍ signature: " + t["requires_approval"]
             if t.get("when"):
-                line += "  [если: %s]" % t["when"]
+                line += "  [if: %s]" % t["when"]
             if t.get("assignee_agent"):
-                line += "  [агент: %s]" % t["assignee_agent"]
+                line += "  [agent: %s]" % t["assignee_agent"]
             process.append(line)
 
     gates = []
     for t in ladder:
-        rng = ("до %s" % _fmt(t["max"])) if t["max"] is not None else ("выше %s" % _fmt(t["min"]))
-        gates.append("%s — утверждает %s" % (rng, t["role"]))
+        rng = ("up to %s" % _fmt(t["max"])) if t["max"] is not None else ("above %s" % _fmt(t["min"]))
+        gates.append("%s — approved by %s" % (rng, t["role"]))
 
     perm_summary = []
     for p in spec["permissions"]:
@@ -640,24 +643,24 @@ def explain_spec(spec, fragments):
         if p["role"] in agent_roles:
             allowed = [r for r in p["rules"] if not r.startswith("deny")]
             denied = [r for r in p["rules"] if r.startswith("deny")]
-            agent_actions.append("может: %s" % ("; ".join(allowed)))
-            agent_actions.append("НЕ может: %s" % ("; ".join(denied)))
+            agent_actions.append("can: %s" % ("; ".join(allowed)))
+            agent_actions.append("CANNOT: %s" % ("; ".join(denied)))
 
     integrations = [
-        "Вход: система X (inbound-коннектор, least-privilege роль) — шаблон workers/connectors/inbound.py",
-        "Выход: система Y — событие InvoiceApproved → egress; доставка webhook — известный gap D-011 (статус честно показан)",
+        "Input: system X (inbound connector, least-privilege role) — template workers/connectors/inbound.py",
+        "Output: system Y — InvoiceApproved event → egress; webhook delivery — known gap D-011 (status honestly shown)",
     ]
 
     return {
-        "Что создаётся": ["%s (%d полей)" % (n, c) for n, c in entities],
-        "Кто участвует": roles,
-        "Как идёт процесс": process,
-        "Где нужен человек (подписи)": gates,
-        "Кто что может": perm_summary,
-        "Что делает агент": agent_actions,
-        "Какие системы подключаются": integrations,
-        "События наружу": fragments["events"].strip().split("\n"),
-        "Открытые вопросы": ["(нет — все blocking/important вопросы закрыты)"],
+        "What is created": ["%s (%d fields)" % (n, c) for n, c in entities],
+        "Who participates": roles,
+        "How the process runs": process,
+        "Where a human is needed (signatures)": gates,
+        "Who can do what": perm_summary,
+        "What the agent does": agent_actions,
+        "Which systems connect": integrations,
+        "Outgoing events": fragments["events"].strip().split("\n"),
+        "Open questions": ["(none — all blocking/important questions are closed)"],
     }
 
 

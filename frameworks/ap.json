@@ -11,29 +11,29 @@
     "supersedes": []
   },
   "vocabulary": [
-    {"term": "Invoice", "meaning": "Счёт поставщика, выставленный компании к оплате"},
-    {"term": "Vendor", "meaning": "Поставщик — контрагент, выставивший счёт"},
-    {"term": "Contract", "meaning": "Договор с поставщиком, с которым сверяется счёт"},
-    {"term": "PurchaseOrder", "meaning": "Заказ на закупку, если компания их использует"},
-    {"term": "PaymentHandoff", "meaning": "Передача утверждённого счёта в платёжную систему"},
-    {"term": "ApprovalLadder", "meaning": "Лестница утверждения по сумме: разные роли для разных порогов"}
+    {"term": "Invoice", "meaning": "Invoice issued by a supplier to the company for payment"},
+    {"term": "Vendor", "meaning": "Supplier — the counterparty that issued the invoice"},
+    {"term": "Contract", "meaning": "Contract with the supplier against which the invoice is matched"},
+    {"term": "PurchaseOrder", "meaning": "Purchase order, if the company uses them"},
+    {"term": "PaymentHandoff", "meaning": "Handoff of an approved invoice to the payment system"},
+    {"term": "ApprovalLadder", "meaning": "Approval ladder by amount: different roles for different thresholds"}
   ],
   "entities": [
     {"name": "Invoice", "kind": "core", "fields": [
       {"name": "vendor", "type": "ref", "ref": "Vendor", "required": true},
-      {"name": "number", "type": "string", "required": true, "note": "номер счёта поставщика"},
+      {"name": "number", "type": "string", "required": true, "note": "supplier invoice number"},
       {"name": "date", "type": "date", "required": true},
-      {"name": "amount", "type": "money", "required": true, "note": "сумма к оплате"},
+      {"name": "amount", "type": "money", "required": true, "note": "amount to pay"},
       {"name": "currency", "type": "enum", "values": ["RUB", "USD", "EUR"], "default": "RUB"},
-      {"name": "contract", "type": "ref", "ref": "Contract", "required": false, "note": "если компания сверяет с договорами"},
-      {"name": "purchase_order", "type": "ref", "ref": "PurchaseOrder", "required": false, "note": "если компания использует PO"},
+      {"name": "contract", "type": "ref", "ref": "Contract", "required": false, "note": "if the company matches invoices against contracts"},
+      {"name": "purchase_order", "type": "ref", "ref": "PurchaseOrder", "required": false, "note": "if the company uses POs"},
       {"name": "invoice_file", "type": "file", "required": false},
-      {"name": "status", "type": "workflow", "note": "двигается только переходами"},
+      {"name": "status", "type": "workflow", "note": "moves only via transitions"},
       {"name": "duplicate_checked", "type": "bool", "default": "false"}
-    ], "notes": "unique(vendor, number, date) — первая линия защиты от дублей"},
+    ], "notes": "unique(vendor, number, date) — first line of defense against duplicates"},
     {"name": "Vendor", "kind": "core", "fields": [
       {"name": "name", "type": "string", "required": true, "unique": true},
-      {"name": "inn", "type": "string", "required": false, "note": "реквизиты для сверки"},
+      {"name": "inn", "type": "string", "required": false, "note": "details for matching"},
       {"name": "bank_account", "type": "string", "required": false}
     ]},
     {"name": "Contract", "kind": "core", "fields": [
@@ -44,100 +44,100 @@
     {"name": "PurchaseOrder", "kind": "optional", "fields": [
       {"name": "vendor", "type": "ref", "ref": "Vendor"},
       {"name": "amount", "type": "money"}
-    ], "notes": "создаётся только если компания подтвердила использование PO"},
+    ], "notes": "created only if the company has confirmed it uses POs"},
     {"name": "PaymentHandoff", "kind": "core", "fields": [
       {"name": "invoice", "type": "ref", "ref": "Invoice", "required": true},
       {"name": "sent_at", "type": "datetime"},
-      {"name": "external_ref", "type": "string", "required": false, "note": "ссылка в платёжной системе Y"}
+      {"name": "external_ref", "type": "string", "required": false, "note": "reference in payment system Y"}
     ]}
   ],
   "roles": [
-    {"name": "APClerk", "human_or_agent": "human", "note": "вводит счета, исправляет данные"},
-    {"name": "APAgent", "human_or_agent": "agent", "note": "триаж: дубли, реквизиты, договор, сумма"},
-    {"name": "Manager", "human_or_agent": "human", "note": "утверждает младшие пороги"},
-    {"name": "CFO", "human_or_agent": "human", "note": "утверждает средние пороги"},
-    {"name": "CEO", "human_or_agent": "human", "note": "утверждает старшие пороги"},
-    {"name": "Owner", "human_or_agent": "human", "note": "дополнительный порог при необходимости; defApprover"}
+    {"name": "APClerk", "human_or_agent": "human", "note": "enters invoices, fixes data"},
+    {"name": "APAgent", "human_or_agent": "agent", "note": "triage: duplicates, details, contract, amount"},
+    {"name": "Manager", "human_or_agent": "human", "note": "approves lower thresholds"},
+    {"name": "CFO", "human_or_agent": "human", "note": "approves middle thresholds"},
+    {"name": "CEO", "human_or_agent": "human", "note": "approves upper thresholds"},
+    {"name": "Owner", "human_or_agent": "human", "note": "additional threshold when needed; defApprover"}
   ],
   "process_patterns": [
     {"id": "intake_triage_approve_pay", "stages": [
-      {"stage": "intake", "who": "APClerk или inbound-коннектор X", "what": "счёт попадает в систему с источником"},
-      {"stage": "triage", "who": "APAgent", "what": "проверка дублей (vendor+number+date), наличия договора, реквизитов, суммы; finding-записи вместо самостоятельных отказов"},
-      {"stage": "approval", "who": "человек по лестнице суммы", "what": "requires approval(Role) на confirm; guard перепроверяется движком в Decide (Cycle-003)"},
-      {"stage": "payment_handoff", "who": "система", "what": "событие invoice.approved → egress в Y; handoff-запись"},
-      {"stage": "exception", "who": "человек", "what": "отклонение с причиной; возврат на доработку"}
+      {"stage": "intake", "who": "APClerk or inbound connector X", "what": "an invoice enters the system with a source"},
+      {"stage": "triage", "who": "APAgent", "what": "checks duplicates (vendor+number+date), contract presence, details, amount; finding records instead of making refusals on its own"},
+      {"stage": "approval", "who": "person on the amount ladder", "what": "requires approval(Role) on confirm; the guard is rechecked by the engine in Decide (Cycle-003)"},
+      {"stage": "payment_handoff", "who": "system", "what": "invoice.approved event → egress to Y; handoff record"},
+      {"stage": "exception", "who": "person", "what": "rejection with a reason; return for rework"}
     ]}
   ],
   "segregation_of_duties": [
-    {"rule": "Роль, вводящая счёт (APClerk), не утверждает его (approve-грант отсутствует)"},
-    {"rule": "Агент проверяет, но не утверждает и не платит — deny [approve *, delete *]"},
-    {"rule": "Изменение порогов лестницы — только через proposal + подпись Owner"}
+    {"rule": "The role that enters the invoice (APClerk) does not approve it (no approve grant)"},
+    {"rule": "The agent checks but does not approve or pay — deny [approve *, delete *]"},
+    {"rule": "Changing the ladder thresholds — only via proposal + Owner signature"}
   ],
   "control_points": [
-    {"point": "duplicate_check", "what": "unique(vendor, number, date) + проверка агентом"},
-    {"point": "contract_check", "what": "если сверка с договорами подтверждена — счёт без действующего договора блокирует confirm"},
-    {"point": "amount_ladder", "what": "guard when amount ... направляет на нужный уровень"},
-    {"point": "guard_recheck", "what": "движок перепроверяет guard при подписи (сумма могла измениться после парковки)"},
-    {"point": "payment_handoff", "what": "только из состояния approved; egress-событие журналируется"}
+    {"point": "duplicate_check", "what": "unique(vendor, number, date) + agent check"},
+    {"point": "contract_check", "what": "if contract matching is confirmed — an invoice without a valid contract blocks confirm"},
+    {"point": "amount_ladder", "what": "guard when amount ... routes to the right level"},
+    {"point": "guard_recheck", "what": "the engine rechecks the guard at signing (the amount may have changed after parking)"},
+    {"point": "payment_handoff", "what": "only from the approved state; the egress event is logged"}
   ],
   "kpis": [
-    {"id": "cycle_time", "label": "Время от получения до handoff", "formula": "days_since(intake) по одобренным счетам"},
-    {"id": "open_invoices", "label": "Открытые счета по возрасту"},
-    {"id": "agent_reject_rate", "label": "Доля счетов с finding от агента"}
+    {"id": "cycle_time", "label": "Time from receipt to handoff", "formula": "days_since(intake) over approved invoices"},
+    {"id": "open_invoices", "label": "Open invoices by age"},
+    {"id": "agent_reject_rate", "label": "Share of invoices with a finding from the agent"}
   ],
   "risks": [
-    {"id": "duplicate_payment", "likelihood": "medium", "impact": "high", "mitigation": "unique-ключ + триаж агента + журнал"},
+    {"id": "duplicate_payment", "likelihood": "medium", "impact": "high", "mitigation": "unique key + agent triage + log"},
     {"id": "payment_without_contract", "likelihood": "low", "impact": "high", "mitigation": "contract_check control point"},
-    {"id": "amount_change_after_park", "likelihood": "low", "impact": "high", "mitigation": "guard recheck в Decide (kernel, Cycle-003)"},
-    {"id": "director_bottleneck", "likelihood": "high", "impact": "medium", "mitigation": "лестница по сумме вместо единого утверждения"}
+    {"id": "amount_change_after_park", "likelihood": "low", "impact": "high", "mitigation": "guard recheck in Decide (kernel, Cycle-003)"},
+    {"id": "director_bottleneck", "likelihood": "high", "impact": "medium", "mitigation": "amount ladder instead of a single approval"}
   ],
   "discovery": {
     "required": [
-      {"id": "what_is_invoice", "question": "Что считается «счётом к оплате» в вашей компании?", "why": "Без определения объекта нельзя построить модель: это счета поставщиков? акты? что-то ещё?"},
-      {"id": "approval_authority", "question": "Кто утверждает счета?", "why": "Без утверждающего нельзя безопасно построить ladder — это blocking question"}
+      {"id": "what_is_invoice", "question": "What counts as an 'invoice to pay' in your company?", "why": "Without defining the object you cannot build the model: is it supplier invoices? work completion certificates? something else?"},
+      {"id": "approval_authority", "question": "Who approves invoices?", "why": "Without an approver you cannot safely build the ladder — this is a blocking question"}
     ],
     "important": [
-      {"id": "amount_thresholds", "question": "Есть ли пороги по сумме и кто утверждает на каждом уровне?", "default": "единое утверждение тем, кого назвали в approval_authority", "why": "Лестница разгружает директора; default безопасен, но пороги — типовой best practice"},
-      {"id": "contract_matching", "question": "Сверяем счета с договорами?", "default": "нет", "why": "Меняет сущности (Contract) и control point"},
-      {"id": "po_matching", "question": "Используете заказы на закупку (PO)?", "default": "нет", "why": "Добавляет сущность и сверку — только если реально используется"},
-      {"id": "org_roles", "question": "Есть ли у вас руководители подразделений и финансовый директор?", "default": "только директор", "why": "Определяет уровни лестницы"}
+      {"id": "amount_thresholds", "question": "Are there amount thresholds, and who approves at each level?", "default": "a single approval by whoever was named in approval_authority", "why": "The ladder relieves the director; the default is safe, but thresholds are a typical best practice"},
+      {"id": "contract_matching", "question": "Do you match invoices against contracts?", "default": "no", "why": "Changes the entities (Contract) and the control point"},
+      {"id": "po_matching", "question": "Do you use purchase orders (PO)?", "default": "no", "why": "Adds an entity and matching — only if actually used"},
+      {"id": "org_roles", "question": "Do you have department heads and a CFO?", "default": "only the director", "why": "Determines the ladder levels"}
     ],
     "optional": [
-      {"id": "currencies", "question": "Платите в нескольких валютах?", "why": "Меняет поле валюты и сверку сумм; можно отложить", "deferrable": true},
-      {"id": "vat_checks", "question": "Нужны ли проверки НДС?", "why": "Добавляет проверки агентом; можно отложить", "deferrable": true},
-      {"id": "overpayments", "question": "Бывают ли авансы/переплаты по договорам?", "why": "Влияет на сверку с договором; можно отложить", "deferrable": true}
+      {"id": "currencies", "question": "Do you pay in multiple currencies?", "why": "Changes the currency field and amount matching; can be deferred", "deferrable": true},
+      {"id": "vat_checks", "question": "Do you need VAT checks?", "why": "Adds agent checks; can be deferred", "deferrable": true},
+      {"id": "overpayments", "question": "Do prepayments/overpayments under contracts occur?", "why": "Affects contract matching; can be deferred", "deferrable": true}
     ]
   },
   "alternatives": [
-    {"id": "single_approver", "when": "малый бизнес, мало счетов", "tradeoffs": "просто, но директор — bottleneck; рискует задержками"},
-    {"id": "amount_ladder", "when": "есть руководители/финдир, поток счетов", "tradeoffs": "баланс контроль/скорость; чуть больше ролей"},
-    {"id": "ladder_plus_owner", "when": "крупные суммы требуют дополнительного контроля", "tradeoffs": "ещё один уровень для экстремальных сумм"}
+    {"id": "single_approver", "when": "small business, few invoices", "tradeoffs": "simple, but the director is a bottleneck; risks delays"},
+    {"id": "amount_ladder", "when": "there are managers/CFO, a stream of invoices", "tradeoffs": "balance of control/speed; slightly more roles"},
+    {"id": "ladder_plus_owner", "when": "large amounts require additional control", "tradeoffs": "one more level for extreme amounts"}
   ],
   "anti_patterns": [
-    {"id": "same_person_enters_and_approves", "why": "Ввод и утверждение одним человеком = потеря контроля (SoD)"},
-    {"id": "agent_approves", "why": "Агент не может быть authority над деньгами — HITL обязателен"},
-    {"id": "no_duplicate_check", "why": "Двойная оплата — классический убыток AP"},
-    {"id": "approval_without_guard", "why": "Утверждение без условия по сумме = лотерея, кого спросить"}
+    {"id": "same_person_enters_and_approves", "why": "Entry and approval by the same person = loss of control (SoD)"},
+    {"id": "agent_approves", "why": "The agent cannot be the authority over money — HITL is mandatory"},
+    {"id": "no_duplicate_check", "why": "Double payment is a classic AP loss"},
+    {"id": "approval_without_guard", "why": "Approval without an amount condition = a lottery of whom to ask"}
   ],
   "regulatory": [
-    {"note": "Требования налогового/аудиторского учёта к первичным документам — проверить при внедрении", "region": "generic", "optional": true}
+    {"note": "Tax/audit record-keeping requirements for primary documents — verify during implementation", "region": "generic", "optional": true}
   ],
   "automations": [
-    {"id": "agent_triage", "what": "при появлении счёта агенту создаётся задача на проверку"},
-    {"id": "stuck_escalation", "what": "счёт, зависший в статусе, эскалируется defApprover"},
-    {"id": "reminder", "what": "напоминание утверждающему при простое (schedule/stuck)"}
+    {"id": "agent_triage", "what": "when an invoice appears, the agent gets a review task"},
+    {"id": "stuck_escalation", "what": "an invoice stuck in a status escalates to defApprover"},
+    {"id": "reminder", "what": "a reminder to the approver on inactivity (schedule/stuck)"}
   ],
   "agent_roles": [
-    {"name": "APAgent", "permitted_actions": ["read Invoice/Vendor/Contract", "create finding (comment)", "update Invoice.duplicate_checked"], "denied": ["approve", "delete", "update Invoice.amount/status"], "note": "проверяет и докладывает, никогда не решает"}
+    {"name": "APAgent", "permitted_actions": ["read Invoice/Vendor/Contract", "create finding (comment)", "update Invoice.duplicate_checked"], "denied": ["approve", "delete", "update Invoice.amount/status"], "note": "checks and reports, never decides"}
   ],
   "approvals": [
-    {"ladder": "amount-based", "example": "≤100k Manager, ≤1M CFO, >1M CEO", "note": "пороги из discovery, не из фреймворка; фреймворк даёт только паттерн"}
+    {"ladder": "amount-based", "example": "≤100k Manager, ≤1M CFO, >1M CEO", "note": "thresholds come from discovery, not from the framework; the framework provides only the pattern"}
   ],
   "dashboards": [
     {"title": "Open invoices by age", "tiles": ["count by status", "sum amount where status!=paid", "cycle_time avg"]}
   ],
   "integrations": [
-    {"id": "source_system", "direction": "inbound", "pattern": "inbound connector (secret+whitelist, least-privilege role) — workers/connectors/inbound.py", "notes": "система X"},
-    {"id": "payment_system", "direction": "outbound", "pattern": "event invoice.approved → egress (webhook/bridge)", "notes": "система Y; доставка webhook — kernel gap D-011, показывать статус честно"}
+    {"id": "source_system", "direction": "inbound", "pattern": "inbound connector (secret+whitelist, least-privilege role) — workers/connectors/inbound.py", "notes": "system X"},
+    {"id": "payment_system", "direction": "outbound", "pattern": "event invoice.approved → egress (webhook/bridge)", "notes": "system Y; webhook delivery — kernel gap D-011, show status honestly"}
   ]
 }

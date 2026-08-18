@@ -38,15 +38,15 @@ const b64std = {
 // sees a bare engine code as the only answer. The human text leads; the code
 // and the engine's own message stay available as advanced details.
 const ERROR_HINTS = {
-  GUARD_FAILED: 'Данные изменились после того, как действие было запрошено — условия согласования больше не выполняются.',
-  PERMISSION_DENIED: 'У вашей роли нет права на это действие. Запросите нужную роль у администратора (раздел Agents → приглашения) или войдите под другой ролью.',
-  SIGNATURE_REQUIRED: 'Требуется подпись владельца (passkey). Без неё изменение не применится.',
-  VALIDATION_ERROR: 'Проверьте введённые данные.',
-  STALE_BASE: 'Система изменилась, пока вы работали. Обновите страницу и повторите.',
-  AUTH_REQUIRED: 'Сессия истекла. Войдите заново.',
-  NOT_FOUND: 'Объект не найден — возможно, он скрыт вашими правами.',
-  CONFLICT: 'Объект уже изменён. Обновите страницу и повторите.',
-  BASIS_REQUIRED: 'Действие не привязано к обоснованию — повторите из рабочего экрана.',
+  GUARD_FAILED: 'The data changed after the action was requested — the approval conditions no longer hold.',
+  PERMISSION_DENIED: 'Your role cannot perform this action. Request the needed role from an administrator (Agents → invites) or sign in under a different role.',
+  SIGNATURE_REQUIRED: 'An owner signature (passkey) is required. Without it the change will not apply.',
+  VALIDATION_ERROR: 'Check the entered data.',
+  STALE_BASE: 'The system changed while you were working. Refresh the page and try again.',
+  AUTH_REQUIRED: 'Your session has expired. Sign in again.',
+  NOT_FOUND: 'Record not found — it may be hidden by your permissions.',
+  CONFLICT: 'The record has already changed. Refresh the page and try again.',
+  BASIS_REQUIRED: 'No basis attached to this action — retry it from the working screen.',
 };
 function humanizeError(e) {
   const code = (e && e.code) || 'ERROR';
@@ -61,16 +61,16 @@ function humanizeError(e) {
   };
 }
 
-// ErrBox: the ONE error presentation — human text first (язык бизнеса),
-// engine details collapsed under «Детали» (PRODUCT_UX §4: никаких голых
-// кодов как единственного ответа).
+// ErrBox: the ONE error presentation — human text first (business language),
+// engine details collapsed under "Details" (PRODUCT_UX §4: no bare codes as
+// the only answer).
 function ErrBox({ err }) {
   if (!err) return null;
   const h = err.human || humanizeError(err);
   const hasDetails = !!(h.code || h.rule || h.fix_hint || (h.advanced && h.advanced !== h.text));
   return html`<div class="err" role="alert">
     <div>${h.text}</div>
-    ${hasDetails && html`<details class="err-details"><summary>Детали</summary>
+    ${hasDetails && html`<details class="err-details"><summary>Details</summary>
       <code>${h.code}</code>${h.rule ? html` <span class="muted">· ${h.rule}</span>` : ''}
       ${h.fix_hint ? html`<div class="muted">${h.fix_hint}</div>` : ''}
     </details>`}
@@ -428,18 +428,18 @@ function Login() {
     <h2>${BRAND.name}</h2>
     <div class="muted" style="margin-bottom:10px">${BRAND.tagline || ''}</div>
     <div class="tabs" style="margin-bottom:12px">
-      <a class=${mode === 'password' ? 'on' : ''} onClick=${() => setMode('password')}>Вход</a>
-      <a class=${mode === 'token' ? 'on' : ''} onClick=${() => setMode('token')}>Токен</a>
-      <a class=${mode === 'invite' ? 'on' : ''} onClick=${() => setMode('invite')}>Приглашение</a>
+      <a class=${mode === 'password' ? 'on' : ''} onClick=${() => setMode('password')}>Sign in</a>
+      <a class=${mode === 'token' ? 'on' : ''} onClick=${() => setMode('token')}>Token</a>
+      <a class=${mode === 'invite' ? 'on' : ''} onClick=${() => setMode('invite')}>Invite</a>
     </div>
     ${err && html`<${ErrBox} err=${err} />`}
     ${mode === 'password' ? html`
-      <label>Логин</label>
+      <label>Login</label>
       <input value=${login} onInput=${e => setLogin(e.target.value)} autocomplete="username" />
-      <label>Пароль</label>
+      <label>Password</label>
       <input type="password" value=${password} onInput=${e => setPassword(e.target.value)} onKeyDown=${e => e.key === 'Enter' && signInPassword()} autocomplete="current-password" />
-      <button class="btn green" onClick=${signInPassword}>Войти</button>
-      <div class="muted" style="margin-top:8px;font-size:12px">Учётная запись создаётся администратором при установке (<code>kalita user add --password</code>).</div>`
+      <button class="btn green" onClick=${signInPassword}>Sign in</button>
+      <div class="muted" style="margin-top:8px;font-size:12px">Accounts are created by an administrator at setup (<code>kalita user add --password</code>).</div>`
     : mode === 'token' ? html`
       <label>Access token</label>
       <input type="password" value=${token} onInput=${e => setToken(e.target.value)} onKeyDown=${e => e.key === 'Enter' && signInToken()} />
@@ -489,21 +489,21 @@ function Inbox({ meta, refresh }) {
   return html`<div>
     <h2>Inbox</h2>
     <${ErrBox} err=${err} />
-    <h3>Подписи ожидаются · ${data.approvals.length}</h3>
+    <h3>Approvals pending · ${data.approvals.length}</h3>
     ${data.approvals.map(a => html`<${ApprovalCard} a=${a}
       ent=${meta.entities.find(e => e.name === a.entity) || { name: a.entity, fields: [] }}
       onDecide=${decide} onOpenRecord=${gotoRef} fetchRecord=${refFetcher}
       renderRelated=${({ ent, id }) => html`<${RelatedPanel} ent=${ent} id=${id} meta=${meta} readOnly=${true} />`} />`)}
-    <h3>Изменения модели · ${data.proposals.length}</h3>
+    <h3>Model changes · ${data.proposals.length}</h3>
     ${data.proposals.map(p => html`<div class="card">
-      <b>${p.description || 'proposal'}</b> <span class="muted">от ${p.author.id}</span>
+      <b>${p.description || 'proposal'}</b> <span class="muted">by ${p.author.id}</span>
       ${(p.description || '').includes('[builder session ') && html`<div>
-        <a href=${'#/ask?sid=' + (p.description.match(/\[builder session ([^\]]+)\]/) || [])[1]}>открыть сессию проектирования →</a></div>`}
+        <a href=${'#/ask?sid=' + (p.description.match(/\[builder session ([^\]]+)\]/) || [])[1]}>open design session →</a></div>`}
       <pre>${(p.plan || []).join('\n')}</pre>
-      <button class="btn green" onClick=${() => decideProposal(p.id, true)}>Подписать и применить</button>
-      <button class="btn red" onClick=${() => decideProposal(p.id, false)}>Отклонить</button>
+      <button class="btn green" onClick=${() => decideProposal(p.id, true)}>Sign and apply</button>
+      <button class="btn red" onClick=${() => decideProposal(p.id, false)}>Reject</button>
     </div>`)}
-    <h3>Задачи моей роли · ${data.tasks.length}</h3>
+    <h3>Tasks for my role · ${data.tasks.length}</h3>
     ${data.tasks.map(t => html`<div class="card">
       <span class="pill">${t.kind}</span> ${t.action || ''} ${t.entity ? html` on <a onClick=${() => nav(`/e/${t.entity}/${t.record_id}`)}>${t.entity}</a>` : ''}
       <div class="muted">${t.args || ''}</div></div>`)}
@@ -1140,7 +1140,7 @@ function AgentBoard() {
   </div>`;
 }
 
-// HomeView: «что требует моего внимания» — pending signatures, definition
+// HomeView: "what needs my attention" — pending signatures, definition
 // changes, my role's tasks, failed agent work, and key business indicators
 // (top dashboard tiles). Aggregation of EXISTING REST endpoints only; no
 // business logic in the UI (PRODUCT_UX §2.1).
@@ -1159,10 +1159,10 @@ function HomeView({ meta, refresh }) {
   if (err) return html`<div><h2>Home</h2><${ErrBox} err=${err} /></div>`;
   if (!data) return html`<div><h2>Home</h2><div class="muted">loading…</div></div>`;
   const attention = [
-    { n: data.approvals.length, label: 'Подписей ждут', to: '#/inbox', icon: '✍' },
-    { n: data.proposals.length, label: 'Изменений модели ждут подписи', to: '#/inbox', icon: '🧾' },
-    { n: data.tasks.length, label: 'Задач вашей роли', to: '#/inbox', icon: '📌' },
-    { n: data.failed.length, label: 'Проваленных задач агентов', to: '#/agent-board', icon: '⚠' },
+    { n: data.approvals.length, label: 'Approvals pending', to: '#/inbox', icon: '✍' },
+    { n: data.proposals.length, label: 'Model changes awaiting signature', to: '#/inbox', icon: '🧾' },
+    { n: data.tasks.length, label: 'Tasks for your role', to: '#/inbox', icon: '📌' },
+    { n: data.failed.length, label: 'Failed agent tasks', to: '#/agent-board', icon: '⚠' },
   ];
   const dash = (data.dashboards || []).slice(0, 3);
   return html`<div>
@@ -1175,14 +1175,14 @@ function HomeView({ meta, refresh }) {
     </div>
     <div class="cols">
       <div class="col">
-        <h4>Начать</h4>
-        <div class="kcard"><a href="#/ask">✨ Построить или изменить процесс — Ask Kalita</a></div>
-        <div class="kcard"><a href="#/company-model">🏛 Модель компании (v${meta.def_version})</a></div>
-        <div class="kcard"><a href="#/changes">🕘 Кто и что менял</a></div>
+        <h4>Start</h4>
+        <div class="kcard"><a href="#/ask">✨ Build or change a workflow — Ask Kalita</a></div>
+        <div class="kcard"><a href="#/company-model">🏛 Company model (v${meta.def_version})</a></div>
+        <div class="kcard"><a href="#/changes">🕘 Who changed what</a></div>
       </div>
       <div class="col">
-        <h4>Ключевые показатели</h4>
-        ${dash.length === 0 ? html`<div class="muted">Дашбордов пока нет — они появятся из построенных процессов.</div>`
+        <h4>Key indicators</h4>
+        ${dash.length === 0 ? html`<div class="muted">No dashboards yet — they appear once workflows are built.</div>`
           : dash.map(d => html`<div class="kcard">
             <b>${d.title || d.name}</b>
             ${(d.tiles || []).slice(0, 3).map(t => html`<div style="font-size:13px;margin-top:2px">
@@ -1208,49 +1208,49 @@ function CompanyModelView({ meta }) {
   const policyLines = [];
   for (const ent of m.entities) {
     for (const a of (ent.actions || [])) {
-      if (a.requires_approval) policyLines.push(`${elab(ent)}: «${a.action}» требует подписи человека`);
+      if (a.requires_approval) policyLines.push(`${elab(ent)}: "${a.action}" requires a human signature`);
     }
   }
   const agentRoles = (m.roles || []).filter(r => r.is_agent).map(r => r.name);
   return html`<div>
-    <h2>Модель компании <span class="muted" style="font-size:13px">пак ${m.pack || '(genesis)'} · версия модели ${m.def_version}${full ? '' : ' · (ограниченная вашими правами)'}</span></h2>
+    <h2>Company model <span class="muted" style="font-size:13px">pack ${m.pack || '(genesis)'} · model version ${m.def_version}${full ? '' : ' · (limited by your permissions)'}</span></h2>
     <div class="cols">
       <div class="col">
-        <h4>Сущности · ${m.entities.length}</h4>
+        <h4>Entities · ${m.entities.length}</h4>
         ${m.entities.map(e => html`<div class="kcard">
           <b><a href=${'#/e/' + e.name}>${elab(e)}</a></b>
-          <div class="muted" style="font-size:12px">${e.fields.length} полей · ${(e.actions || []).length} действий</div>
+          <div class="muted" style="font-size:12px">${e.fields.length} fields · ${(e.actions || []).length} actions</div>
         </div>`)}
       </div>
       <div class="col">
-        <h4>Процессы</h4>
+        <h4>Workflows</h4>
         ${m.entities.filter(e => (e.actions || []).length > 0).map(e => html`<div class="kcard">
           <b>${elab(e)}</b>
           ${(e.actions || []).map(a => html`<div style="font-size:13px">
-            ${a.from} → ${a.to} <code>${a.action}</code>${a.requires_approval ? ' ✍ подпись' : ''}</div>`)}
+            ${a.from} → ${a.to} <code>${a.action}</code>${a.requires_approval ? ' ✍ signature' : ''}</div>`)}
         </div>`)}
       </div>
       <div class="col">
-        <h4>Роли · ${m.roles.length}</h4>
+        <h4>Roles · ${m.roles.length}</h4>
         ${m.roles.map(r => html`<div class="kcard">
-          <b>${r.name}</b> ${r.is_agent ? html`<span class="pill">агент</span>` : ''}
+          <b>${r.name}</b> ${r.is_agent ? html`<span class="pill">agent</span>` : ''}
         </div>`)}
-        <h4>Политики (где нужен человек)</h4>
-        ${policyLines.length === 0 ? html`<div class="muted">HITL-гейтов в модели нет.</div>`
+        <h4>Policies (where a human is required)</h4>
+        ${policyLines.length === 0 ? html`<div class="muted">No HITL gates in the model.</div>`
           : policyLines.map(p => html`<div class="kcard" style="font-size:13px">✍ ${p}</div>`)}
-        <h4>Агенты</h4>
-        ${agentRoles.length === 0 ? html`<div class="muted">Агентских ролей нет.</div>`
+        <h4>Agents</h4>
+        ${agentRoles.length === 0 ? html`<div class="muted">No agent roles.</div>`
           : agentRoles.map(a => html`<div class="kcard" style="font-size:13px">🤖 ${a}</div>`)}
       </div>
     </div>
   </div>`;
 }
 
-// ChangesView: кто изменил компанию, что и когда — the definition timeline
+// ChangesView: who changed the company, what, and when — the definition timeline
 // from the engine's proposal history (uuid v7 = time-ordered) plus the
 // design-session provenance links (PRODUCT_UX §2.8).
 const PROP_STATUS_LABELS = {
-  pending: 'ждёт подписи', approved: 'подписано', rejected: 'отклонено', applied: 'применено',
+  pending: 'awaiting signature', approved: 'signed', rejected: 'rejected', applied: 'applied',
 };
 function ChangesView() {
   const [data, setData] = useState(null); const [err, setErr] = useState(null);
@@ -1258,23 +1258,23 @@ function ChangesView() {
     .then(r => setData((r.proposals || []).filter(p => p.status !== 'pending' || true)))
     .catch(setErr);
   useEffect(() => { load(); }, []);
-  if (err) return html`<div><h2>Изменения</h2><${ErrBox} err=${err} /></div>`;
-  if (!data) return html`<div><h2>Изменения</h2><div class="muted">loading…</div></div>`;
+  if (err) return html`<div><h2>Changes</h2><${ErrBox} err=${err} /></div>`;
+  if (!data) return html`<div><h2>Changes</h2><div class="muted">loading…</div></div>`;
   const sessionLink = (desc) => {
     const m = (desc || '').match(/\[builder session ([^\]]+)\]/);
-    return m ? html` <a href=${'#/ask?sid=' + m[1]}>(сессия →)</a>` : '';
+    return m ? html` <a href=${'#/ask?sid=' + m[1]}>(session →)</a>` : '';
   };
   return html`<div>
-    <h2>Изменения модели</h2>
-    ${data.length === 0 ? html`<div class="card muted">Изменений пока не было — модель создана при запуске ноды или ждёт первого предложения.</div>` : ''}
+    <h2>Model changes</h2>
+    ${data.length === 0 ? html`<div class="card muted">No changes yet — the model was created at node startup or is awaiting its first proposal.</div>` : ''}
     ${data.map(p => html`<div class="card">
       <div><b>${p.description || 'proposal'}</b>${sessionLink(p.description)}
         <span class="pill">${PROP_STATUS_LABELS[p.status] || p.status}</span></div>
       <div class="muted" style="font-size:12px">
-        инициатор ${p.author.id} · на базе версии ${p.base_def_version}
-        ${p.created_at ? ' · предложено ' + new Date(p.created_at).toLocaleString() : ''}
-        ${p.decided_at ? ' · решено ' + new Date(p.decided_at).toLocaleString() : ''}
-        ${p.reason ? ' · причина: ' + p.reason : ''}</div>
+        initiated by ${p.author.id} · based on version ${p.base_def_version}
+        ${p.created_at ? ' · proposed ' + new Date(p.created_at).toLocaleString() : ''}
+        ${p.decided_at ? ' · decided ' + new Date(p.decided_at).toLocaleString() : ''}
+        ${p.reason ? ' · reason: ' + p.reason : ''}</div>
       <pre style="margin-top:6px">${(p.plan || []).join('\n')}</pre>
     </div>`)}
   </div>`;
@@ -1361,16 +1361,16 @@ function IntegrationsView() {
 // logic and renders model text as DATA, never as HTML (chat_runner rule:
 // agent output is domain data; presentation is the renderer's job).
 const ASK_KIND_LABELS = {
-  fact: 'Факт', preference: 'Предпочтение', answer: 'Ответ', goal: 'Цель',
-  decision: 'Решение', question: 'Вопрос', recommendation: 'Рекомендация',
-  risk: 'Риск', required_decision: 'Требуется решение', explanation: 'Объяснение',
-  validation_error: 'Ошибка валидации', proposal_summary: 'Предложение',
-  simulation: 'Симуляция', status: 'Статус',
+  fact: 'Fact', preference: 'Preference', answer: 'Answer', goal: 'Goal',
+  decision: 'Decision', question: 'Question', recommendation: 'Recommendation',
+  risk: 'Risk', required_decision: 'Decision required', explanation: 'Explanation',
+  validation_error: 'Validation error', proposal_summary: 'Proposal',
+  simulation: 'Simulation', status: 'Status',
 };
 const ASK_STATUS_LABELS = {
-  open: 'Идёт разговор', modeling: 'Модель собрана', validating: 'Валидация',
-  proposed: 'Ждёт подписи', applied: 'Применено', rejected: 'Отклонено',
-  abandoned: 'Брошено',
+  open: 'Conversation in progress', modeling: 'Model built', validating: 'Validating',
+  proposed: 'Awaiting signature', applied: 'Applied', rejected: 'Rejected',
+  abandoned: 'Abandoned',
 };
 
 function AskView({ meta }) {
@@ -1448,8 +1448,8 @@ function AskView({ meta }) {
       // down — say it in human words, not "Failed to fetch" (Product Skeptic)
       if (e instanceof TypeError) {
         setErr({ code: 'BUILDER_UNREACHABLE',
-          message: 'Ask Kalita недоступен по адресу ' + builderUrl +
-            '. Проверьте, что воркер запущен (или укажите другой адрес ниже).' });
+          message: 'Ask Kalita is unavailable at ' + builderUrl +
+            '. Check that the worker is running (or enter another address below).' });
       } else { setErr(e); }
     }
     finally { setBusy(false); }
@@ -1457,7 +1457,7 @@ function AskView({ meta }) {
 
   if (!hasBuilder) return html`<div>
     <h2>Ask Kalita</h2>
-    <div class="card muted">На этой ноде не загружен пак <code>builder</code> — разговорное проектирование недоступно. Запустите ноду с паком builder и воркером <code>workers/builder</code>.</div>
+    <div class="card muted">The <code>builder</code> pack is not loaded on this node — conversational design is unavailable. Run the node with the builder pack and the <code>workers/builder</code> worker.</div>
   </div>`;
 
   const msgRow = (m) => {
@@ -1465,9 +1465,9 @@ function AskView({ meta }) {
     const mine = v.author === 'user';
     return html`<div class="ask-msg ${mine ? 'mine' : 'expert'}">
       <div class="ask-meta">
-        <b>${mine ? 'Вы' : 'Эксперт'}</b>
+        <b>${mine ? 'You' : 'Expert'}</b>
         <span class="pill ask-kind">${ASK_KIND_LABELS[v.kind] || v.kind || ''}</span>
-        ${v.provenance ? html`<span class="muted ask-prov" title=${'Источник: ' + v.provenance}>· ${v.provenance}</span>` : ''}
+        ${v.provenance ? html`<span class="muted ask-prov" title=${'Source: ' + v.provenance}>· ${v.provenance}</span>` : ''}
       </div>
       <div class="ask-body">${v.body || ''}</div>
     </div>`;
@@ -1476,45 +1476,45 @@ function AskView({ meta }) {
   return html`<div class="ask">
     <div class="ask-chat">
       <div class="ask-head">
-        <h2>Ask Kalita <span class="muted" style="font-size:13px">построить процесс · изменить систему · спросить о компании</span></h2>
-        <button class="btn" onClick=${newChat} title="Новый разговор">＋ Новый разговор</button>
+        <h2>Ask Kalita <span class="muted" style="font-size:13px">build a workflow · change the system · ask about the company</span></h2>
+        <button class="btn" onClick=${newChat} title="New conversation">＋ New conversation</button>
       </div>
       <div class="ask-scroll">
         ${messages.length === 0 && html`<div class="card muted">
-          <p>Опишите цель обычными словами — например:</p>
-          <p>«Создай систему согласования счетов»<br/>
-          «Теперь счета выше 2М должен утверждать собственник»<br/>
-          «Нам нужен service desk с SLA»</p>
-          <p>Kalita задаст уточняющие вопросы, покажет предложение и применит его только после вашей подписи.</p>
+          <p>Describe your goal in plain words — for example:</p>
+          <p>"Create an invoice approval system"<br/>
+          "Now invoices over 2M must be approved by the owner"<br/>
+          "We need a service desk with SLA"</p>
+          <p>Kalita will ask clarifying questions, show you a proposal, and apply it only after your signature.</p>
         </div>`}
         ${messages.map(msgRow)}
-        ${busy && html`<div class="muted">думаю…</div>`}
+        ${busy && html`<div class="muted">thinking…</div>`}
       </div>
       ${err && html`<${ErrBox} err=${err} />`}
       ${lastState && lastState.proposal_id && html`<div class="card">
-        Предложение <b>${lastState.proposal_id}</b> ждёт вашей подписи — <a href="#/inbox">открыть Inbox</a>.
+        Proposal <b>${lastState.proposal_id}</b> awaits your signature — <a href="#/inbox">open Inbox</a>.
       </div>`}
       <form class="ask-input" onSubmit=${e => { e.preventDefault(); send(); }}>
-        <input value=${text} onInput=${e => setText(e.target.value)} placeholder="Что нужно сделать?" disabled=${busy} aria-label="Сообщение Kalita" />
-        <button class="btn green" type="submit" disabled=${busy || !text.trim()}>Отправить</button>
+        <input value=${text} onInput=${e => setText(e.target.value)} placeholder="What needs to be done?" disabled=${busy} aria-label="Message Kalita" />
+        <button class="btn green" type="submit" disabled=${busy || !text.trim()}>Send</button>
       </form>
       <div class="muted ask-url">
-        Builder: <input value=${builderUrl} onInput=${e => setBuilderUrl(e.target.value)} style="width:220px" aria-label="Адрес воркера builder" />
-        <button class="btn" onClick=${saveUrl}>Сохранить</button>
+        Builder: <input value=${builderUrl} onInput=${e => setBuilderUrl(e.target.value)} style="width:220px" aria-label="Builder worker address" />
+        <button class="btn" onClick=${saveUrl}>Save</button>
       </div>
     </div>
     <div class="ask-side">
-      <h3>Мои сессии проектирования</h3>
-      ${sessions === null ? html`<div class="muted">загрузка…</div>`
-        : sessions.length === 0 ? html`<div class="muted">Пока нет. Начните разговор.</div>`
+      <h3>My design sessions</h3>
+      ${sessions === null ? html`<div class="muted">loading…</div>`
+        : sessions.length === 0 ? html`<div class="muted">None yet. Start a conversation.</div>`
         : html`${sessions.map(s => html`<div class="kcard ask-session ${s.id === sessionId ? 'on' : ''}" onClick=${() => openSession(s.id)}>
             <div><b>${(s.values.goal || '').slice(0, 60)}</b></div>
             <div class="muted" style="font-size:12px">
               ${s.values.framework || '—'} · ${ASK_STATUS_LABELS[s.values.status] || s.values.status}
-              ${s.values.mode === 'change' ? ' · изменение' : ''}
+              ${s.values.mode === 'change' ? ' · change' : ''}
             </div>
           </div>`)}`}
-      ${lastState && html`<div class="kcard"><b>Фаза:</b> ${lastState.phase}${lastState.framework ? ' · ' + lastState.framework : ''}</div>`}
+      ${lastState && html`<div class="kcard"><b>Phase:</b> ${lastState.phase}${lastState.framework ? ' · ' + lastState.framework : ''}</div>`}
     </div>
   </div>`;
 }
@@ -1586,10 +1586,10 @@ function App() {
           title=${collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>${collapsed ? '»' : '«'}</button>
       </div>
       <div class="who"><span class="lbl">${meta.pack || '(genesis)'} · v${meta.def_version}<br/>${meta.actor_id} — ${meta.role}</span>
-        <div class="lvl" role="radiogroup" aria-label="Уровень интерфейса">
-          <button class=${'btn lvl-btn ' + (level === 'business' ? 'green' : '')} title="Бизнес — понятно руководителю" onClick=${() => setLvl('business')}>B</button>
-          <button class=${'btn lvl-btn ' + (level === 'operator' ? 'green' : '')} title="Оператор — операционные детали" onClick=${() => setLvl('operator')}>O</button>
-          <button class=${'btn lvl-btn ' + (level === 'developer' ? 'green' : '')} title="Разработчик — все детали" onClick=${() => setLvl('developer')}>D</button>
+        <div class="lvl" role="radiogroup" aria-label="Interface level">
+          <button class=${'btn lvl-btn ' + (level === 'business' ? 'green' : '')} title="Business — clear to managers" onClick=${() => setLvl('business')}>B</button>
+          <button class=${'btn lvl-btn ' + (level === 'operator' ? 'green' : '')} title="Operator — operational details" onClick=${() => setLvl('operator')}>O</button>
+          <button class=${'btn lvl-btn ' + (level === 'developer' ? 'green' : '')} title="Developer — all details" onClick=${() => setLvl('developer')}>D</button>
         </div>
         <a href="#" class="lbl" style="display:block" onClick=${e => { e.preventDefault(); session.clear(); location.reload(); }}>sign out</a></div>
       <nav class="nav" aria-label="Main navigation">
@@ -1609,12 +1609,12 @@ function App() {
           <span aria-hidden="true">🤖</span><span class="navdot">A</span><span class="lbl">Agent board</span></a>`}
         ${meta.entities.map(e => html`<a href="#/e/${e.name}" class=${parts[1] === e.name ? 'on' : ''} aria-current=${parts[1] === e.name ? 'page' : undefined} title=${elab(e)}>
           <span class="navdot" aria-hidden="true">${elab(e)[0]}</span><span class="lbl">${elab(e)}</span></a>`)}
-        <a href="#/company-model" class=${route === '/company-model' ? 'on' : ''} aria-current=${route === '/company-model' ? 'page' : undefined} title="Модель компании">
-          <span aria-hidden="true">🏛</span><span class="navdot">M</span><span class="lbl">Модель компании</span></a>
-        <a href="#/changes" class=${route === '/changes' ? 'on' : ''} aria-current=${route === '/changes' ? 'page' : undefined} title="Изменения и аудит">
-          <span aria-hidden="true">🕘</span><span class="navdot">C</span><span class="lbl">Изменения</span></a>
-        ${level !== 'business' && html`<a href="#/integrations" class=${route === '/integrations' ? 'on' : ''} aria-current=${route === '/integrations' ? 'page' : undefined} title="Интеграции">
-          <span aria-hidden="true">🔌</span><span class="navdot">N</span><span class="lbl">Интеграции</span></a>`}
+        <a href="#/company-model" class=${route === '/company-model' ? 'on' : ''} aria-current=${route === '/company-model' ? 'page' : undefined} title="Company model">
+          <span aria-hidden="true">🏛</span><span class="navdot">M</span><span class="lbl">Company model</span></a>
+        <a href="#/changes" class=${route === '/changes' ? 'on' : ''} aria-current=${route === '/changes' ? 'page' : undefined} title="Changes and audit">
+          <span aria-hidden="true">🕘</span><span class="navdot">C</span><span class="lbl">Changes</span></a>
+        ${level !== 'business' && html`<a href="#/integrations" class=${route === '/integrations' ? 'on' : ''} aria-current=${route === '/integrations' ? 'page' : undefined} title="Integrations">
+          <span aria-hidden="true">🔌</span><span class="navdot">N</span><span class="lbl">Integrations</span></a>`}
         ${level !== 'business' && html`<a href="#/agents" class=${route === '/agents' ? 'on' : ''} aria-current=${route === '/agents' ? 'page' : undefined} title="Agents & users"
           style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
           <span aria-hidden="true">👤</span><span class="navdot">A</span><span class="lbl">Agents</span></a>`}

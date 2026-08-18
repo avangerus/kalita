@@ -11,11 +11,11 @@
     "supersedes": []
   },
   "vocabulary": [
-    {"term": "Lead", "meaning": "Потенциальный клиент, ещё не квалифицированный"},
-    {"term": "Account", "meaning": "Компания-клиент"},
-    {"term": "Opportunity", "meaning": "Конкретная сделка с суммой и этапом"},
-    {"term": "Pipeline", "meaning": "Воронка этапов сделки"},
-    {"term": "Forecast", "meaning": "Прогноз выручки по этапам и вероятностям"}
+    {"term": "Lead", "meaning": "Potential customer, not yet qualified"},
+    {"term": "Account", "meaning": "Customer company"},
+    {"term": "Opportunity", "meaning": "A specific deal with an amount and a stage"},
+    {"term": "Pipeline", "meaning": "Funnel of deal stages"},
+    {"term": "Forecast", "meaning": "Revenue forecast by stage and probability"}
   ],
   "entities": [
     {"name": "Lead", "kind": "core", "fields": [
@@ -39,84 +39,84 @@
     ]}
   ],
   "roles": [
-    {"name": "SalesRep", "human_or_agent": "human", "note": "ведёт лиды и сделки"},
-    {"name": "SalesAgent", "human_or_agent": "agent", "note": "квалификация лидов, напоминания, обогащение"},
-    {"name": "SalesManager", "human_or_agent": "human", "note": "утверждает скидки, forecast"}
+    {"name": "SalesRep", "human_or_agent": "human", "note": "works leads and deals"},
+    {"name": "SalesAgent", "human_or_agent": "agent", "note": "lead qualification, reminders, enrichment"},
+    {"name": "SalesManager", "human_or_agent": "human", "note": "approves discounts, forecast"}
   ],
   "process_patterns": [
     {"id": "lead_to_opportunity", "stages": [
-      {"stage": "capture", "who": "форма/агент", "what": "лид с source"},
-      {"stage": "qualify", "who": "SalesAgent", "what": "обогащение, скоринг, предложение квалификации"},
-      {"stage": "convert", "who": "SalesRep", "what": "лид → Account + Opportunity"},
-      {"stage": "advance", "who": "SalesRep", "what": "движение по pipeline; скидка выше порога — HITL SalesManager"},
-      {"stage": "win_loss", "who": "SalesRep", "what": "закрытие сделки; потеря — с причиной"}
+      {"stage": "capture", "who": "form/agent", "what": "a lead with source"},
+      {"stage": "qualify", "who": "SalesAgent", "what": "enrichment, scoring, qualification proposal"},
+      {"stage": "convert", "who": "SalesRep", "what": "lead → Account + Opportunity"},
+      {"stage": "advance", "who": "SalesRep", "what": "movement through the pipeline; a discount above the threshold — HITL SalesManager"},
+      {"stage": "win_loss", "who": "SalesRep", "what": "closing the deal; a loss — with a reason"}
     ]}
   ],
   "segregation_of_duties": [
-    {"rule": "Продавец не утверждает собственную скидку выше порога"},
-    {"rule": "Forecast утверждает SalesManager, а не тот, кто его собрал"}
+    {"rule": "A salesperson does not approve their own discount above the threshold"},
+    {"rule": "The forecast is approved by SalesManager, not by the person who assembled it"}
   ],
   "control_points": [
-    {"point": "duplicate_account", "what": "unique name + проверка агентом при конвертации"},
-    {"point": "discount_threshold", "what": "скидка выше порога — requires approval(SalesManager)"},
-    {"point": "stale_opportunity", "what": "сделка без движения N дней — напоминание/эскалация"},
-    {"point": "loss_reason", "what": "потерянная сделка без причины не закрывается"}
+    {"point": "duplicate_account", "what": "unique name + agent check on conversion"},
+    {"point": "discount_threshold", "what": "a discount above the threshold — requires approval(SalesManager)"},
+    {"point": "stale_opportunity", "what": "a deal with no movement for N days — reminder/escalation"},
+    {"point": "loss_reason", "what": "a lost deal without a reason cannot be closed"}
   ],
   "kpis": [
-    {"id": "pipeline_value", "label": "Сумма открытых сделок по этапам"},
-    {"id": "conversion_rate", "label": "Доля лидов, ставших сделками"},
-    {"id": "forecast_accuracy", "label": "Прогноз vs факт"}
+    {"id": "pipeline_value", "label": "Sum of open deals by stage"},
+    {"id": "conversion_rate", "label": "Share of leads that became deals"},
+    {"id": "forecast_accuracy", "label": "Forecast vs actual"}
   ],
   "risks": [
-    {"id": "lost_leads", "likelihood": "high", "impact": "medium", "mitigation": "stale-напоминания и эскалации"},
-    {"id": "duplicate_accounts", "likelihood": "medium", "impact": "medium", "mitigation": "unique + агентская проверка"},
-    {"id": "overoptimistic_forecast", "likelihood": "medium", "impact": "medium", "mitigation": "вероятности по этапам + утверждение менеджером"},
-    {"id": "uncontrolled_discounts", "likelihood": "medium", "impact": "high", "mitigation": "порог + HITL"}
+    {"id": "lost_leads", "likelihood": "high", "impact": "medium", "mitigation": "stale reminders and escalations"},
+    {"id": "duplicate_accounts", "likelihood": "medium", "impact": "medium", "mitigation": "unique + agent check"},
+    {"id": "overoptimistic_forecast", "likelihood": "medium", "impact": "medium", "mitigation": "stage probabilities + manager approval"},
+    {"id": "uncontrolled_discounts", "likelihood": "medium", "impact": "high", "mitigation": "threshold + HITL"}
   ],
   "discovery": {
     "required": [
-      {"id": "sales_object", "question": "Что вы продаёте и как выглядит сделка — разовая продажа или длинный цикл?", "why": "Определяет сущности и этапы pipeline"},
-      {"id": "who_sells", "question": "Кто ведёт продажи — свои продавцы, партнёры, оба?", "why": "Определяет роли и ownership-правила"}
+      {"id": "sales_object", "question": "What do you sell, and what does a deal look like — a one-off sale or a long cycle?", "why": "Determines the entities and pipeline stages"},
+      {"id": "who_sells", "question": "Who runs sales — your own salespeople, partners, or both?", "why": "Determines the roles and ownership rules"}
     ],
     "important": [
-      {"id": "pipeline_stages", "question": "Какие этапы проходит сделка?", "default": "типовые: Qualification → Proposal → Negotiation → Closed", "why": "Pipeline — сердце CRM; default разумен"},
-      {"id": "discount_policy", "question": "Есть ли порог скидки, выше которого нужно утверждение?", "default": "нет", "why": "Контроль маржи — типовой HITL-гейт"},
-      {"id": "forecast_needed", "question": "Нужен ли прогноз выручки?", "default": "да", "why": "Меняет дашборды и права менеджера"}
+      {"id": "pipeline_stages", "question": "What stages does a deal go through?", "default": "typical: Qualification → Proposal → Negotiation → Closed", "why": "The pipeline is the heart of CRM; the default is sensible"},
+      {"id": "discount_policy", "question": "Is there a discount threshold above which approval is required?", "default": "no", "why": "Margin control — a typical HITL gate"},
+      {"id": "forecast_needed", "question": "Is a revenue forecast needed?", "default": "yes", "why": "Changes the dashboards and manager permissions"}
     ],
     "optional": [
-      {"id": "email_sync", "question": "Подключать почту/календарь?", "why": "Интеграция, влияющая на напоминания; можно отложить", "deferrable": true},
-      {"id": "lead_scoring", "question": "Нужен скоринг лидов?", "why": "Меняет работу агента по квалификации; можно отложить", "deferrable": true}
+      {"id": "email_sync", "question": "Connect email/calendar?", "why": "An integration that affects reminders; can be deferred", "deferrable": true},
+      {"id": "lead_scoring", "question": "Is lead scoring needed?", "why": "Changes the agent's qualification work; can be deferred", "deferrable": true}
     ]
   },
   "alternatives": [
-    {"id": "full_pipeline", "when": "активные продажи", "tradeoffs": "лиды+счета+сделки+forecast; больше дисциплины"},
-    {"id": "leads_only", "when": "начало продаж", "tradeoffs": "только лиды и их статусы; сделками заняться позже"}
+    {"id": "full_pipeline", "when": "active sales", "tradeoffs": "leads+accounts+deals+forecast; more discipline"},
+    {"id": "leads_only", "when": "start of sales", "tradeoffs": "only leads and their statuses; deal with deals later"}
   ],
   "anti_patterns": [
-    {"id": "no_owner", "why": "сделка без владельца не двигается — ownership обязателен"},
-    {"id": "forecast_from_memory", "why": "прогноз должен считаться из этапов, а не из ощущений"},
-    {"id": "discount_without_gate", "why": "неконтролируемые скидки разрушают маржу"}
+    {"id": "no_owner", "why": "a deal without an owner does not move — ownership is mandatory"},
+    {"id": "forecast_from_memory", "why": "the forecast must be computed from stages, not from gut feeling"},
+    {"id": "discount_without_gate", "why": "uncontrolled discounts destroy margin"}
   ],
   "regulatory": [
-    {"note": "Хранение персональных данных клиентов — PII-поля и shredding (существующий pii-слой)", "region": "generic", "optional": true}
+    {"note": "Storage of customer personal data — PII fields and shredding (existing pii layer)", "region": "generic", "optional": true}
   ],
   "automations": [
-    {"id": "lead_qualification", "what": "агент обогащает и скорит новый лид"},
-    {"id": "stale_reminder", "what": "напоминание владельцу при простое сделки"},
-    {"id": "followup_reminder", "what": "следующее действие после каждого этапа"}
+    {"id": "lead_qualification", "what": "the agent enriches and scores a new lead"},
+    {"id": "stale_reminder", "what": "a reminder to the owner when a deal goes stale"},
+    {"id": "followup_reminder", "what": "the next action after each stage"}
   ],
   "agent_roles": [
-    {"name": "SalesAgent", "permitted_actions": ["read Lead/Account/Opportunity", "create comment", "update Lead.status"], "denied": ["approve", "delete", "update Opportunity.amount/stage"], "note": "квалифицирует и напоминает, не торгует"}
+    {"name": "SalesAgent", "permitted_actions": ["read Lead/Account/Opportunity", "create comment", "update Lead.status"], "denied": ["approve", "delete", "update Opportunity.amount/stage"], "note": "qualifies and reminds, does not sell"}
   ],
   "approvals": [
-    {"gate": "discount", "what": "скидка выше порога — requires approval(SalesManager)"},
-    {"gate": "forecast", "what": "forecast-отчёт утверждается SalesManager"}
+    {"gate": "discount", "what": "a discount above the threshold — requires approval(SalesManager)"},
+    {"gate": "forecast", "what": "the forecast report is approved by SalesManager"}
   ],
   "dashboards": [
     {"title": "Pipeline", "tiles": ["sum amount by stage", "conversion rate", "open by owner"]}
   ],
   "integrations": [
-    {"id": "lead_source", "direction": "inbound", "pattern": "inbound connector (веб-формы)"},
-    {"id": "email_calendar", "direction": "outbound", "pattern": "напоминания/события", "notes": "optional"}
+    {"id": "lead_source", "direction": "inbound", "pattern": "inbound connector (web forms)"},
+    {"id": "email_calendar", "direction": "outbound", "pattern": "reminders/events", "notes": "optional"}
   ]
 }

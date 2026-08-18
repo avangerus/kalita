@@ -61,12 +61,12 @@ MAX_TURNS_BEFORE_FALLBACK = 8
 # framework matching keywords: cheap deterministic pre-pass before the LLM
 # classifier; a matched domain is only ever a PROPOSAL to the user (CONFIRM).
 _FW_HINTS = {
-    "ap": ["счет", "счёт", "счета", "invoice", "поставщик", "оплат",
-           "accounts payable", "кредитор"],
-    "itsm": ["инцидент", "incident", "service desk", "sla", "тикет",
-             "helpdesk", "заявк", "change"],
-    "crm": ["лид", "lead", "сделка", "pipeline", "продаж", "crm",
-            "opportunity", "клиент"],
+    "ap": ["invoice", "invoices", "accounts payable", "bill", "billing",
+           "payment", "vendor", "supplier", "creditor"],
+    "itsm": ["incident", "service desk", "sla", "ticket", "helpdesk",
+             "change", "request"],
+    "crm": ["lead", "pipeline", "crm", "opportunity", "sales", "deal",
+            "client", "customer"],
 }
 
 
@@ -179,9 +179,12 @@ def classify_statement(question_asked, user_text):
     if question_asked:
         return "answer", ""
     low = user_text.lower()
-    if any(w in low for w in ("да", "нет", "yes", "no", "соглас", "утвержд",
-                              "сделай", "построй", "создай", "нужно", "надо")):
-        return "decision" if any(w in low for w in ("соглас", "да,", "нет,")) else "goal", ""
+    if any(w in low for w in ("yes", "no", "ok", "okay", "sure", "agree",
+                              "accept", "approve", "confirm", "build", "create",
+                              "make", "need", "want", "please", "automate")):
+        return ("decision" if any(w in low for w in ("yes", "no", "ok", "okay",
+                                                     "sure", "agree", "accept",
+                                                     "confirm", "approve")) else "goal", "")
     return "goal", ""
 
 
@@ -311,16 +314,16 @@ def plan_expert(bearer, session, fw, messages, decisions, user_text):
         topic = synthesizer.change_topic_for(fw["meta"]["id"])
         if topic and topic not in topics:
             q = frameworks.question_by_topic(fw, topic) or (
-                "Какие новые правила процесса?")
+                "What are the new process rules?")
             return {"kind": "ask",
                     "question": q,
                     "topic": topic, "class": "required",
-                    "why": "Это и есть изменение модели — без нового правила менять нечего",
+                    "why": "This is the model change — without a new rule there is nothing to change",
                     "provenance": "%s@%s" % (fw["meta"]["id"], fw["meta"]["version"])}
         return {"kind": "ask_confirm",
-                "question": ("Понял изменение. Построить обновлённую модель, "
-                             "показать business diff и влияние на текущие "
-                             "данные ДО подписи?"),
+                "question": ("Understood the change. Build the updated model, "
+                             "show the business diff and the impact on current "
+                             "data BEFORE signing?"),
                 "topic": "build_confirm",
                 "provenance": "%s@%s" % (fw["meta"]["id"], fw["meta"]["version"])}
     # 1. blocking questions first, one at a time
@@ -336,7 +339,7 @@ def plan_expert(bearer, session, fw, messages, decisions, user_text):
         default = iq.get("default")
         q_text = iq["question"]
         if default:
-            q_text += " (если не скажете иначе, сделаю так: %s)" % default
+            q_text += " (unless you say otherwise, I'll do this: %s)" % default
         return {"kind": "ask", "question": q_text, "topic": iq["id"],
                 "class": iq["class"], "why": iq["why"],
                 "default": default,
@@ -346,9 +349,9 @@ def plan_expert(bearer, session, fw, messages, decisions, user_text):
     # question, never an automatic apply (CONFIRM gate before MODEL)
     return {"kind": "ask_confirm",
             "question": (
-                "Discovery завершена. По фреймворку %s@%s рекомендую: %s. "
-                "Это рекомендация, не правило. Построить модель и показать "
-                "её вам ДО подписи?"
+                "Discovery complete. For framework %s@%s I recommend: %s. "
+                "This is a recommendation, not a rule. Build the model and "
+                "show it to you BEFORE signing?"
                 % (fw["meta"]["id"], fw["meta"]["version"], fw["meta"]["name"])),
             "topic": "build_confirm",
             "provenance": "%s@%s" % (fw["meta"]["id"], fw["meta"]["version"])}
@@ -358,12 +361,23 @@ def _status_of(session):
     return (session.get("values") or {}).get("status", "open")
 
 
-_YES_WORDS = ("да", "yes", "ок", "ok", "построй", "строй", "предлож",
-              "соглас", "подтвержд", "принят", "делай", "сделай")
+_YES_WORDS = (
+    "yes", "ok", "okay", "sure", "build", "go", "proceed", "propose",
+    "agree", "correct", "right", "please", "continue", "confirm", "approve",
+    "accept", "yeah", "yep",
+    # Russian aliases kept as harmless fallbacks
+    "да", "ок", "построй", "строй", "предлож", "соглас", "подтвержд",
+    "принят", "делай", "сделай",
+)
 
-_CHANGE_WORDS = ("теперь", "измени", "измен", "дополнительн", "вместо",
-                 "поменя", "убери", "добавь", "повысь", "понизь", "перенес",
-                 "по-новому")
+_CHANGE_WORDS = (
+    "change", "instead", "rather", "now", "update", "modify", "revise",
+    "replace", "instead of", "no longer", "actually", "add", "remove",
+    "different", "adjust", "move", "increase", "decrease",
+    # Russian aliases kept as harmless fallbacks
+    "теперь", "измени", "измен", "дополнительн", "вместо", "поменя",
+    "убери", "добавь", "повысь", "понизь", "перенес", "по-новому",
+)
 
 
 def _is_yes(text):
@@ -401,13 +415,14 @@ def _live_invoices(bearer):
     payload, is_err = mcp_call(bearer, "query", {"entity": "VendorInvoice"})
     if is_err:
         code = (payload or {}).get("code", "") if isinstance(payload, dict) else ""
-        return [], "недостаточно прав у вашей роли на чтение счетов (%s)" % code
+        return [], "insufficient rights for your role to read invoices (%s)" % code
     rows = (payload or {}).get("records") or []
     if not rows:
         # the engine fails closed: an empty result may mean "no records" OR
         # "your role cannot read them" — say the ambiguity, never assume.
-        return [], ("счетов не видно (0): либо их нет, либо у вашей роли нет "
-                    "права чтения — влияние по живым записям не определено")
+        return [], ("no invoices visible (0): either there are none, or your "
+                    "role lacks read rights — impact on live records is "
+                    "undetermined")
     return ([{"id": r.get("id", ""), "values": r.get("values", r)} for r in rows], "")
 
 
@@ -547,46 +562,46 @@ def _model_phase(bearer, session, session_id, decs, turn):
         dsl, errs = _compose_and_validate(bearer, new_spec, fwid)
         if errs:
             brief = "; ".join("%s: %s" % (e.get("code"), e.get("message")) for e in errs[:5])
-            reply = ("Обновлённая модель не проходит формальную валидацию: %s. "
-                     "Изменение не будет предложено." % brief)
+            reply = ("The updated model fails formal validation: %s. "
+                     "The change will not be proposed." % brief)
             _post_message(bearer, session_id, "expert", "validation_error", reply,
                           provenance="assembler v1", turn=turn)
             return reply, session_id, {"phase": "validate_failed", "framework": fwid}
-        summary_lines = ["**Изменение модели (%s)**" % fwid]
+        summary_lines = ["**Model change (%s)**" % fwid]
         diff_lines = synthesizer.business_diff(fwid, old_spec, new_spec)
-        summary_lines.extend(diff_lines or ["Правило не изменилось — проверьте формулировку."])
+        summary_lines.extend(diff_lines or ["The rule did not change — check the wording."])
         # permission/approval impact (structural): roles and gates delta
         old_roles = {r["name"] for r in old_spec["roles"]}
         new_roles = {r["name"] for r in new_spec["roles"]}
         if new_roles - old_roles:
-            summary_lines.append("Новые роли: %s" % ", ".join(sorted(new_roles - old_roles)))
+            summary_lines.append("New roles: %s" % ", ".join(sorted(new_roles - old_roles)))
         if old_roles - new_roles:
-            summary_lines.append("Роли, потерявшие гейт: %s"
+            summary_lines.append("Roles that lost a gate: %s"
                                  % ", ".join(sorted(old_roles - new_roles)))
         old_ents = {e["name"] for e in old_spec["entities"]}
         new_ents = {e["name"] for e in new_spec["entities"]}
         if old_ents == new_ents:
-            summary_lines.append("Сущности не меняются.")
-        summary_lines.append("Интеграции не меняются (события те же).")
+            summary_lines.append("Entities do not change.")
+        summary_lines.append("Integrations do not change (same events).")
         if fwid == "ap":
             invoices, limit_reason = _live_invoices(bearer)
             if limit_reason:
-                summary_lines.append("Влияние по живым счетам не посчитано: %s."
+                summary_lines.append("Impact on live invoices not calculated: %s."
                                      % limit_reason)
             else:
                 summary_lines.extend(synthesizer.impact_report_ladder(
                     old_spec, new_spec, invoices))
         else:
-            summary_lines.append("Влияние по живым записям: изменение SLA-"
-                                 "политики меняет тайминги, а не маршруты — "
-                                 "проверится на новых записях.")
+            summary_lines.append("Impact on live records: changing the SLA "
+                                 "policy changes timings, not routes — it will "
+                                 "be checked on new records.")
         summary = "\n".join(summary_lines)
         _post_message(bearer, session_id, "expert", "proposal_summary", summary,
                       provenance="assembler v1 (diff: old vs new)",
                       turn=turn)
         _update_session(bearer, session_id, {"status": "modeling"})
-        reply = (summary + "\n\nПредложить это изменение? Применение — только "
-                 "после вашей подписи (роль Owner).")
+        reply = (summary + "\n\nPropose this change? It is applied only after "
+                 "your signature (Owner role).")
         _post_message(bearer, session_id, "expert", "question", reply,
                       provenance="assembler v1", turn=turn,
                       topic="propose_confirm")
@@ -596,8 +611,8 @@ def _model_phase(bearer, session, session_id, decs, turn):
     dsl, errs = _compose_and_validate(bearer, spec, fwid)
     if errs:
         brief = "; ".join("%s: %s" % (e.get("code"), e.get("message")) for e in errs[:5])
-        reply = ("Модель не проходит формальную валидацию: %s. Это ошибка "
-                 "сборщика — процесс не будет предложен, пока не зелёный."
+        reply = ("The model fails formal validation: %s. This is an assembler "
+                 "error — the process will not be proposed until it is green."
                  % brief)
         _post_message(bearer, session_id, "expert", "validation_error", reply,
                       provenance="assembler v1", turn=turn)
@@ -612,8 +627,8 @@ def _model_phase(bearer, session, session_id, decs, turn):
             summary_lines.append("**%s**" % title)
             summary_lines.extend("- %s" % l for l in lines)
         summary = "\n".join(summary_lines)
-        sim_lines = ["SLA-политика (по вашим решениям):"]
-        sim_lines.extend("- %s: реакция %dч / решение %dч"
+        sim_lines = ["SLA policy (per your decisions):"]
+        sim_lines.extend("- %s: response %dh / resolve %dh"
                          % (s["priority"], s["response_hours"], s["resolve_hours"])
                          for s in spec.get("_sla", []))
     else:
@@ -628,13 +643,13 @@ def _model_phase(bearer, session, session_id, decs, turn):
         # same `when` strings the engine runs) over the subset grammar
         traces = synthesizer.walk_ladder(spec, [
             {"values": {"amount": a}} for a in (50_000, 100_000, 500_000, 1_500_000)])
-        sim_lines = ["Прогон сценариев по порогам (аппроксимация walker'а; движок "
-                     "проверит при исполнении):"]
+        sim_lines = ["Scenario run over thresholds (walker approximation; the "
+                     "engine will check at runtime):"]
         for t in traces:
             if t["ok"]:
-                sim_lines.append("- счёт %s → утверждает %s" % (t["amount"], t["tier_role"]))
+                sim_lines.append("- invoice %s → approved by %s" % (t["amount"], t["tier_role"]))
             else:
-                sim_lines.append("- счёт %s → маршрут не определён (покажу вопрос человеку)" % t["amount"])
+                sim_lines.append("- invoice %s → route undetermined (I'll ask a human)" % t["amount"])
     _post_message(bearer, session_id, "expert", "proposal_summary", summary,
                   provenance="assembler v1 (from confirmed decisions)",
                   turn=turn)
@@ -642,8 +657,8 @@ def _model_phase(bearer, session, session_id, decs, turn):
                   provenance="deterministic (from decisions)", turn=turn)
     _update_session(bearer, session_id, {"status": "modeling"})
     reply = (summary + "\n\n" + "\n".join(sim_lines) + "\n\n"
-             "Предложить это изменение системы? Применение произойдёт только "
-             "после вашей подписи (роль Owner).")
+             "Propose this system change? It will be applied only after your "
+             "signature (Owner role).")
     _post_message(bearer, session_id, "expert", "question", reply,
                   provenance="assembler v1", turn=turn,
                   topic="propose_confirm")
@@ -666,8 +681,8 @@ def _approve_phase(bearer, session, session_id, decs, turn):
         spec = synthesizer.build_spec(fwid, synthesizer.decision_map(decs))
     dsl, errs = _compose_and_validate(bearer, spec, fwid)
     if errs:
-        reply = ("Модель больше не валидна (%s) — решения изменились с момента "
-                 "показа. Скажите, что поменялось, и я перестрою."
+        reply = ("The model is no longer valid (%s) — the decisions changed "
+                 "since it was shown. Tell me what changed and I'll rebuild."
                  % errs[0].get("code"))
         _post_message(bearer, session_id, "expert", "validation_error", reply,
                       provenance="assembler v1", turn=turn)
@@ -695,15 +710,16 @@ def _approve_phase(bearer, session, session_id, decs, turn):
         "idempotency_key": _idem("prop", session_id, base_def),
     })
     if is_err:
-        reply = "Предложение отклонено нодой: %s" % (prop,)
+        reply = "The proposal was rejected by the node: %s" % (prop,)
         _post_message(bearer, session_id, "expert", "validation_error", reply,
                       provenance="node", turn=turn)
         return reply, session_id, {"phase": "propose_failed", "framework": ""}
     proposal_id = (prop or {}).get("proposal_id", "")
     _update_session(bearer, session_id, {
         "status": "proposed", "proposal_id": proposal_id, "def_before": base_def})
-    reply = ("Предложение %s создано и ЖДЁТ вашей подписи (раздел Approvals, "
-             "роль Owner). Без подписи ничего не применится."
+    reply = ("Proposal %s created and AWAITING your signature (Approvals "
+             "section, Owner role). Nothing will be applied without a "
+             "signature."
              % proposal_id)
     _post_message(bearer, session_id, "expert", "status", reply,
                   provenance="node", turn=turn)
@@ -743,7 +759,7 @@ def _handle_turn(bearer, session_id, text):
     _sync_sessions(bearer)
 
     # UNDERSTAND: open the design session on the first turn. A CHANGE intent
-    # («теперь ...») against an existing model opens a change session — the
+    # ("now ...") against an existing model opens a change session — the
     # diff base is the original build session's journaled decisions.
     if not session_id:
         fwid = match_framework(text)
@@ -753,9 +769,10 @@ def _handle_turn(bearer, session_id, text):
             if _live_has(bearer, fwid):
                 mode = "change"
             else:
-                reply = ("Похоже, вы хотите ИЗМЕНИТЬ процесс, но в системе его "
-                         "ещё нет. Скажите «создай …» — построим с нуля, а "
-                         "потом любые изменения — разговором.")
+                reply = ("It looks like you want to CHANGE the process, but it "
+                         "does not exist in the system yet. Say \"create …\" — "
+                         "we'll build it from scratch, and then any changes — "
+                         "conversationally.")
                 # no session opened: return the honest answer as state
                 return reply, "", {"phase": "understand", "framework": fwid or ""}
         rec, is_err = mcp_call(bearer, "create_record", {
@@ -807,9 +824,9 @@ def _handle_turn(bearer, session_id, text):
     fw = FRAMEWORKS.get(fwid) if fwid else None
     if fw is None:
         # no framework matched: ask the user which domain, honestly
-        reply = ("Я пока не понял, к какой области это относится. Опишите "
-                 "цель подробнее — например, «согласование счетов», «service "
-                 "desk» или «продажи».")
+        reply = ("I don't yet understand which domain this belongs to. "
+                 "Describe the goal in more detail — for example, \"invoice "
+                 "approval\", \"service desk\", or \"sales\".")
         _post_message(bearer, session_id, "expert", "question", reply,
                       provenance="builder (no framework)", turn=turn)
         return reply, session_id, {"phase": "understand", "framework": ""}
@@ -821,7 +838,7 @@ def _handle_turn(bearer, session_id, text):
     if last_topic == "propose_confirm" and _is_yes(text):
         return _approve_phase(bearer, session, session_id, decs, turn)
     if last_topic in ("build_confirm", "propose_confirm"):
-        reply = "Понял, ничего не меняю. Скажите, что скорректировать."
+        reply = "Understood, I won't change anything. Tell me what to adjust."
         _post_message(bearer, session_id, "expert", "status", reply, turn=turn)
         return reply, session_id, {"phase": "discover", "framework": fwid}
 
@@ -831,7 +848,7 @@ def _handle_turn(bearer, session_id, text):
     if plan["kind"] in ("ask", "ask_confirm"):
         reply = plan["question"]
         if plan.get("why"):
-            reply += "\n\n(Зачем спрашиваю: %s)" % plan["why"]
+            reply += "\n\n(Why I'm asking: %s)" % plan["why"]
         _post_message(bearer, session_id, "expert", "question", reply,
                       provenance=plan.get("provenance", ""), turn=turn,
                       topic=plan.get("topic", ""))
@@ -839,7 +856,7 @@ def _handle_turn(bearer, session_id, text):
             "phase": "discover", "framework": fwid,
             "topic": plan["topic"], "class": plan.get("class", "")}
 
-    reply = "Принято. Что дальше?"
+    reply = "Noted. What's next?"
     _post_message(bearer, session_id, "expert", "status", reply, turn=turn)
     return reply, session_id, {"phase": "understand", "framework": fwid}
 

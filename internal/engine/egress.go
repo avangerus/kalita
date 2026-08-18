@@ -192,16 +192,16 @@ func webhookHost(raw string) string {
 // the full chronological log. Buildless, no template engine.
 func (r *EgressReport) RenderMarkdown() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Kalita — egress-отчёт (что покидало периметр)\n\n")
-	fmt.Fprintf(&b, "Период: %s — %s\n\n", r.Since.Format(time.RFC3339), r.Until.Format(time.RFC3339))
-	fmt.Fprintf(&b, "_Самодекларация воркеров + событийный лог — НЕ перехват трафика. "+
-		"Граница: доверенная кооперация воркеров под контролем оператора (T8), не защита от враждебного воркера._\n\n")
+	fmt.Fprintf(&b, "# Kalita — egress report (what left the perimeter)\n\n")
+	fmt.Fprintf(&b, "Period: %s — %s\n\n", r.Since.Format(time.RFC3339), r.Until.Format(time.RFC3339))
+	fmt.Fprintf(&b, "_Worker self-declaration + the journaled event log — NOT traffic interception. "+
+		"The boundary is trusted worker cooperation under operator control (T8), not protection against a hostile worker._\n\n")
 
-	fmt.Fprintf(&b, "## Итого\n\n- вызовов: %d\n- аномалий: **%d**\n\n", len(r.Calls), r.Anomalies)
+	fmt.Fprintf(&b, "## Summary\n\n- calls: %d\n- anomalies: **%d**\n\n", len(r.Calls), r.Anomalies)
 
 	if r.Anomalies > 0 {
-		b.WriteString("## Аномалии\n\n")
-		b.WriteString("| время | воркер | домен | причина |\n|---|---|---|---|\n")
+		b.WriteString("## Anomalies\n\n")
+		b.WriteString("| time | worker | domain | reason |\n|---|---|---|---|\n")
 		for _, c := range r.Calls {
 			if !c.Anomaly {
 				continue
@@ -211,16 +211,16 @@ func (r *EgressReport) RenderMarkdown() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString("## Журнал вызовов\n\n")
+	b.WriteString("## Call log\n\n")
 	if len(r.Calls) == 0 {
-		b.WriteString("_нет вызовов за период._\n")
+		b.WriteString("_no calls in the period._\n")
 		return b.String()
 	}
-	b.WriteString("| время | воркер | домен | назначение | флаг |\n|---|---|---|---|---|\n")
+	b.WriteString("| time | worker | domain | purpose | flag |\n|---|---|---|---|---|\n")
 	for _, c := range r.Calls {
 		flag := ""
 		if c.Anomaly {
-			flag = "⚠ аномалия"
+			flag = "⚠ anomaly"
 		}
 		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", c.TS.Format(time.RFC3339), c.Worker, c.Domain, c.Purpose, flag)
 	}
@@ -232,23 +232,23 @@ func (r *EgressReport) RenderMarkdown() string {
 func (r *EgressReport) RenderHTML() string {
 	var b strings.Builder
 	b.WriteString("<!doctype html><html><head><meta charset=\"utf-8\">")
-	b.WriteString("<title>Kalita — egress-отчёт</title>")
+	b.WriteString("<title>Kalita — egress report</title>")
 	b.WriteString("<style>body{font:14px/1.5 -apple-system,Segoe UI,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#1a1a1a}" +
 		"table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:4px 8px;text-align:left}" +
 		"h1{font-size:1.4rem}h2{font-size:1.1rem;margin-top:1.5rem}.note{color:#666;font-size:0.9em}.anom{background:#fff3cd}</style></head><body>")
-	b.WriteString("<h1>Kalita — egress-отчёт (что покидало периметр)</h1>")
-	fmt.Fprintf(&b, "<p>Период: %s — %s</p>", html.EscapeString(r.Since.Format(time.RFC3339)), html.EscapeString(r.Until.Format(time.RFC3339)))
-	b.WriteString("<p class=\"note\">Самодекларация воркеров + событийный лог — НЕ перехват трафика. " +
-		"Доверенная кооперация воркеров под контролем оператора (T8), не защита от враждебного воркера.</p>")
+	b.WriteString("<h1>Kalita — egress report (what left the perimeter)</h1>")
+	fmt.Fprintf(&b, "<p>Period: %s — %s</p>", html.EscapeString(r.Since.Format(time.RFC3339)), html.EscapeString(r.Until.Format(time.RFC3339)))
+	b.WriteString("<p class=\"note\">Worker self-declaration + the journaled event log — NOT traffic interception. " +
+		"Trusted worker cooperation under operator control (T8), not protection against a hostile worker.</p>")
 
-	fmt.Fprintf(&b, "<h2>Итого</h2><ul><li>вызовов: %d</li><li>аномалий: <b>%d</b></li></ul>", len(r.Calls), r.Anomalies)
+	fmt.Fprintf(&b, "<h2>Summary</h2><ul><li>calls: %d</li><li>anomalies: <b>%d</b></li></ul>", len(r.Calls), r.Anomalies)
 
-	b.WriteString("<h2>Журнал вызовов</h2>")
+	b.WriteString("<h2>Call log</h2>")
 	if len(r.Calls) == 0 {
-		b.WriteString("<p class=\"note\">нет вызовов за период.</p></body></html>")
+		b.WriteString("<p class=\"note\">no calls in the period.</p></body></html>")
 		return b.String()
 	}
-	b.WriteString("<table><tr><th>время</th><th>воркер</th><th>домен</th><th>назначение</th><th>флаг</th></tr>")
+	b.WriteString("<table><tr><th>time</th><th>worker</th><th>domain</th><th>purpose</th><th>flag</th></tr>")
 	for _, c := range r.Calls {
 		row := ""
 		if c.Anomaly {

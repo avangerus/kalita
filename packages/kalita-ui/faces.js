@@ -110,8 +110,8 @@ export function RiskCardFace({ ent, record, riskField, clauseField, riskTone, re
 // not this component's concern). `pending_approval` on a turn's response
 // (workers/chat_runner/chat_runner.py `handle_turn`'s third return value)
 // is a STRUCTURED signal, not something this component greps out of the
-// reply text — LLD-06 §2: "рендерит pending-approval, если действие чата
-// упёрлось в HITL."
+// reply text — LLD-06 §2: "renders pending-approval when a chat action
+// hits HITL."
 //
 // Message history is kept CLIENT-SIDE for the running conversation (each
 // turn appends the user's line + the assistant's reply locally) — the
