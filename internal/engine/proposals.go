@@ -2,9 +2,13 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -35,6 +39,8 @@ type Proposal struct {
 	Plan           []string          `json:"plan"`
 	Status         ProposalStatus    `json:"status"`
 	Reason         string            `json:"reason,omitempty"`
+	CreatedAt      time.Time         `json:"created_at"`           // when it was proposed (journal TS)
+	DecidedAt      *time.Time        `json:"decided_at,omitempty"` // when the human decided (journal TS)
 }
 
 type proposalPayload struct {
@@ -44,6 +50,16 @@ type proposalPayload struct {
 	Plan           []string          `json:"plan,omitempty"`
 	Reason         string            `json:"reason,omitempty"`
 	ProposalID     string            `json:"proposal_id,omitempty"`
+	// WebAuthn-era additive fields on definition decisions (mirror of the
+	// approval.decided human_signature, LLD-02 §1/§5): the assertion the
+	// human produced when signing this definition change, journaled so an
+	// offline verifier can redo every check.
+	HumanSignature json.RawMessage `json:"human_signature,omitempty"`
+	RPID           string          `json:"rp_id,omitempty"`
+	HeadSeq        uint64          `json:"head_seq,omitempty"`
+	// Signature is the legacy raw Ed25519 signature over DefinitionMessage,
+	// journaled when a verifier accepted it (pre-LLD-02 path).
+	Signature []byte `json:"signature,omitempty"`
 }
 
 const definitionDomain = "kalita-definition-v1"
@@ -69,7 +85,32 @@ func (e *Engine) ProposeChange(ctx context.Context, actor eventstore.Actor, file
 			Message: fmt.Sprintf("proposal is based on def_version %d, node is at %d", baseDefVersion, e.defVersion),
 			FixHint: "re-read the system (describe_system) and rebase your change"}
 	}
-	next, errs := dsl.Compile(files)
+	// Security Pro MAJOR-2: bound the parked-proposal set (journal/storage
+	// DoS via ungated propose). Proposing is harmless per-proposal — this
+	// caps the OPEN backlog (decided proposals are not counted) AND the
+	// total source size of one proposal.
+	pending := 0
+	for _, p := range e.proposals {
+		if p.Status == ProposalPending {
+			pending++
+		}
+	}
+	if pending >= 20 {
+		return nil, nil, &Err{Code: CodeConflict,
+			Message: "too many pending definition proposals (>= 20)",
+			FixHint: "decide or reject existing proposals before proposing more"}
+	}
+	totalBytes := 0
+	for _, src := range files {
+		totalBytes += len(src)
+	}
+	const maxProposalBytes = 4 << 20 // 4 MiB of definition sources
+	if totalBytes > maxProposalBytes {
+		return nil, nil, &Err{Code: CodeValidation,
+			Message: fmt.Sprintf("proposal sources too large: %d bytes (max %d)", totalBytes, maxProposalBytes),
+			FixHint: "split the change or remove generated bloat"}
+	}
+	next, errs := dsl.CompileMulti(files)
 	if len(errs) > 0 {
 		return nil, errs, nil
 	}
@@ -85,11 +126,12 @@ func (e *Engine) ProposeChange(ctx context.Context, actor eventstore.Actor, file
 		ID: id.String(), Description: description, Author: actor,
 		BaseDefVersion: baseDefVersion, Files: files,
 		Plan: diffPlan(e.model, next), Status: ProposalPending,
+		CreatedAt: e.now(),
 	}
 	payload, _ := json.Marshal(proposalPayload{
 		Description: description, BaseDefVersion: baseDefVersion, Files: files, Plan: p.Plan,
 	})
-	if _, err := e.store.Append(ctx, eventstore.AppendInput{
+	if ev, err := e.store.Append(ctx, eventstore.AppendInput{
 		Actor:          actor,
 		Kind:           eventstore.DefinitionProposed,
 		Subject:        eventstore.Subject{ProposalID: p.ID},
@@ -99,15 +141,45 @@ func (e *Engine) ProposeChange(ctx context.Context, actor eventstore.Actor, file
 		IdempotencyKey: idemKey,
 	}); err != nil {
 		return nil, nil, err
+	} else if !ev.TS.IsZero() {
+		p.CreatedAt = ev.TS // the journal's own timestamp is the truth
 	}
 	e.proposals[p.ID] = p
 	return p, nil, nil
 }
 
+// DecideProposalOption customizes a DecideProposal call with the WebAuthn
+// era's additive human_signature (LLD-02). Omitting every option reproduces
+// the pre-LLD-02 behavior exactly (I-1) — a trailing variadic, so every
+// existing call site compiles and behaves unchanged.
+type DecideProposalOption func(*decideProposalOpts)
+
+type decideProposalOpts struct {
+	humanSig json.RawMessage // pre-verified by the caller — see WithProposalHumanSignature
+	rpID     string
+	headSeq  uint64
+}
+
+// WithProposalHumanSignature attaches a WebAuthn assertion to a definition
+// decision. The caller (internal/api, which owns the credential registry and
+// canonical reconstruction) MUST have already verified the assertion against
+// BuildDefinitionCanonical — DecideProposal only journals it additively on
+// the definition decision event.
+func WithProposalHumanSignature(raw json.RawMessage, rpID string, headSeq uint64) DecideProposalOption {
+	return func(o *decideProposalOpts) { o.humanSig = raw; o.rpID = rpID; o.headSeq = headSeq }
+}
+
 // DecideProposal applies or rejects a pending definition change. Only a human
-// with the approver role decides; with a verifier wired, a valid signature
-// over DefinitionMessage is mandatory.
-func (e *Engine) DecideProposal(ctx context.Context, actor eventstore.Actor, proposalID string, grant bool, signature []byte, basis *eventstore.Basis) (*Proposal, error) {
+// with the approver role decides; signature policy mirrors workflow Decide
+// (workflow.go:300-328): a pre-verified WebAuthn assertion is journaled
+// additively; with --require-human-signature a human without one is rejected
+// outright; a provided raw signature is verified over DefinitionMessage when
+// a verifier is wired.
+func (e *Engine) DecideProposal(ctx context.Context, actor eventstore.Actor, proposalID string, grant bool, signature []byte, basis *eventstore.Basis, opts ...DecideProposalOption) (*Proposal, error) {
+	var do decideProposalOpts
+	for _, o := range opts {
+		o(&do)
+	}
 	if basis == nil {
 		return nil, &Err{Code: CodeBasisRequired, Message: "decision without basis"}
 	}
@@ -137,19 +209,36 @@ func (e *Engine) DecideProposal(ctx context.Context, actor eventstore.Actor, pro
 		decision = "rejected"
 		kind = eventstore.DefinitionRejected
 	}
-	if signature != nil && e.verify != nil {
+	// Signature policy — the same ladder as workflow Decide (workflow.go:
+	// 300-328): (1) a WebAuthn assertion the API already verified is accepted
+	// and journaled; (2) --require-human-signature rejects a human without
+	// one; (3) a raw signature over DefinitionMessage is verified when a
+	// verifier is wired; (4) --require-signatures (test-only) rejects when
+	// nothing verified. Until any flag is set, a token-authenticated decision
+	// is allowed and journaled unchanged (dev-mode, I-1).
+	switch {
+	case do.humanSig != nil:
+		// already verified by the caller before invoking DecideProposal.
+	case e.requireHumanSig && actor.Type == eventstore.ActorHuman:
+		return nil, &Err{Code: CodeSignatureRequired,
+			Message: "this node requires a WebAuthn human signature (passkey) on definition decisions",
+			FixHint: "decide from the UI, which signs with a registered passkey — token-only decisions are not accepted"}
+	case signature != nil && e.verify != nil:
 		if err := e.verify(ctx, actor.ID, DefinitionMessage(proposalID, decision), signature); err != nil {
 			return nil, &Err{Code: CodePermissionDenied,
 				Message: "definition signature is invalid: " + err.Error(),
 				Rule:    "a provided signature must verify"}
 		}
-	} else if e.requireSig {
+	case e.requireSig:
 		return nil, &Err{Code: CodePermissionDenied,
-			Message: "this node requires a signed decision (passkey)",
+			Message: "this node requires a signed definition decision (passkey)",
 			Rule:    "signatures are mandatory on definition decisions"}
 	}
-	payload, _ := json.Marshal(proposalPayload{ProposalID: proposalID})
-	if _, err := e.store.Append(ctx, eventstore.AppendInput{
+	payload, _ := json.Marshal(proposalPayload{
+		ProposalID: proposalID, HumanSignature: do.humanSig,
+		RPID: do.rpID, HeadSeq: do.headSeq, Signature: signature,
+	})
+	if ev, err := e.store.Append(ctx, eventstore.AppendInput{
 		Actor: actor, Kind: kind,
 		Subject:    eventstore.Subject{ProposalID: proposalID},
 		Payload:    payload,
@@ -158,6 +247,9 @@ func (e *Engine) DecideProposal(ctx context.Context, actor eventstore.Actor, pro
 		Signature:  signature,
 	}); err != nil {
 		return nil, err
+	} else if !ev.TS.IsZero() {
+		ts := ev.TS
+		p.DecidedAt = &ts
 	}
 	if !grant {
 		p.Status = ProposalRejected
@@ -165,7 +257,7 @@ func (e *Engine) DecideProposal(ctx context.Context, actor eventstore.Actor, pro
 	}
 	p.Status = ProposalApproved
 
-	next, errs := dsl.Compile(p.Files)
+	next, errs := dsl.CompileMulti(p.Files)
 	if len(errs) > 0 { // cannot happen: validated at propose; defend anyway
 		return nil, &Err{Code: CodeValidation, Message: "proposal no longer compiles: " + errs[0].Error()}
 	}
@@ -180,9 +272,28 @@ func (e *Engine) DecideProposal(ctx context.Context, actor eventstore.Actor, pro
 		return nil, err
 	}
 	e.model = next
+	e.files = cloneFiles(p.Files)
 	e.defVersion++
 	p.Status = ProposalApplied
 	return p, nil
+}
+
+// DefinitionContentHash is the stable content hash of a proposal's files —
+// sorted keys, "<key>\n<len>\n<content>" framing. It binds a human signature
+// to the EXACT definition content being signed (Security Pro MAJOR-1: the
+// WebAuthn canonical must include it, so a signature can never be replayed
+// onto different content under the same proposal id).
+func DefinitionContentHash(files map[string]string) string {
+	keys := make([]string, 0, len(files))
+	for k := range files {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		fmt.Fprintf(h, "%s\n%d\n%s\n", k, len(files[k]), files[k])
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // PendingProposals lists open definition changes (the human inbox).
@@ -196,6 +307,22 @@ func (e *Engine) PendingProposals() []*Proposal {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// Proposals lists EVERY definition change (pending + decided), newest first
+// — the company's model history (product mission C: «какая definition
+// version активна, кто её изменил, почему, когда»). UUID v7 ids are
+// time-ordered, so a descending id sort IS the change timeline.
+func (e *Engine) Proposals() []*Proposal {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := make([]*Proposal, 0, len(e.proposals))
+	for _, p := range e.proposals {
+		cp := *p
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
 	return out
 }
 
@@ -246,6 +373,10 @@ func validateAdditive(old, next *dsl.Model) *Err {
 }
 
 // diffPlan is the human-readable migration plan shown at signing time.
+// Security Pro MAJOR-1: it must REPORT the dangerous deltas — removed roles,
+// permission-rule changes and approval-gate/guard changes — instead of
+// collapsing them into "no structural changes". The signer sees exactly what
+// the change does to authority before signing.
 func diffPlan(old, next *dsl.Model) []string {
 	var plan []string
 	for _, name := range next.Order {
@@ -269,13 +400,113 @@ func diffPlan(old, next *dsl.Model) []string {
 			plan = append(plan, "add role "+role)
 		}
 	}
+	for role := range old.Roles {
+		if _, ok := next.Roles[role]; !ok {
+			plan = append(plan, "REMOVE role "+role)
+		}
+	}
+	// permission deltas per role (authority changes are the dangerous ones)
+	for role, perm := range next.Perms {
+		oldPerm, existed := old.Perms[role]
+		if !existed {
+			plan = append(plan, "permissions for role "+role+": "+fmt.Sprint(len(perm.Rules))+" rules (new)")
+			continue
+		}
+		// compare rule CONTENT, not just counts: act [approve, reject] vs
+		// act [approve] must be reported even when the rule count is equal
+		oldSet, nextSet := map[string]bool{}, map[string]bool{}
+		for _, r := range oldPerm.Rules {
+			oldSet[renderRule(r)] = true
+		}
+		for _, r := range perm.Rules {
+			nextSet[renderRule(r)] = true
+		}
+		changed := len(oldSet) != len(nextSet)
+		if !changed {
+			for k := range oldSet {
+				if !nextSet[k] {
+					changed = true
+					break
+				}
+			}
+		}
+		if changed {
+			plan = append(plan, fmt.Sprintf("permissions for role %s changed: %d → %d rules",
+				role, len(oldPerm.Rules), len(perm.Rules)))
+		}
+	}
+	for role := range old.Perms {
+		if _, ok := next.Perms[role]; !ok {
+			plan = append(plan, "REMOVE all permissions for role "+role)
+		}
+	}
+	// workflow deltas: gates and guards
 	for entity := range next.Workflows {
 		if _, ok := old.Workflows[entity]; !ok {
 			plan = append(plan, "add workflow for "+entity)
+			continue
+		}
+		oldT := map[string]*dsl.TransitionDecl{}
+		for _, t := range old.Workflows[entity].Transitions {
+			oldT[t.Action] = &t
+		}
+		for _, t := range next.Workflows[entity].Transitions {
+			prev, existed := oldT[t.Action]
+			if !existed {
+				note := "add transition " + entity + "." + t.Action
+				if t.ApprovalRole != "" {
+					note += " (requires approval " + t.ApprovalRole + ")"
+				}
+				plan = append(plan, note)
+				continue
+			}
+			if prev.ApprovalRole != t.ApprovalRole {
+				plan = append(plan, fmt.Sprintf("approval gate changed: %s.%s: %q → %q",
+					entity, t.Action, prev.ApprovalRole, t.ApprovalRole))
+			}
+			if prev.When != t.When {
+				plan = append(plan, fmt.Sprintf("guard changed: %s.%s", entity, t.Action))
+			}
+		}
+		for _, t := range old.Workflows[entity].Transitions {
+			if _, ok := nextT(next, entity, t.Action); !ok {
+				plan = append(plan, "REMOVE transition "+entity+"."+t.Action)
+			}
 		}
 	}
 	if len(plan) == 0 {
-		plan = []string{"no structural changes (permissions/automation/ui only)"}
+		plan = []string{"no changes (identical definition)"}
 	}
 	return plan
+}
+
+func nextT(next *dsl.Model, entity, action string) (*dsl.TransitionDecl, bool) {
+	for _, t := range next.Workflows[entity].Transitions {
+		if t.Action == action {
+			return &t, true
+		}
+	}
+	return nil, false
+}
+
+// renderRule renders one permission rule canonically (verb + items) so rule
+// CONTENT can be compared for the signer-visible plan.
+func renderRule(r dsl.PermRule) string {
+	var b strings.Builder
+	b.WriteString(r.Verb)
+	for _, it := range r.Items {
+		b.WriteString("|")
+		b.WriteString(it.Entity)
+		b.WriteString(".")
+		b.WriteString(it.Field)
+		for _, n := range it.Names {
+			b.WriteString(",")
+			b.WriteString(n)
+		}
+		if it.Where != "" {
+			b.WriteString(" where ")
+			b.WriteString(it.Where)
+		}
+	}
+	return b.String()
 }

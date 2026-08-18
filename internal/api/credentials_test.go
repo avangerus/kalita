@@ -309,3 +309,88 @@ func TestWebauthnRESTEnforcement(t *testing.T) {
 	}
 }
 
+// TestWebauthnProposalSignatureRoundTrip proves the DEFINITION-decision
+// ceremony (product mission: signed model changes): challenge issuance is
+// gated to the defApprover role, a token-only decide is rejected under
+// --require-human-signature, and a WebAuthn assertion signed over the
+// proposal canonical applies the change.
+func TestWebauthnProposalSignatureRoundTrip(t *testing.T) {
+	eng, reg := newWebauthnEngine(t, engine.WithRequireHumanSignature())
+	srv := httptest.NewServer(Secure(New(eng, reg, WithDevHeaders(), WithNodeID("node-test-pub"), WithRequireHumanSignature())))
+	t.Cleanup(srv.Close)
+
+	owner := &webauthnClient{t, srv.URL, "owner-1", "Owner"}
+	worker := &webauthnClient{t, srv.URL, "worker-1", "Worker"}
+
+	priv, credID := registerCredential(t, srv, owner)
+	if credID == "" {
+		t.Fatal("empty credential id")
+	}
+
+	// a proposal is parked through the engine (propose_change is MCP-only;
+	// the REST surface is challenge + decide)
+	p, dslErrs, err := eng.ProposeChange(context.Background(),
+		eventstore.Actor{Type: eventstore.ActorHuman, ID: "admin-1", Role: "Admin"},
+		map[string]string{"t.dsl": webauthnTestPack + "\nentity Boom:\n    x: int\n"},
+		eng.DefVersion(), "add Boom",
+		&eventstore.Basis{Type: "human", ID: "admin-1"}, "idem-prop-wa-0001")
+	if err != nil || len(dslErrs) > 0 {
+		t.Fatalf("propose: err=%v dslErrs=%v", err, dslErrs)
+	}
+
+	// challenge is gated: a non-approver role cannot even fetch it
+	resp, body := worker.request("GET", "/api/proposals/"+p.ID+"/challenge?decision=grant", nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("non-approver challenge must be 403, got %d %s", resp.StatusCode, body)
+	}
+
+	// token-only decide is rejected under --require-human-signature
+	resp, body = owner.request("POST", "/api/proposals/"+p.ID+"/decide", map[string]any{
+		"grant": true, "basis": map[string]any{"type": "human", "id": "owner-1"},
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("token-only proposal decide must be rejected, got %d %s", resp.StatusCode, body)
+	}
+	var errBody map[string]any
+	_ = json.Unmarshal(body, &errBody)
+	if errBody["code"] != "SIGNATURE_REQUIRED" {
+		t.Fatalf("want SIGNATURE_REQUIRED, got %+v", errBody)
+	}
+
+	// the real ceremony: challenge -> assert -> signed decide
+	resp, body = owner.request("GET", "/api/proposals/"+p.ID+"/challenge?decision=grant", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("challenge: %d %s", resp.StatusCode, body)
+	}
+	var chal proposalChallengeResponse
+	if err := json.Unmarshal(body, &chal); err != nil {
+		t.Fatal(err)
+	}
+	if chal.NodeID != "node-test-pub" {
+		t.Fatalf("node_id not echoed from server config: %+v", chal)
+	}
+	challenge32, err := base64.RawURLEncoding.DecodeString(chal.Challenge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authData := buildAssertionAuthData(t, chal.RPID, 0x05, 1) // UP|UV
+	cdJSON, _ := json.Marshal(map[string]string{
+		"type": "webauthn.get", "challenge": base64.RawURLEncoding.EncodeToString(challenge32), "origin": srv.URL,
+	})
+	sig := signGet(t, priv, authData, cdJSON)
+
+	resp, body = owner.request("POST", "/api/proposals/"+p.ID+"/decide", map[string]any{
+		"grant": true,
+		"basis": map[string]any{"type": "human", "id": "owner-1"},
+		"human_signature": identity.HumanSignaturePayload{
+			CredentialID: credID, AuthenticatorData: authData, ClientDataJSON: cdJSON, Signature: sig,
+		},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("signed proposal decide: %d %s", resp.StatusCode, body)
+	}
+	if eng.DefVersion() != p.BaseDefVersion+1 {
+		t.Fatalf("def_version must advance after the signed apply: got %d", eng.DefVersion())
+	}
+}
+

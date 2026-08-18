@@ -51,6 +51,7 @@ type challengeStore struct {
 	mu   sync.Mutex
 	reg  map[string]*regChallenge
 	appr map[string]*approvalChallenge
+	prop map[string]*approvalChallenge
 }
 
 func (c *challengeStore) putReg(actorID string, ch []byte) {
@@ -97,6 +98,31 @@ func (c *challengeStore) getApproval(approvalID string) (*approvalChallenge, boo
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	ac, ok := c.appr[approvalID]
+	if !ok || time.Now().After(ac.expires) {
+		return nil, false
+	}
+	return ac, true
+}
+
+// putProposal/getProposal are the definition-decision twin of the approval
+// challenge store: same shape (head_seq captured at issuance, actor binding,
+// TTL), keyed by proposal id. A signed proposal assertion cannot be swapped
+// onto a different actor's decision; the proposal itself is one-shot
+// regardless (DecideProposal rejects a second decision), so the entry stays
+// readable within the TTL for a retry after a failed decide.
+func (c *challengeStore) putProposal(proposalID, actorID string, headSeq uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.prop == nil {
+		c.prop = map[string]*approvalChallenge{}
+	}
+	c.prop[proposalID] = &approvalChallenge{headSeq: headSeq, actorID: actorID, expires: time.Now().Add(challengeTTL)}
+}
+
+func (c *challengeStore) getProposal(proposalID string) (*approvalChallenge, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ac, ok := c.prop[proposalID]
 	if !ok || time.Now().After(ac.expires) {
 		return nil, false
 	}
@@ -328,6 +354,66 @@ func (s *Server) approvalChallenge(w http.ResponseWriter, r *http.Request) {
 		TaskID: approvalID, Entity: a.Entity, RecordID: a.RecordID, Transition: a.Action,
 		Decision: decision, BasisType: basisType, BasisID: basisID,
 		HeadSeq: headSeq, NodeID: s.nodeID, RPID: rpIDFromHost(r.Host),
+		Challenge: base64.RawURLEncoding.EncodeToString(challenge[:]),
+	})
+}
+
+// --- GET /api/proposals/{id}/challenge (definition-decision ceremony) -------
+
+type proposalChallengeResponse struct {
+	ProposalID  string   `json:"proposal_id"`
+	Description string   `json:"description"`
+	Plan        []string `json:"plan"`
+	Decision    string   `json:"decision"`
+	HeadSeq     uint64   `json:"head_seq"`
+	NodeID      string   `json:"node_id"`
+	RPID        string   `json:"rp_id"`
+	Challenge   string   `json:"challenge"` // base64url(SHA-256(canonical))
+}
+
+// proposalChallenge issues the WebAuthn ceremony for a definition decision.
+// Gated exactly like DecideProposal itself: only a human with the
+// defApprover role can even fetch the challenge, and only for a pending
+// proposal. The canonical is built server-side from the proposal id, the
+// decision and the head_seq captured here (identity.BuildDefinitionCanonical)
+// — never from anything the client echoes.
+func (s *Server) proposalChallenge(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.actor(r)
+	if !ok || actor.Type != eventstore.ActorHuman {
+		writeAuthRequired(w)
+		return
+	}
+	proposalID := r.PathValue("id")
+	p, err := s.eng.GetProposal(proposalID)
+	if err != nil || p.Status != engine.ProposalPending {
+		writeJSON(w, http.StatusNotFound, &engine.Err{Code: engine.CodeNotFound, Message: "proposal " + proposalID + " not found or not pending"})
+		return
+	}
+	if actor.Role != s.eng.DefinitionApprover() {
+		writeJSON(w, http.StatusForbidden, &engine.Err{Code: engine.CodePermissionDenied,
+			Message: "definitions are approved by a human with role " + s.eng.DefinitionApprover(),
+			Rule:    "definition approver"})
+		return
+	}
+	decision := r.URL.Query().Get("decision")
+	if decision != identity.DecisionGrant && decision != identity.DecisionDeny {
+		writeJSON(w, http.StatusBadRequest, &engine.Err{Code: engine.CodeValidation,
+			Message: "?decision must be \"grant\" or \"deny\""})
+		return
+	}
+	headSeq, err := s.eng.HeadSeq(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, &engine.Err{Code: "INTERNAL", Message: err.Error()})
+		return
+	}
+	s.challenges.putProposal(proposalID, actor.ID, headSeq)
+	canon := identity.BuildDefinitionCanonical(proposalID, decision,
+		engine.DefinitionContentHash(p.Files), headSeq, s.nodeID)
+	challenge := identity.ApprovalChallenge(canon)
+	writeJSON(w, http.StatusOK, proposalChallengeResponse{
+		ProposalID: proposalID, Description: p.Description, Plan: p.Plan,
+		Decision: decision, HeadSeq: headSeq, NodeID: s.nodeID,
+		RPID: rpIDFromHost(r.Host),
 		Challenge: base64.RawURLEncoding.EncodeToString(challenge[:]),
 	})
 }

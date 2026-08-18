@@ -9,7 +9,7 @@ DO NOT EDIT BY HAND. Regenerate after any tool change:
 if this file and the code disagree — the tool count and names below are
 honest by construction, not hand-maintained prose.
 
-**32 tools.**
+**33 tools.**
 
 ## `describe_system`
 
@@ -972,6 +972,19 @@ Input schema:
     "basis",
     "idempotency_key"
   ],
+  "type": "object"
+}
+```
+
+## `get_definition`
+
+The CURRENT definition sources (every pack file, as last applied or boot-seeded) with the def_version — read-only. A proposer must merge its new pack into THIS full set before propose_change: a proposal replaces the whole definition, and the engine's additive gate rejects anything that would remove existing entities.
+
+Input schema:
+
+```json
+{
+  "properties": {},
   "type": "object"
 }
 ```

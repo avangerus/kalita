@@ -499,6 +499,37 @@ func ApprovalChallenge(canonical []byte) [32]byte {
 	return sha256.Sum256(canonical)
 }
 
+// DefinitionCanonicalDomain is the domain string for WebAuthn signatures over
+// DEFINITION (model-change) decisions. It MUST stay byte-identical to the
+// engine's definitionDomain (internal/engine/proposals.go DefinitionMessage,
+// "kalita-definition-v1") — engine tests assert this equality so the two can
+// never drift apart. A definition decision signs the same logical object the
+// Ed25519 path signs (proposalID + decision), extended with head_seq and
+// nodeID for the WebAuthn ceremony (LLD-02 §2 shape).
+const DefinitionCanonicalDomain = "kalita-definition-v1"
+
+// BuildDefinitionCanonical composes the canonical string for a proposal
+// decision ceremony: domain, proposal id, decision, the CONTENT HASH of the
+// exact definition files being signed (Security Pro MAJOR-1: the signature
+// binds the content, not just the proposal id), head_seq at challenge time,
+// node public key. Same server-side-only rule as BuildApprovalCanonical:
+// every value comes from server state, never a client echo.
+func BuildDefinitionCanonical(proposalID, decision, contentHash string, headSeq uint64, nodeID string) []byte {
+	var b strings.Builder
+	b.WriteString(DefinitionCanonicalDomain)
+	b.WriteByte('\n')
+	b.WriteString(proposalID)
+	b.WriteByte('\n')
+	b.WriteString(decision)
+	b.WriteByte('\n')
+	b.WriteString(contentHash)
+	b.WriteByte('\n')
+	b.WriteString(strconv.FormatUint(headSeq, 10))
+	b.WriteByte('\n')
+	b.WriteString(nodeID)
+	return []byte(b.String())
+}
+
 // --- human_signature payload (additive approval.decided field) -----------
 
 // HumanSignaturePayload is the additive approval.decided payload field

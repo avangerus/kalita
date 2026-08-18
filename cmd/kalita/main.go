@@ -388,6 +388,32 @@ func loadPacks(dirs []string) (*dsl.Model, []*dsl.Error) {
 	return dsl.MergeModels(models)
 }
 
+// collectPackSources flattens every pack directory's .dsl files into one
+// sources map with collision-free keys ("<dir>/<file>") — the same texts
+// loadPacks compiles, keyed for the engine's definition-sources state
+// (DefinitionSources / MCP get_definition, product mission). The pack
+// identity lives in each file's `pack X` header, never in the key.
+func collectPackSources(dirs []string) map[string]string {
+	out := map[string]string{}
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			log.Fatalf("read pack dir: %v", err)
+		}
+		for _, e := range entries {
+			if filepath.Ext(e.Name()) != ".dsl" {
+				continue
+			}
+			raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				log.Fatal(err)
+			}
+			out[filepath.ToSlash(filepath.Join(dir, e.Name()))] = string(raw)
+		}
+	}
+	return out
+}
+
 func check(args []string) {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
 	pack := fs.String("pack", "", "pack directory, or a comma-separated list of pack directories to load together on one node")
@@ -445,6 +471,7 @@ func serve(args []string) {
 	}
 
 	var model *dsl.Model
+	var bootSources map[string]string
 	if dirs := splitComma(*pack); len(dirs) > 0 {
 		var errs []*dsl.Error
 		model, errs = loadPacks(dirs)
@@ -454,6 +481,7 @@ func serve(args []string) {
 			}
 			os.Exit(1)
 		}
+		bootSources = collectPackSources(dirs)
 	} else {
 		model, _ = dsl.Compile(map[string]string{})
 		log.Print("genesis: empty definition — the first pack arrives via propose_change + signature")
@@ -487,6 +515,9 @@ func serve(args []string) {
 	engOpts := []engine.Option{
 		engine.WithVerifier(reg.VerifySignature),
 		engine.WithDefinitionApprover(*approver),
+	}
+	if bootSources != nil {
+		engOpts = append(engOpts, engine.WithSources(bootSources))
 	}
 	if *requireHumanSig {
 		engOpts = append(engOpts, engine.WithRequireHumanSignature())

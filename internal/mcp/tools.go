@@ -91,6 +91,7 @@ var toolDefs = []map[string]any{
 	{"name": "field_types", "description": "The closed list of field types — discover types without the prose grammar.", "inputSchema": schema(map[string]any{})},
 	{"name": "validate_dsl", "description": "Dry-run compile of .dsl sources. Returns structured errors with fix hints; loop until ok.", "inputSchema": schema(map[string]any{"files": obj}, "files")},
 	{"name": "propose_change", "description": "Propose new/changed pack sources. Validated, then parked for a human signature; base_def_version must match the live system (describe_system). Requires idempotency_key.", "inputSchema": schema(map[string]any{"files": obj, "base_def_version": num, "description": str, "basis": basisSchema, "idempotency_key": str}, "files", "base_def_version", "description", "basis", "idempotency_key")},
+	{"name": "get_definition", "description": "The CURRENT definition sources (every pack file, as last applied or boot-seeded) with the def_version — read-only. A proposer must merge its new pack into THIS full set before propose_change: a proposal replaces the whole definition, and the engine's additive gate rejects anything that would remove existing entities.", "inputSchema": schema(map[string]any{})},
 	{"name": "get_proposal", "description": "Status of a proposal: pending, applied or rejected with reason.", "inputSchema": schema(map[string]any{"proposal_id": str}, "proposal_id")},
 	{"name": "list_dashboards", "description": "Names and titles of the dashboards declared in the loaded packs.", "inputSchema": schema(map[string]any{})},
 	{"name": "dashboard", "description": "Compute one dashboard by name: each tile is an aggregate (count/sum/avg/min/max) over a whole table, optionally grouped. Totals respect your row-level permissions.", "inputSchema": schema(map[string]any{"name": str}, "name")},
@@ -479,6 +480,18 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 
 	case "field_types":
 		return map[string]any{"types": dsl.FieldTypes()}, nil
+
+	case "get_definition":
+		// Architecture Skeptic MAJOR-1: the definition SOURCES carry the
+		// full permission/approval boundaries — wider than describe_system.
+		// Reading them is reserved to the definition approver role.
+		if actor.Role != s.eng.DefinitionApprover() {
+			return nil, map[string]any{"code": "PERMISSION_DENIED",
+				"message": "definition sources are visible to the definition approver role only",
+				"rule":     "definition approver"}
+		}
+		files, defVersion := s.eng.DefinitionSources()
+		return map[string]any{"files": files, "def_version": defVersion}, nil
 
 	case "validate_dsl":
 		var a struct {

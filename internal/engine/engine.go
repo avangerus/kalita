@@ -20,6 +20,7 @@ type Engine struct {
 	model       *dsl.Model
 	store       eventstore.Store
 	defVersion  uint64
+	files       map[string]string // current definition SOURCES (boot seed or last applied proposal) — get_definition's read, product mission
 	records     map[string]map[string]*Record // entity → id → record
 	approvals   map[string]*Approval
 	tasks       map[string]*Task
@@ -121,6 +122,32 @@ func WithPIIStore(s *pii.Store) Option { return func(e *Engine) { e.pii = s } }
 // WithDefinitionApprover sets the role whose human signature applies
 // definition changes (default Owner).
 func WithDefinitionApprover(role string) Option { return func(e *Engine) { e.defApprover = role } }
+
+// WithSources seeds the engine with the definition SOURCE files the node
+// booted from (the pack directory seed). Proposals replace them on apply; the
+// journal's DefinitionApplied payloads re-seed them on replay, so the live
+// sources always match the live definition. Exposed read-only via
+// DefinitionSources (the MCP get_definition tool) — the product-mission
+// builder needs the current sources to propose an additive multi-pack change.
+func WithSources(files map[string]string) Option {
+	return func(e *Engine) { e.files = cloneFiles(files) }
+}
+
+func cloneFiles(files map[string]string) map[string]string {
+	out := make(map[string]string, len(files))
+	for k, v := range files {
+		out[k] = v
+	}
+	return out
+}
+
+// DefinitionSources returns a copy of the current definition sources and the
+// def_version they belong to.
+func (e *Engine) DefinitionSources() (map[string]string, uint64) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return cloneFiles(e.files), e.defVersion
+}
 
 // DefinitionApprover returns the node's admin role: the role whose human
 // signature governs definition changes, shadow mode and core reference data.
@@ -237,12 +264,12 @@ func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...
 	return e, nil
 }
 
-// dslCompile indirects dsl.Compile purely so tests can simulate a panic
+// dslCompile indirects dsl.CompileMulti purely so tests can simulate a panic
 // reaching the DefinitionApplied fold case below (RELEASE-1.0 N8 §7.7) — in
-// production dsl.Compile can never panic (it recovers internally, see
+// production dsl.CompileMulti can never panic (it recovers internally, see
 // internal/dsl/compile.go) so this is always the real thing here. Unexported:
 // nothing outside this package can substitute it.
-var dslCompile = dsl.Compile
+var dslCompile = dsl.CompileMulti
 
 // compileDefinitionSafely runs dslCompile for the fold path and additionally
 // recovers a panic locally — defense in depth on top of dsl.Compile's own
@@ -388,15 +415,20 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		}
 		e.proposals[ev.Subject.ProposalID] = &Proposal{
 			ID: ev.Subject.ProposalID, Description: p.Description, Author: ev.Actor,
-			BaseDefVersion: p.BaseDefVersion, Files: p.Files, Plan: p.Plan, Status: ProposalPending,
+			BaseDefVersion: p.BaseDefVersion, Files: p.Files, Plan: p.Plan,
+			Status: ProposalPending, CreatedAt: ev.TS,
 		}
 	case eventstore.DefinitionApproved:
 		if p, ok := e.proposals[ev.Subject.ProposalID]; ok {
 			p.Status = ProposalApproved
+			ts := ev.TS
+			p.DecidedAt = &ts
 		}
 	case eventstore.DefinitionRejected:
 		if p, ok := e.proposals[ev.Subject.ProposalID]; ok {
 			p.Status = ProposalRejected
+			ts := ev.TS
+			p.DecidedAt = &ts
 		}
 	case eventstore.LinkAdded:
 		var lp linkPayload
@@ -428,6 +460,7 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		if p, ok := e.proposals[ev.Subject.ProposalID]; ok && len(p.Files) > 0 {
 			if next, ok := compileDefinitionSafely(p.Files); ok {
 				e.model = next
+				e.files = cloneFiles(p.Files)
 			}
 			p.Status = ProposalApplied
 		}

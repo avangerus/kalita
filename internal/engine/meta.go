@@ -105,6 +105,21 @@ type Meta struct {
 
 // MetaFor builds the per-actor system description.
 func (e *Engine) MetaFor(actorID, role string) *Meta {
+	return e.metaFor(actorID, role, true)
+}
+
+// ModelMeta builds the FULL executable-model structure — every entity and
+// role, regardless of the caller's per-entity grants — for the definition
+// approver's Company Model view (product finding F1: the person who signs a
+// model must be able to SEE the structure they signed). It grants NO record
+// access: per-entity can_* flags stay computed honestly; only the
+// entity-invisibility filter is lifted. The API gates this endpoint to the
+// defApprover role.
+func (e *Engine) ModelMeta(actorID, role string) *Meta {
+	return e.metaFor(actorID, role, false)
+}
+
+func (e *Engine) metaFor(actorID, role string, visibleOnly bool) *Meta {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -147,7 +162,7 @@ func (e *Engine) MetaFor(actorID, role string) *Meta {
 		if !me.CanRead && e.hasAnyRule(role, "read", name) {
 			me.CanRead = true
 		}
-		if !me.CanRead {
+		if visibleOnly && !me.CanRead {
 			continue // invisible entities do not exist for this actor
 		}
 		for _, f := range decl.Fields {

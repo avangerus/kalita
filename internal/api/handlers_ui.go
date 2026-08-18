@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -27,7 +28,30 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 	var withCaps map[string]any
 	_ = json.Unmarshal(out, &withCaps)
 	withCaps["search"] = s.rag != nil
+	// the Ask Kalita worker's advertised URL (deploy sets KALITA_BUILDER_URL;
+	// empty → the UI derives a localhost default) — Product Skeptic BLOCKER-1
+	// (server-side config, not a localStorage-only client hack)
+	withCaps["builder_url"] = os.Getenv("KALITA_BUILDER_URL")
 	writeJSON(w, http.StatusOK, withCaps)
+}
+
+// modelMeta is the FULL executable-model structure for the Company Model view
+// (product finding F1): the definition approver sees every entity/role they
+// sign — no record access is granted by this (per-entity can_* flags stay
+// honest). Reserved to the definition approver role.
+func (s *Server) modelMeta(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.actor(r)
+	if !ok {
+		writeAuthRequired(w)
+		return
+	}
+	if actor.Role != s.eng.DefinitionApprover() {
+		writeJSON(w, http.StatusForbidden, &engine.Err{Code: engine.CodePermissionDenied,
+			Message: "the full model view is reserved to the definition approver role",
+			Rule:    "definition approver"})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.eng.ModelMeta(actor.ID, actor.Role))
 }
 
 func (s *Server) act(w http.ResponseWriter, r *http.Request) {
@@ -395,11 +419,42 @@ func (s *Server) queryV2(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) proposals(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.actor(r); !ok {
+	actor, ok := s.actor(r)
+	if !ok {
 		writeAuthRequired(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"proposals": s.eng.PendingProposals()})
+	// Architecture Skeptic MAJOR-1: proposal payloads carry the FULL
+	// definition sources (permission/approval boundaries) — the history and
+	// the inbox are reserved to the definition approver role, and the sources
+	// themselves are never returned here (approver-gated get_definition is
+	// the only read of raw sources).
+	if actor.Role != s.eng.DefinitionApprover() {
+		writeJSON(w, http.StatusForbidden, &engine.Err{Code: engine.CodePermissionDenied,
+			Message: "proposals are visible to the definition approver role only",
+			Rule:    "definition approver"})
+		return
+	}
+	list := s.eng.PendingProposals()
+	if r.URL.Query().Get("all") == "1" {
+		// the model-history view (product mission C): pending + decided,
+		// newest first (uuid v7 = timeline order)
+		list = s.eng.Proposals()
+	}
+	out := make([]map[string]any, 0, len(list))
+	for _, p := range list {
+		row := map[string]any{
+			"id": p.ID, "description": p.Description, "author": p.Author,
+			"base_def_version": p.BaseDefVersion, "plan": p.Plan,
+			"status": p.Status, "reason": p.Reason,
+			"created_at": p.CreatedAt,
+		}
+		if p.DecidedAt != nil {
+			row["decided_at"] = p.DecidedAt
+		}
+		out = append(out, row)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"proposals": out})
 }
 
 func (s *Server) decideProposal(w http.ResponseWriter, r *http.Request) {
@@ -413,7 +468,45 @@ func (s *Server) decideProposal(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"code": "VALIDATION_ERROR", "message": "bad json"})
 		return
 	}
-	p, err := s.eng.DecideProposal(r.Context(), actor, r.PathValue("id"), req.Grant, req.Signature, req.Basis)
+	var opts []engine.DecideProposalOption
+	if req.HumanSignature != nil {
+		// Same ceremony shape as decide(): the UI signs over the challenge
+		// from GET /api/proposals/{id}/challenge. Only a human actor may
+		// submit a WebAuthn assertion (LLD-02 §4).
+		if actor.Type != eventstore.ActorHuman {
+			writeJSON(w, http.StatusForbidden, &engine.Err{Code: engine.CodeSignatureRequired,
+				Message: "only a human actor may submit a WebAuthn human_signature"})
+			return
+		}
+		proposalID := r.PathValue("id")
+		p, err := s.eng.GetProposal(proposalID)
+		if err != nil || p.Status != engine.ProposalPending {
+			writeJSON(w, http.StatusNotFound, &engine.Err{Code: engine.CodeNotFound, Message: "proposal " + proposalID + " not found or not pending"})
+			return
+		}
+		ac, ok := s.challenges.getProposal(proposalID)
+		if !ok || ac.actorID != actor.ID {
+			writeJSON(w, http.StatusUnprocessableEntity, &engine.Err{Code: engine.CodeValidation,
+				Message: "no outstanding challenge for this proposal and actor",
+				FixHint: "call GET /api/proposals/{id}/challenge first"})
+			return
+		}
+		decision := identity.DecisionDeny
+		if req.Grant {
+			decision = identity.DecisionGrant
+		}
+		canon := identity.BuildDefinitionCanonical(proposalID, decision,
+			engine.DefinitionContentHash(p.Files), ac.headSeq, s.nodeID)
+		rpID := rpIDFromHost(r.Host)
+		if verr := s.reg.VerifyApprovalSignature(r.Context(), actor.ID, req.HumanSignature, canon, rpID, originAllowed(r.Host), s.requireHumanSig); verr != nil {
+			writeJSON(w, http.StatusForbidden, &engine.Err{Code: engine.CodePermissionDenied,
+				Message: "human signature invalid: " + verr.Error()})
+			return
+		}
+		raw, _ := json.Marshal(req.HumanSignature)
+		opts = append(opts, engine.WithProposalHumanSignature(raw, rpID, ac.headSeq))
+	}
+	p, err := s.eng.DecideProposal(r.Context(), actor, r.PathValue("id"), req.Grant, req.Signature, req.Basis, opts...)
 	if err != nil {
 		writeErr(w, err)
 		return
