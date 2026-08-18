@@ -13,9 +13,11 @@ import (
 	"github.com/avangerus/kalita/internal/eventstore"
 )
 
-// Cycle-B1 (D-011) — the node's webhook runner: whitelist normalization and
-// enforcement, at-least-once delivery with a deterministic idempotency_key,
-// and settle semantics. deliver is injected; no network.
+// Cycle-B1 (D-011, English-first release) — the node's webhook runner:
+// whitelist normalization and enforcement, at-least-once delivery with the
+// per-firing idempotency identity, failure classification, per-attempt
+// receipts, runtime-secret injection, and settle semantics. deliver is
+// injected; no network.
 
 const webhookRunnerPack = `
 entity Doc:
@@ -89,23 +91,26 @@ func TestAllowed(t *testing.T) {
 }
 
 // TestRunnerSettlesDelivery: the runner delivers once with a payload carrying
-// the deterministic idempotency_key, then settles the task completed.
+// the per-firing delivery identity (DeliveryID) as idempotency_key, journals
+// a receipt, and settles the task completed.
 func TestRunnerSettlesDelivery(t *testing.T) {
 	e, _ := webhookRunnerEngine(t)
 	owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
 	if _, err := e.Create(context.Background(), owner, "Doc", map[string]any{"title": "t"}, &eventstore.Basis{Type: "human", ID: "o"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	taskID := e.OpenWebhookTasks()[0].ID
+	task := e.OpenWebhookTasks()[0]
 
 	var mu sync.Mutex
 	var gotURL string
+	var gotBearer string
 	var gotPayload map[string]any
-	n := runWebhookDeliveries(context.Background(), e, []string{"example.com"},
-		func(_ context.Context, url string, payload []byte) error {
+	n := runWebhookDeliveries(context.Background(), e, []string{"example.com"}, nil, false,
+		func(_ context.Context, url string, payload []byte, bearer string) *webhookDeliveryError {
 			mu.Lock()
 			defer mu.Unlock()
 			gotURL = url
+			gotBearer = bearer
 			_ = json.Unmarshal(payload, &gotPayload)
 			return nil
 		})
@@ -115,19 +120,26 @@ func TestRunnerSettlesDelivery(t *testing.T) {
 	if gotURL != "https://example.com/hook" {
 		t.Fatalf("delivered url = %q", gotURL)
 	}
-	if gotPayload["idempotency_key"] != "webhook:"+taskID {
-		t.Fatalf("idempotency_key = %v, want webhook:%s", gotPayload["idempotency_key"], taskID)
+	if gotPayload["idempotency_key"] != "webhook:"+task.DeliveryID {
+		t.Fatalf("idempotency_key = %v, want webhook:%s", gotPayload["idempotency_key"], task.DeliveryID)
 	}
 	if gotPayload["record_id"] == nil {
 		t.Fatal("payload must carry the record id")
 	}
+	if gotBearer != "" {
+		t.Fatalf("no secrets configured: bearer must be empty, got %q", gotBearer)
+	}
 	if len(e.OpenWebhookTasks()) != 0 {
 		t.Fatal("delivered task must be settled (left the open queue)")
+	}
+	receipts := e.WebhookReceipts()
+	if len(receipts) != 1 || receipts[0].Outcome != "delivered" {
+		t.Fatalf("want one delivered receipt, got %+v", receipts)
 	}
 }
 
 // TestRunnerWhitelistBlocksDelivery: a task whose URL is outside the allowlist
-// is settled failed WITHOUT a delivery attempt.
+// is settled failed WITHOUT a delivery attempt, with an allowlist receipt.
 func TestRunnerWhitelistBlocksDelivery(t *testing.T) {
 	e, _ := webhookRunnerEngine(t)
 	owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
@@ -135,13 +147,17 @@ func TestRunnerWhitelistBlocksDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := 0
-	n := runWebhookDeliveries(context.Background(), e, []string{"other.com"},
-		func(_ context.Context, _ string, _ []byte) error { calls++; return nil })
+	n := runWebhookDeliveries(context.Background(), e, []string{"other.com"}, nil, false,
+		func(_ context.Context, _ string, _ []byte, _ string) *webhookDeliveryError { calls++; return nil })
 	if n != 1 || calls != 0 {
 		t.Fatalf("blocked task must be settled without delivery: processed=%d calls=%d", n, calls)
 	}
 	if len(e.OpenWebhookTasks()) != 0 {
 		t.Fatal("blocked task must leave the queue (settled failed)")
+	}
+	receipts := e.WebhookReceipts()
+	if len(receipts) != 1 || receipts[0].Category != "allowlist" {
+		t.Fatalf("want one allowlist-denial receipt, got %+v", receipts)
 	}
 }
 
@@ -155,11 +171,11 @@ func TestRunnerRetriesTransient(t *testing.T) {
 		t.Fatal(err)
 	}
 	attempts := 0
-	n := runWebhookDeliveries(context.Background(), e, []string{"example.com"},
-		func(_ context.Context, _ string, _ []byte) error {
+	n := runWebhookDeliveries(context.Background(), e, []string{"example.com"}, nil, false,
+		func(_ context.Context, _ string, _ []byte, _ string) *webhookDeliveryError {
 			attempts++
 			if attempts < 3 {
-				return fmt.Errorf("transient")
+				return &webhookDeliveryError{category: "network", err: fmt.Errorf("transient")}
 			}
 			return nil
 		})
@@ -182,15 +198,15 @@ func TestRunnerGivesUp(t *testing.T) {
 	}
 	attempts := 0
 	keys := map[string]bool{}
-	n := runWebhookDeliveries(context.Background(), e, []string{"example.com"},
-		func(_ context.Context, _ string, payload []byte) error {
+	n := runWebhookDeliveries(context.Background(), e, []string{"example.com"}, nil, false,
+		func(_ context.Context, _ string, payload []byte, _ string) *webhookDeliveryError {
 			attempts++
 			var p map[string]any
 			_ = json.Unmarshal(payload, &p)
 			if k, _ := p["idempotency_key"].(string); k != "" {
 				keys[k] = true
 			}
-			return fmt.Errorf("permanent")
+			return &webhookDeliveryError{category: "http_5xx", status: 503, err: fmt.Errorf("permanent")}
 		})
 	if n != 1 || attempts != webhookAttempts {
 		t.Fatalf("want %d attempts, got %d (processed %d)", webhookAttempts, attempts, n)
@@ -201,11 +217,14 @@ func TestRunnerGivesUp(t *testing.T) {
 	if len(e.OpenWebhookTasks()) != 0 {
 		t.Fatal("task must be settled failed after giving up")
 	}
+	if got := e.FailedWebhookTasks(); len(got) != 1 {
+		t.Fatalf("task must appear in the DLQ listing, got %d", len(got))
+	}
 }
 
 // TestRunnerStopsOnContextCancel: a shutdown during delivery leaves the task
-// OPEN (not failed), so the next boot retries it under the same deterministic
-// idempotency_key — the receiver dedups any partial effect.
+// OPEN (not failed), so the next boot retries it under the same delivery
+// identity — the receiver dedups any partial effect.
 func TestRunnerStopsOnContextCancel(t *testing.T) {
 	shortenBackoff(t)
 	e, _ := webhookRunnerEngine(t)
@@ -216,18 +235,134 @@ func TestRunnerStopsOnContextCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	started := make(chan struct{})
-	deliver := func(ctx context.Context, _ string, _ []byte) error {
+	deliver := func(ctx context.Context, _ string, _ []byte, _ string) *webhookDeliveryError {
 		close(started)
 		<-ctx.Done()
-		return ctx.Err()
+		return &webhookDeliveryError{category: "timeout", err: ctx.Err()}
 	}
 	done := make(chan int, 1)
-	go func() { done <- runWebhookDeliveries(ctx, e, []string{"example.com"}, deliver) }()
+	go func() { done <- runWebhookDeliveries(ctx, e, []string{"example.com"}, nil, false, deliver) }()
 	<-started
 	cancel()
 	<-done
 
 	if got := e.OpenWebhookTasks(); len(got) != 1 {
 		t.Fatalf("a shutdown mid-delivery must leave the task open, got %d", len(got))
+	}
+}
+
+// TestWebhookDeliveryID: the delivery identity is the per-firing DeliveryID;
+// legacy tasks without one fall back to the task id.
+func TestWebhookDeliveryID(t *testing.T) {
+	if got := webhookDeliveryID(&engine.Task{ID: "legacy"}); got != "legacy" {
+		t.Fatalf("legacy task must fall back to task id, got %q", got)
+	}
+	if got := webhookDeliveryID(&engine.Task{ID: "legacy", DeliveryID: "del-1"}); got != "del-1" {
+		t.Fatalf("hardened task must use its DeliveryID, got %q", got)
+	}
+}
+
+// TestRunnerClassificationNonRetryable: 3xx and non-retryable 4xx settle the
+// task failed after exactly ONE attempt (no pointless retries).
+func TestRunnerClassificationNonRetryable(t *testing.T) {
+	shortenBackoff(t)
+	for _, status := range []int{301, 302, 400, 401, 403, 404, 410, 418} {
+		t.Run(fmt.Sprintf("status_%d", status), func(t *testing.T) {
+			e, _ := webhookRunnerEngine(t)
+			owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
+			if _, err := e.Create(context.Background(), owner, "Doc", map[string]any{"title": "t"}, &eventstore.Basis{Type: "human", ID: "o"}, ""); err != nil {
+				t.Fatal(err)
+			}
+			attempts := 0
+			n := runWebhookDeliveries(context.Background(), e, []string{"example.com"}, nil, false,
+				func(_ context.Context, _ string, _ []byte, _ string) *webhookDeliveryError {
+					attempts++
+					cat := "http_4xx"
+					if status >= 300 && status < 400 {
+						cat = "redirect"
+					}
+					return &webhookDeliveryError{status: status, category: cat, err: fmt.Errorf("HTTP %d", status)}
+				})
+			if n != 1 || attempts != 1 {
+				t.Fatalf("non-retryable %d must fail after one attempt, got %d attempts (processed %d)", status, attempts, n)
+			}
+			if len(e.FailedWebhookTasks()) != 1 {
+				t.Fatal("task must be dead-lettered")
+			}
+		})
+	}
+}
+
+// TestRunnerClassificationRetryable: 408/425/429 and 5xx ARE retried.
+func TestRunnerClassificationRetryable(t *testing.T) {
+	shortenBackoff(t)
+	for _, status := range []int{408, 425, 429, 500, 502, 503} {
+		t.Run(fmt.Sprintf("status_%d", status), func(t *testing.T) {
+			e, _ := webhookRunnerEngine(t)
+			owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
+			if _, err := e.Create(context.Background(), owner, "Doc", map[string]any{"title": "t"}, &eventstore.Basis{Type: "human", ID: "o"}, ""); err != nil {
+				t.Fatal(err)
+			}
+			attempts := 0
+			n := runWebhookDeliveries(context.Background(), e, []string{"example.com"}, nil, false,
+				func(_ context.Context, _ string, _ []byte, _ string) *webhookDeliveryError {
+					attempts++
+					if attempts == 1 {
+						return &webhookDeliveryError{status: status, category: "http_5xx", err: fmt.Errorf("HTTP %d", status)}
+					}
+					return nil
+				})
+			if n != 1 || attempts != 2 {
+				t.Fatalf("retryable %d must be retried and settle completed, got %d attempts (processed %d)", status, attempts, n)
+			}
+			if len(e.OpenWebhookTasks()) != 0 {
+				t.Fatal("task must be settled completed after the retry")
+			}
+		})
+	}
+}
+
+// TestRunnerAuthMissingFailsClosed: when the operator configured an egress
+// secrets file, a destination WITHOUT a credential entry fails closed — no
+// unauthenticated delivery may silently leave the perimeter.
+func TestRunnerAuthMissingFailsClosed(t *testing.T) {
+	e, _ := webhookRunnerEngine(t)
+	owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
+	if _, err := e.Create(context.Background(), owner, "Doc", map[string]any{"title": "t"}, &eventstore.Basis{Type: "human", ID: "o"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	secrets := map[string]string{"other.com": "Bearer sk_other"} // example.com missing
+	n := runWebhookDeliveries(context.Background(), e, []string{"example.com"}, secrets, true,
+		func(_ context.Context, _ string, _ []byte, _ string) *webhookDeliveryError { calls++; return nil })
+	if n != 1 || calls != 0 {
+		t.Fatalf("auth_missing must fail closed without delivery: processed=%d calls=%d", n, calls)
+	}
+	if len(e.FailedWebhookTasks()) != 1 {
+		t.Fatal("task must be dead-lettered")
+	}
+	receipts := e.WebhookReceipts()
+	if len(receipts) != 1 || receipts[0].Category != "auth_missing" {
+		t.Fatalf("want one auth_missing receipt, got %+v", receipts)
+	}
+}
+
+// TestRunnerSendsBearer: a configured destination credential is injected into
+// the Authorization header, from runtime secrets only (never the DSL).
+func TestRunnerSendsBearer(t *testing.T) {
+	e, _ := webhookRunnerEngine(t)
+	owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
+	if _, err := e.Create(context.Background(), owner, "Doc", map[string]any{"title": "t"}, &eventstore.Basis{Type: "human", ID: "o"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	var gotBearer string
+	secrets := map[string]string{"example.com": "Bearer sk_live_test"}
+	n := runWebhookDeliveries(context.Background(), e, []string{"example.com"}, secrets, true,
+		func(_ context.Context, _ string, _ []byte, bearer string) *webhookDeliveryError {
+			gotBearer = bearer
+			return nil
+		})
+	if n != 1 || gotBearer != "Bearer sk_live_test" {
+		t.Fatalf("want injected bearer on delivery, got %q (processed %d)", gotBearer, n)
 	}
 }

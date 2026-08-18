@@ -70,6 +70,8 @@ func main() {
 		reportCmd(os.Args[2:])
 	case "egress-report":
 		egressReportCmd(os.Args[2:])
+	case "egress":
+		egressCmd(os.Args[2:])
 	case "shadow":
 		shadowCmd(os.Args[2:])
 	case "mcp":
@@ -255,6 +257,8 @@ func usage() {
 	fmt.Println("  kalita upgrade --to <ver|latest> [--dry-run]    docker-compose upgrade with automatic rollback on failure (LLD-03 §2)")
 	fmt.Println("  kalita report --since 7d [--role R] [--format md|html] [--pack <dir>]   \"week in numbers\": a pure fold over the journal, zero writes (LLD-09 §2)")
 	fmt.Println("  kalita egress-report --since 7d [--format md|html]                      what left the perimeter: declared whitelist vs egress.called facts (LLD-09 §3)")
+	fmt.Println("  kalita egress dlq [--pack <dir>]                       list dead-lettered webhook deliveries (D-011)")
+	fmt.Println("  kalita egress retry <task-id> [--pack <dir>]           journal a fresh delivery under the same idempotency identity (D-011)")
 	fmt.Println("  kalita shadow enable|disable --role R --pack <dir>                      toggle shadow mode for a role (LLD-09 §1) — restart the node to pick up the change (v0)")
 	fmt.Println("  kalita mcp contract > docs/MCP-CONTRACT-v1.md                           print the MCP tool contract, generated from internal/mcp/tools.go (RELEASE-1.0 N8)")
 	fmt.Println("  kalita version")
@@ -664,13 +668,15 @@ func serve(args []string) {
 			}
 		}
 	}()
-	// the webhook runner (Cycle-B1 / D-011): delivers TaskWebhook intentions
-	// under the node-level egress whitelist, at-least-once with a deterministic
-	// idempotency_key. Faster than Tick — delivery latency, not schedule.
+	// the webhook runner (Cycle-B1 / D-011, English-first hardening): delivers
+	// TaskWebhook intentions under the node-level egress whitelist,
+	// at-least-once with a per-firing idempotency identity, per-attempt
+	// receipts, failure classification and a dead-letter listing.
 	// An EMPTY allowlist leaves the runner disabled (fail-closed): tasks stay
 	// pending rather than being failed, so configuring KALITA_EGRESS_DOMAINS
 	// later does not lose their intent.
 	webhookDomains := parseEgressDomains(*egressDomains)
+	webhookSecrets, secretsConfigured := loadEgressSecrets()
 	if len(webhookDomains) > 0 {
 		go func() {
 			tick := time.NewTicker(10 * time.Second)
@@ -680,7 +686,7 @@ func serve(args []string) {
 				case <-ctx.Done():
 					return
 				case <-tick.C:
-					n := runWebhookDeliveries(context.Background(), eng, webhookDomains, deliverOnce)
+					n := runWebhookDeliveries(context.Background(), eng, webhookDomains, webhookSecrets, secretsConfigured, deliverOnce)
 					if n > 0 {
 						log.Printf("webhook runner: settled %d task(s)", n)
 					}

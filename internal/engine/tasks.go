@@ -51,6 +51,17 @@ type Task struct {
 	LeaseUntil time.Time  `json:"lease_until,omitempty"`
 	Note       string     `json:"note,omitempty"`    // last progress note from the agent
 	NoteAt     *time.Time `json:"note_at,omitempty"` // timestamp of that note
+	// DeliveryID (English-first release, D-011): the per-firing deterministic
+	// idempotency identity of a webhook delivery — uuid v7 minted at task
+	// creation, persisted in task.created, and carried FORWARD across
+	// DLQ-recovery retries so every redelivery of the same business firing
+	// carries the same idempotency key (at-least-once delivery + idempotent
+	// business effect). Deliberately NOT derived from business coordinates:
+	// a record-update-then-refire is a NEW firing and must NOT collapse.
+	DeliveryID string `json:"delivery_id,omitempty"`
+	// CreatedAt: when the task was journaled (folded from task.created's TS —
+	// deterministic on replay, used for egress oldest-pending metrics).
+	CreatedAt time.Time `json:"created_at,omitempty"`
 	// ruleKey is the "file:line" identity of the automation rule that created
 	// this task (from the event's Basis, Type=="rule" — see fireActions'
 	// ruleBasis), empty for tasks with no rule provenance (e.g. a workflow
@@ -78,6 +89,9 @@ type taskPayload struct {
 	Reason   string   `json:"reason,omitempty"`
 	Result   string   `json:"result,omitempty"`
 	Lease    string   `json:"lease_until,omitempty"`
+	// DeliveryID: the webhook delivery's per-firing idempotency identity
+	// (see Task.DeliveryID).
+	DeliveryID string `json:"delivery_id,omitempty"`
 }
 
 // createTask appends task.created (idempotent under idemKey) and projects it.
@@ -88,7 +102,7 @@ func (e *Engine) createTask(ctx context.Context, actor eventstore.Actor, t Task,
 	}
 	t.ID = id.String()
 	payload, _ := json.Marshal(taskPayload{Kind: t.Kind, Role: t.Role, Entity: t.Entity,
-		RecordID: t.RecordID, Action: t.Action, Args: t.Args})
+		RecordID: t.RecordID, Action: t.Action, Args: t.Args, DeliveryID: t.DeliveryID})
 	ev, err := e.store.Append(ctx, eventstore.AppendInput{
 		Actor:          actor,
 		Kind:           eventstore.TaskCreated,
@@ -105,6 +119,7 @@ func (e *Engine) createTask(ctx context.Context, actor eventstore.Actor, t Task,
 	t.ID = ev.Subject.TaskID
 	if _, exists := e.tasks[t.ID]; !exists {
 		t.Status = TaskOpen
+		t.CreatedAt = ev.TS
 		if basis != nil && basis.Type == "rule" {
 			t.ruleKey = basis.ID
 		}

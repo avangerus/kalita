@@ -60,6 +60,13 @@ func NewLoader(path string) (*Loader, error) {
 	return &Loader{values: values}, nil
 }
 
+// CheckOwnerOnlyPerm is the exported form of checkOwnerOnlyPerm: on POSIX it
+// refuses anything beyond 0600, on Windows (dev platform only) it verifies
+// existence/readability and stops there. Callers outside the package (the
+// egress secrets loader in cmd/kalita) use it to fail fast at boot on a
+// group/world-readable secrets file.
+func CheckOwnerOnlyPerm(path string) error { return checkOwnerOnlyPerm(path) }
+
 // Resolve returns the value for name in the fallback order documented on
 // Loader/NewLoader. warning is non-empty exactly when the value came from a
 // bare environment variable (tier 3) — callers should log it once at boot.

@@ -1,6 +1,7 @@
 [
   {
     "action": "open",
+    "created_at": "2026-01-05T09:04:00Z",
     "entity": "Case",
     "id": "id#14",
     "kind": "workflow",
@@ -13,6 +14,7 @@
   {
     "action": "triage",
     "args": "( priority = tag )",
+    "created_at": "2026-01-05T09:04:00Z",
     "entity": "Case",
     "id": "id#16",
     "kind": "agent",
@@ -26,6 +28,7 @@
   },
   {
     "args": "email ( author )",
+    "created_at": "2026-01-05T09:04:00Z",
     "entity": "Case",
     "id": "id#18",
     "kind": "notification",
@@ -36,6 +39,7 @@
   },
   {
     "args": "https://example.invalid/hooks/case-created",
+    "created_at": "2026-01-05T09:04:00Z",
     "entity": "Case",
     "id": "id#20",
     "kind": "webhook",
@@ -46,6 +50,7 @@
   },
   {
     "action": "open",
+    "created_at": "2026-01-05T09:04:30Z",
     "entity": "Case",
     "id": "id#24",
     "kind": "workflow",
@@ -57,6 +62,7 @@
   {
     "action": "triage",
     "args": "( priority = tag )",
+    "created_at": "2026-01-05T09:04:30Z",
     "entity": "Case",
     "id": "id#26",
     "kind": "agent",
@@ -67,6 +73,7 @@
   },
   {
     "args": "email ( author )",
+    "created_at": "2026-01-05T09:04:30Z",
     "entity": "Case",
     "id": "id#28",
     "kind": "notification",
@@ -77,6 +84,7 @@
   },
   {
     "args": "https://example.invalid/hooks/case-created",
+    "created_at": "2026-01-05T09:04:30Z",
     "entity": "Case",
     "id": "id#30",
     "kind": "webhook",
@@ -87,6 +95,7 @@
   },
   {
     "action": "open",
+    "created_at": "2026-01-05T09:05:00Z",
     "entity": "Case",
     "id": "id#34",
     "kind": "workflow",
@@ -98,6 +107,7 @@
   {
     "action": "triage",
     "args": "( priority = tag )",
+    "created_at": "2026-01-05T09:05:00Z",
     "entity": "Case",
     "id": "id#36",
     "kind": "agent",
@@ -109,6 +119,7 @@
   },
   {
     "args": "email ( author )",
+    "created_at": "2026-01-05T09:05:00Z",
     "entity": "Case",
     "id": "id#38",
     "kind": "notification",
@@ -119,6 +130,7 @@
   },
   {
     "args": "https://example.invalid/hooks/case-created",
+    "created_at": "2026-01-05T09:05:00Z",
     "entity": "Case",
     "id": "id#40",
     "kind": "webhook",
@@ -129,6 +141,7 @@
   },
   {
     "action": "open",
+    "created_at": "2026-01-05T09:06:00Z",
     "entity": "Case",
     "id": "id#45",
     "kind": "workflow",
@@ -140,6 +153,7 @@
   {
     "action": "triage",
     "args": "( priority = tag )",
+    "created_at": "2026-01-05T09:06:00Z",
     "entity": "Case",
     "id": "id#47",
     "kind": "agent",
@@ -150,6 +164,7 @@
   },
   {
     "args": "email ( author )",
+    "created_at": "2026-01-05T09:06:00Z",
     "entity": "Case",
     "id": "id#49",
     "kind": "notification",
@@ -160,6 +175,7 @@
   },
   {
     "args": "https://example.invalid/hooks/case-created",
+    "created_at": "2026-01-05T09:06:00Z",
     "entity": "Case",
     "id": "id#51",
     "kind": "webhook",
@@ -170,6 +186,7 @@
   },
   {
     "action": "open",
+    "created_at": "2026-01-05T09:06:30Z",
     "entity": "Case",
     "id": "id#55",
     "kind": "workflow",
@@ -181,6 +198,7 @@
   {
     "action": "triage",
     "args": "( priority = tag )",
+    "created_at": "2026-01-05T09:06:30Z",
     "entity": "Case",
     "id": "id#57",
     "kind": "agent",
@@ -191,6 +209,7 @@
   },
   {
     "args": "email ( author )",
+    "created_at": "2026-01-05T09:06:30Z",
     "entity": "Case",
     "id": "id#59",
     "kind": "notification",
@@ -201,6 +220,7 @@
   },
   {
     "args": "https://example.invalid/hooks/case-created",
+    "created_at": "2026-01-05T09:06:30Z",
     "entity": "Case",
     "id": "id#61",
     "kind": "webhook",
@@ -211,6 +231,7 @@
   },
   {
     "action": "open",
+    "created_at": "2026-01-05T09:07:00Z",
     "entity": "Case",
     "id": "id#65",
     "kind": "workflow",
@@ -222,6 +243,7 @@
   {
     "action": "triage",
     "args": "( priority = tag )",
+    "created_at": "2026-01-05T09:07:00Z",
     "entity": "Case",
     "id": "id#67",
     "kind": "agent",
@@ -232,6 +254,7 @@
   },
   {
     "args": "email ( author )",
+    "created_at": "2026-01-05T09:07:00Z",
     "entity": "Case",
     "id": "id#69",
     "kind": "notification",
@@ -242,6 +265,7 @@
   },
   {
     "args": "https://example.invalid/hooks/case-created",
+    "created_at": "2026-01-05T09:07:00Z",
     "entity": "Case",
     "id": "id#71",
     "kind": "webhook",
@@ -253,6 +277,7 @@
   {
     "action": "chase",
     "args": "( )",
+    "created_at": "2026-01-05T09:49:00Z",
     "entity": "Case",
     "id": "id#86",
     "kind": "agent",
@@ -263,6 +288,7 @@
   },
   {
     "args": "email ( author )",
+    "created_at": "2026-01-05T09:51:00Z",
     "entity": "Case",
     "id": "id#96",
     "kind": "notification",
@@ -274,6 +300,7 @@
   {
     "action": "chase",
     "args": "( )",
+    "created_at": "2026-01-05T09:57:00Z",
     "entity": "Case",
     "id": "id#102",
     "kind": "agent",
@@ -285,6 +312,7 @@
   {
     "action": "chase",
     "args": "( )",
+    "created_at": "2026-01-05T09:57:00Z",
     "entity": "Case",
     "id": "id#104",
     "kind": "agent",
@@ -296,6 +324,7 @@
   {
     "action": "chase",
     "args": "( )",
+    "created_at": "2026-01-05T09:57:00Z",
     "entity": "Case",
     "id": "id#106",
     "kind": "agent",
@@ -307,6 +336,7 @@
   {
     "action": "chase",
     "args": "( )",
+    "created_at": "2026-01-05T09:57:00Z",
     "entity": "Case",
     "id": "id#108",
     "kind": "agent",
@@ -318,6 +348,7 @@
   {
     "action": "chase",
     "args": "( )",
+    "created_at": "2026-01-05T09:57:00Z",
     "entity": "Case",
     "id": "id#110",
     "kind": "agent",
@@ -328,6 +359,7 @@
   },
   {
     "action": "escalation",
+    "created_at": "2026-01-08T10:05:00Z",
     "entity": "Case",
     "id": "id#135",
     "kind": "escalation",
@@ -338,6 +370,7 @@
   },
   {
     "action": "escalation",
+    "created_at": "2026-01-08T10:05:00Z",
     "entity": "Case",
     "id": "id#137",
     "kind": "escalation",
@@ -348,6 +381,7 @@
   },
   {
     "action": "escalation",
+    "created_at": "2026-01-08T10:05:00Z",
     "entity": "Case",
     "id": "id#139",
     "kind": "escalation",

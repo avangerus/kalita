@@ -4,7 +4,52 @@
 > зависимости, риск, blast radius, acceptance criteria, required reviewer и
 > human-gate-метку. Актуализируется каждый цикл. Источник фактов: SYSTEM_TRUTH.md.
 
-## PRODUCT MISSION — self-building enterprise product (активная миссия)
+## ENGLISH-FIRST INDUSTRIAL RELEASE (активная миссия, scope-frozen)
+
+> План: docs/forge/ENGLISH_RELEASE_PLAN.md. Три работы: egress hardening,
+> English-first pass, финальная acceptance. Ревью Architect Pro: запущено.
+
+### E1 · Egress: стабильная idempotency-identity + receipts + DLQ/recovery
+- **Проблема**: ключ доставки = task id → requeue/DLQ-recovery рождает новый
+  ключ → дубль business effect; нет per-attempt receipts, DLQ-листинга и
+  ручного recovery.
+- **Evidence**: webhooks.go:146 ("webhook:"+t.ID); tasks.go:288-306 (settle
+  one-shot); automation.go:293 (TaskWebhook creation).
+- **Desired outcome**: identity из бизнес-источника в taskPayload (стабильна
+  через requeue); новый additive kind WebhookAttempt (receipts); листинг
+  failed webhook tasks + RetryWebhookTask (та же identity, basis manual
+  retry); CLI `kalita egress dlq|retry` + REST + UI DLQ; классификация
+  retryable/non-retryable; метрики.
+- **Deps**: нет. **Risk**: medium (журнал: новый kind). **Blast radius**:
+  engine + cmd/kalita/webhooks.go + api + web.
+- **Acceptance**: failure-injection A–H зелёные; replay/golden не сломаны;
+  Skeptic+Security ACCEPT. **Reviewer**: architect_pro + security_pro.
+  **Human gate**: нет.
+
+### E2 · Egress: секреты через runtime injection
+- **Проблема**: нет авторизации к destinations; нет защищённого места для
+  секретов (запрет: DSL/prompt/journal/git).
+- **Evidence**: webhooks.go deliverOnce (без Authorization).
+- **Desired outcome**: KALITA_EGRESS_SECRETS → 0600-JSON {"domain": "Bearer
+  …"} (в .gitignore); runner инжектит Authorization; missing → fail safely;
+  payload/журнал без секретов; secret scan.
+- **Deps**: E1. **Reviewer**: security_pro. **Human gate**: нет.
+
+### E3 · English-first pass
+- **Проблема**: product default — русский; релиз English-first.
+- **Evidence**: web/app.js (~113 RU-строк), frameworks (~165), workers/builder
+  (~303), egress.go (~20); языко-зависимая логика: builder.py:182-184,361-364.
+- **Desired outcome**: English canonical везде; machine code — только Advanced;
+  логика EN-first с RU как tolerated input; тесты синхронизированы.
+- **Deps**: нет. **Risk**: medium (тесты ассертят RU-строки). **Reviewer**:
+  product_skeptic. **Human gate**: нет.
+
+### E4 · Failure-injection acceptance A–H
+### E5 · English clean-room + ITSM sanity
+### E6 · Reviews: Security Pro / Architecture Skeptic / Product Skeptic
+### E7 · Full regression + scorecard + version + artifacts → OWNER gate
+
+## PRODUCT MISSION — self-building enterprise product (завершена)
 
 > Архитектура: PRODUCT_ARCHITECTURE.md (рецензия Architect Pro: ACCEPT-WITH-NOTES,
 > findings закрываются — см. proposals/product-mission/arch-review.md).

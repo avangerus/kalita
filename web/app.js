@@ -1281,11 +1281,13 @@ function ChangesView() {
 }
 
 // IntegrationsView: the OPERATIONAL view of the semantic integrations declared
-// in the live definition (get_definition via MCP under the same bearer) —
-// with an HONEST delivery status: what is declared vs what this node can
-// actually deliver (PRODUCT_UX §2.7; webhook delivery = known gap D-011).
+// in the live definition (get_definition via MCP under the same bearer) — with
+// an HONEST delivery status: what is declared vs what this node actually
+// delivers, plus the dead-letter queue of failed webhook deliveries and the
+// approver-gated manual recovery (D-011 hardening).
 function IntegrationsView() {
   const [data, setData] = useState(null); const [err, setErr] = useState(null);
+  const [dlq, setDlq] = useState(null); const [busy, setBusy] = useState(null);
   const load = async () => {
     const s = session.get();
     const resp = await fetch('/mcp', {
@@ -1308,29 +1310,47 @@ function IntegrationsView() {
       }
     }
     setData({ integrations, subscriptions, webhooks, connectors, def_version: defn.def_version });
+    // the DLQ is approver-gated: non-approvers get 403 and see no DLQ section
+    api('/api/egress/dlq').then(d => setDlq(d)).catch(() => setDlq({ hidden: true }));
+  };
+  const retry = async (id) => {
+    setBusy(id);
+    try { await api(`/api/egress/retry/${id}`, { method: 'POST' }); }
+    finally { setBusy(null); }
+    load();
   };
   useEffect(() => { load().catch(setErr); }, []);
-  if (err) return html`<div><h2>Интеграции</h2><${ErrBox} err=${err} /></div>`;
-  if (!data) return html`<div><h2>Интеграции</h2><div class="muted">loading…</div></div>`;
+  if (err) return html`<div><h2>Integrations</h2><${ErrBox} err=${err} /></div>`;
+  if (!data) return html`<div><h2>Integrations</h2><div class="muted">loading…</div></div>`;
   const row = (title, items, empty) => html`<div class="kcard">
     <b>${title}</b>
     ${items.length === 0 ? html`<div class="muted" style="font-size:13px">${empty}</div>`
       : items.map(i => html`<div style="font-size:13px">· ${i}</div>`)}
   </div>`;
   return html`<div>
-    <h2>Интеграции <span class="muted" style="font-size:13px">по модели v${data.def_version}</span></h2>
-    ${row('Подключения (integration)', data.integrations, 'деклараций нет')}
-    ${row('Подписки на события (subscription)', data.subscriptions, 'нет')}
-    ${row('Исходящие вебхуки', data.webhooks, 'нет')}
-    ${row('Продуктовые фасады (product.mcp)', data.connectors, 'нет')}
+    <h2>Integrations <span class="muted" style="font-size:13px">definition v${data.def_version}</span></h2>
+    ${row('Declared connections (integration)', data.integrations, 'none declared')}
+    ${row('Event subscriptions (subscription)', data.subscriptions, 'none declared')}
+    ${row('Outbound webhooks', data.webhooks, 'none declared')}
+    ${row('Product facades (product.mcp)', data.connectors, 'none declared')}
     <div class="card">
-      <b>Статус доставки (честно)</b>
+      <b>Delivery status (honest)</b>
       <div style="font-size:13px;margin-top:4px">
-        · Входящие события: принимаются через MCP emit_event / inbound-коннекторы (least-privilege роли).<br/>
-        · Исходящий webhook: намерение журналируется; раннер доставки на ноде — известный gap D-011. Подключите внешний доставщик или ждите kernel-фикса.<br/>
-        · Последний обмен/ошибки/DLQ: отображаются, когда на ноде работает коннектор (workers/lib/subscribe.py).
+        · Inbound events: accepted through MCP emit_event / inbound connectors (least-privilege roles).<br/>
+        · Outbound webhook: the intent is journaled; the NODE runner delivers it under the KALITA_EGRESS_DOMAINS allowlist —
+          at-least-once, with a per-firing idempotency key, so a correct receiver applies the business effect exactly once.<br/>
+        · Destination credentials come from runtime injection (KALITA_EGRESS_SECRETS), never from the DSL, prompts or the journal.<br/>
+        · Failed deliveries land in the dead-letter queue below; a retry re-fires the SAME delivery identity.
       </div>
     </div>
+    ${dlq && !dlq.hidden ? (dlq.count > 0 ? html`<div class="card">
+      <b>Dead-letter queue · ${dlq.count}</b>
+      ${dlq.items.map(it => html`<div class="kcard" style="margin-top:6px">
+        <div style="font-size:13px">${it.entity}/${it.record_id} → <code>${it.destination}</code></div>
+        <div class="muted" style="font-size:12px">${it.created_at ? new Date(it.created_at).toLocaleString() : ''} · identity ${it.delivery_id} · ${it.attempts} attempt(s)${it.last_category ? ' · ' + it.last_category : ''}</div>
+        <button class="btn" style="margin-top:6px" disabled=${busy === it.task_id} onClick=${() => retry(it.task_id)}>${busy === it.task_id ? 'Retrying…' : 'Retry delivery'}</button>
+      </div>`)}
+    </div>` : html`<div class="card"><b>Dead-letter queue</b><div class="muted" style="font-size:13px;margin-top:4px">empty — every webhook delivery is settled.</div></div>`) : ''}
   </div>`;
 }
 

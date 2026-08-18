@@ -20,7 +20,7 @@ type Engine struct {
 	model       *dsl.Model
 	store       eventstore.Store
 	defVersion  uint64
-	files       map[string]string // current definition SOURCES (boot seed or last applied proposal) — get_definition's read, product mission
+	files       map[string]string             // current definition SOURCES (boot seed or last applied proposal) — get_definition's read, product mission
 	records     map[string]map[string]*Record // entity → id → record
 	approvals   map[string]*Approval
 	tasks       map[string]*Task
@@ -65,12 +65,19 @@ type Engine struct {
 	// so this never drives a record mutation and is not re-dispatched on replay.
 	emittedEvents []EmittedFact
 
-	// ingestFlags is the folded log of ingest.flagged facts (TECHDEBT
-	// "Безопасность LLM-периметра" (b), LLD-01 §6 PR-6): the perimeter
+	// ingestFlags is the folded log of ingest.flagged facts (TECHDEBT	// "Безопасность LLM-периметра" (b), LLD-01 §6 PR-6): the perimeter
 	// detector's tripwire signal against ingested content. Observability
 	// only, exactly like emittedEvents — it never drives a record mutation on
 	// its own; the document is indexed regardless (tripwire, not a filter).
 	ingestFlags []IngestFlagged
+	// webhookReceipts is the folded log of webhook.attempt delivery receipts
+	// (D-011 hardening): observability only — the durable truth is the task's
+	// own lifecycle events; receipts drive metrics, never business effects.
+	// webhookReceiptIDs guards the fold against a duplicate idempotency key:
+	// the store returns the PRIOR event on a duplicate append, so without the
+	// guard a crash-and-rerun of the runner would double-count a receipt.
+	webhookReceipts   []WebhookReceipt
+	webhookReceiptIDs map[string]bool
 
 	// shadowRoles is the LLD-09 §1 shadow-mode overlay: the set of roles whose
 	// create/update/act/emit is redirected into a MutationProposal instead of
@@ -237,6 +244,7 @@ func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...
 		openOps:               map[string]opInfo{},
 		shadowRoles:           map[string]bool{},
 		mutationProposals:     map[string]*MutationProposal{},
+		webhookReceiptIDs:     map[string]bool{},
 		scheduleTaskHistory:   map[string][]string{},
 		scheduleTaskRetention: 20,
 	}
@@ -370,6 +378,7 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 		t := &Task{
 			ID: ev.Subject.TaskID, Kind: p.Kind, Role: p.Role, Entity: p.Entity,
 			RecordID: p.RecordID, Action: p.Action, Args: p.Args, Status: TaskOpen,
+			DeliveryID: p.DeliveryID, CreatedAt: ev.TS,
 		}
 		if ev.Basis != nil && ev.Basis.Type == "rule" {
 			t.ruleKey = ev.Basis.ID
@@ -407,6 +416,19 @@ func (e *Engine) applyEvent(ev *eventstore.Event) {
 			t.Note = p.Note
 			ts := ev.TS
 			t.NoteAt = &ts
+		}
+	case eventstore.WebhookAttempt:
+		if e.webhookReceiptIDs[ev.EventID] {
+			return // duplicate idempotency key: the store handed back the prior event
+		}
+		var p webhookAttemptPayload
+		if json.Unmarshal(ev.Payload, &p) == nil {
+			e.webhookReceiptIDs[ev.EventID] = true
+			e.webhookReceipts = append(e.webhookReceipts, WebhookReceipt{
+				TaskID: p.TaskID, Attempt: p.Attempt, Outcome: p.Outcome,
+				Category: p.Category, Destination: p.Destination,
+				LatencyMS: p.LatencyMS, TS: ev.TS,
+			})
 		}
 	case eventstore.DefinitionProposed:
 		var p proposalPayload

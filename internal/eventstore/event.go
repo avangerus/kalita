@@ -134,6 +134,17 @@ const (
 	MutationProposed   Kind = "mutation.proposed"
 	MutationApproved   Kind = "mutation.approved"
 	MutationRejected   Kind = "mutation.rejected"
+
+	// WebhookAttempt (English-first industrial release, D-011 hardening):
+	// one delivery-attempt receipt per outbound webhook attempt. Purely
+	// observability (the durable intent is task.created; settlement is
+	// task.completed/task.failed): {attempt, outcome, category, destination,
+	// latency_ms}. Written with SchemaV CurrentSchemaV — no schema_v bump, so
+	// older binaries fold it as an unknown kind (silent no-op, receipts are
+	// a projection, not state). Category vocabulary: http_4xx, http_5xx,
+	// redirect, network, timeout, auth_missing, allowlist, payload, delivered,
+	// retry_exhausted.
+	WebhookAttempt Kind = "webhook.attempt"
 )
 
 // AllKinds is the closed taxonomy in declaration order — the single source of
@@ -164,6 +175,7 @@ var AllKinds = []Kind{
 	EraGenesis, RecordImported,
 	RoleShadowEnabled, RoleShadowDisabled,
 	MutationProposed, MutationApproved, MutationRejected,
+	WebhookAttempt,
 }
 
 // CurrentSchemaV is the highest envelope schema_v this binary understands.

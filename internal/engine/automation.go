@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/eventstore"
 )
@@ -288,9 +290,14 @@ func (e *Engine) execAction(ctx context.Context, a dsl.AutomationAction, entity,
 			Kind: TaskNotification, Entity: entity, RecordID: id, Args: a.Args,
 		}, basis, idem)
 	case "webhook":
-		// the engine records intent; the node's webhook runner delivers
+		// the engine records intent; the node's webhook runner delivers.
+		// DeliveryID is the per-firing idempotency identity (D-011 hardening):
+		// a fresh uuid per FIRING (record-update-then-refire is a NEW business
+		// effect), persisted and carried forward across DLQ retries.
+		deliveryID, _ := uuid.NewV7()
 		_, err = e.createTask(ctx, autoActor, Task{
 			Kind: TaskWebhook, Entity: entity, RecordID: id, Args: a.Args,
+			DeliveryID: deliveryID.String(),
 		}, basis, idem)
 	case "create":
 		err = e.execCreate(ctx, a, id, basis, idem, vals)

@@ -20,6 +20,14 @@ already include `tests/...`).
 fold behavior before any upgrade/era machinery exists, so every later change
 to fold logic is provably additive against it.
 
+When a fold change is ADDITIVE (a new projection field appears, an old one
+never disappears or changes meaning — e.g. `created_at` on tasks, folded from
+the event's own TS), the frozen `journal.jsonl` stays byte-for-byte untouched
+and only `expected/` is re-derived from it with the current binary, via
+`WriteExpected` in `cmd/goldengen/goldenfmt` (a one-off test run, never
+committed). A change that alters or drops an existing field is NOT additive
+and must be treated as a version cut or a bug instead.
+
 ## Regenerating
 
 Golden directories are frozen history — do not regenerate an existing `<ver>`
