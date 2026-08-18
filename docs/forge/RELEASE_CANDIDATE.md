@@ -1,7 +1,11 @@
-# RELEASE CANDIDATE — v1.0 (pilot, staff-only)
+# RELEASE CANDIDATE — v1.0.0-rc.2 (pilot, staff-only) — ОПУБЛИКОВАН
 
-> Финальный шаг — OWNER RELEASE APPROVAL. Release target: v1.0.
-> Локальные коммиты (push — владельцем). Ничего не публикуется без разрешения.
+> **Release baseline: commit `359da54`, tag `v1.0.0-rc.2`** (main + tag pushed to
+> origin; одобрено владельцем 2026-08). Артефакты: Docker-образ `kalita:v1.0.0-rc.2`
+> (VERSION=v1.0.0-rc.2; внутри образа `kalita version` = v1.0.0-rc.2), бинарник
+> bin/kalita.exe, sha256 `3FC5E08CE0D1788FBC747FD776C76AB7E0D49289829A32ECDFC0741DADC3A2D9`.
+> Version identity проверена: CLI / образ / MCP serverInfo — `v1.0.0-rc.2`.
+> Переход к v1.0.0 — по критериям POST_RELEASE.md.
 
 ## Что вошло в релиз (с v1.0-rc1)
 

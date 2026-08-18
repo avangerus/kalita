@@ -25,13 +25,14 @@
 
 ## 3. Что изменилось с прошлого цикла?
 
-- **Release Candidate готов (v1.0, staff-only)**: Milestones A (kernel) / B (integration) /
-  C (model) / F (operability) / G (security threat-model ACCEPT) / H (performance) / J
-  (сценарии dogfood) — пройдены с evidence; I (clean-room) — чеклист готов, прогнать
-  оператору. Тесты: `go vet` чистый, `go test ./...` **348 PASS / 12 SKIP / 0 FAIL**,
-  golden replay зелёный. 7 локальных коммитов (6385409..eeb0edd), push — владельцем.
-  RC-артефакты: RELEASE_CANDIDATE.md, THREAT_MODEL.md, CLEAN_ROOM_ACCEPTANCE.md.
-  Финал — **OWNER RELEASE APPROVAL**.
+- **РЕЛИЗ ОПУБЛИКОВАН: v1.0.0-rc.2** (staff-only pilot). Release baseline: commit
+  `359da54`, tag `v1.0.0-rc.2` (main + tag в origin; push одобрен владельцем).
+  Артефакты: Docker-образ `kalita:v1.0.0-rc.2` (VERSION=v1.0.0-rc.2) + бинарник
+  (sha256 в RELEASE_CANDIDATE.md); version identity проверена (CLI/образ/MCP
+  serverInfo). Все RC-гейты зелёные: clean-room PASS (RC_CLEANROOM_LOG.md),
+  independent RC Skeptic ACCEPT, Security ACCEPT, 0 BLOCKER, 348 PASS / 12 SKIP /
+  0 FAIL, чистое дерево. Пост-релиз: POST_RELEASE.md (known limitations,
+  monitoring, rollback, критерии RC→v1.0.0).
 
 ## 4. Над чем работают агенты?
 
