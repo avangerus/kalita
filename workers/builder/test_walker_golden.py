@@ -44,8 +44,8 @@ def test_walker_returns_none_outside_subset():
 
 def test_walker_routes_live_records_through_generated_guards():
     spec = synthesizer.build_ap_spec({
-        "approval_authority": "директор",
-        "amount_thresholds": "до 100к руководитель, до 1М финдир, выше гендир",
+        "approval_authority": "director",
+        "amount_thresholds": "up to 100k manager, up to 1M CFO, above CEO",
     })
     traces = synthesizer.walk_ladder(spec, [
         {"id": "i1", "values": {"amount": 80000}},
@@ -57,7 +57,7 @@ def test_walker_routes_live_records_through_generated_guards():
 
 
 def test_walker_unknown_when_guard_outside_subset():
-    spec = synthesizer.build_ap_spec({"approval_authority": "директор"})
+    spec = synthesizer.build_ap_spec({"approval_authority": "director"})
     # doctor the generated guard to an out-of-subset expression: the walker
     # must mark the route unknown, not pass it
     for wf in spec["workflows"]:

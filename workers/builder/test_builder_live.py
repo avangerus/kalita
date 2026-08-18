@@ -6,16 +6,16 @@ with KALITA_LIVE_TEST=1. Spawns `kalita serve --pack packs/builder --demo
 --approver ProcessOwner` (in-memory journal), then drives the FULL builder
 conversation over real MCP under the demo human's bearer:
 
-  фраза «Создай систему согласования счетов»
-    → discovery (blocking/important вопросы, ответы)
+  phrase "Create an invoice approval system"
+    → discovery (blocking/important questions, answers)
     → MODEL: compose_pack (real renderer) + validate_dsl (real compiler)
     → EXPLAIN + SIMULATE journaled
     → APPROVE: propose_change parked (real engine)
-    → человеческое решение через REST decide → applied pack, def_version+1
-    → describe_system показывает живые сущности ap.*
+    → human decision via REST decide → applied pack, def_version+1
+    → describe_system shows the live ap.* entities
 
-This is the proof of DEVELOPMENT_GRAPH P4 acceptance: «фраза владельца →
-валидный AP-пак → parked proposal → подпись → живая модель» — no LLM, no
+This is the proof of DEVELOPMENT_GRAPH P4 acceptance: "owner phrase →
+valid AP pack → parked proposal → signature → live model" — no LLM, no
 developer workaround, no DSL handwritten anywhere.
 """
 import json
@@ -121,16 +121,16 @@ def _live_test():
         builder.LLM_URL = ""
 
         # 1) goal phrase → session with framework ap
-        reply, sid, state = builder.handle_turn(token, None, "Создай систему согласования счетов")
+        reply, sid, state = builder.handle_turn(token, None, "Create an invoice approval system")
         assert state["framework"] == "ap", state
 
         answers = {
-            "what_is_invoice": "счета поставщиков к оплате",
-            "approval_authority": "директор",
-            "amount_thresholds": "до 100к руководитель, до 1М финдир, выше гендир",
-            "contract_matching": "да, сверяем",
-            "po_matching": "нет",
-            "org_roles": "есть руководители и финдир",
+            "what_is_invoice": "supplier invoices to pay",
+            "approval_authority": "director",
+            "amount_thresholds": "up to 100k manager, up to 1M CFO, above CEO",
+            "contract_matching": "yes, we match",
+            "po_matching": "no",
+            "org_roles": "there are managers and a CFO",
         }
         # 2) discovery until the build question
         for _ in range(8):
@@ -144,15 +144,15 @@ def _live_test():
             if topic == "build_confirm":
                 break
             builder.classify_statement = lambda q, text: ("answer", "")
-            _, _, state = builder.handle_turn(token, sid, answers.get(topic, "да"))
+            _, _, state = builder.handle_turn(token, sid, answers.get(topic, "yes"))
 
         # 3) MODEL: real compose_pack + validate_dsl + EXPLAIN + SIMULATE
         builder.classify_statement = lambda q, text: ("decision", "")
-        reply, sid, state = builder.handle_turn(token, sid, "да, построй")
+        reply, sid, state = builder.handle_turn(token, sid, "yes, build")
         assert state["phase"] == "modeling", (state, reply)
 
         # 4) APPROVE: real propose_change parks a real proposal
-        reply, sid, state = builder.handle_turn(token, sid, "да, предложи")
+        reply, sid, state = builder.handle_turn(token, sid, "yes, propose")
         assert state["phase"] == "proposed", (state, reply)
         proposal_id = state["proposal_id"]
         assert proposal_id
@@ -216,20 +216,20 @@ def _live_test():
         # the change conversation (new session, change mode)
         builder.classify_statement = lambda q, text: ("goal", "")
         reply, sid2, state = builder.handle_turn(
-            token, None, "Теперь счета выше 2М должен утверждать собственник")
+            token, None, "Now invoices above 2M must be approved by the owner")
         assert state["framework"] == "ap", state
         builder.classify_statement = lambda q, text: ("answer", "")
         reply, sid2, state = builder.handle_turn(
-            token, sid2, "до 100к руководитель, до 1М финдир, до 2М гендир, выше собственник")
+            token, sid2, "up to 100k manager, up to 1M CFO, up to 2M CEO, above owner")
         builder.classify_statement = lambda q, text: ("decision", "")
-        reply, sid2, state = builder.handle_turn(token, sid2, "да, построй")
+        reply, sid2, state = builder.handle_turn(token, sid2, "yes, build")
         assert state["phase"] == "modeling", (state, reply)
         # the operator (ProcessOwner) has no read on invoices: the report must
         # say so honestly instead of guessing — and the diff must be human
-        assert "Было:" in reply and "Станет:" in reply, reply
-        assert "не посчитано" in reply, reply
+        assert "Before:" in reply and "After:" in reply, reply
+        assert "not calculated" in reply, reply
 
-        reply, sid2, state = builder.handle_turn(token, sid2, "да, предложи")
+        reply, sid2, state = builder.handle_turn(token, sid2, "yes, propose")
         assert state["phase"] == "proposed", (state, reply)
         proposal2 = state["proposal_id"]
         assert proposal2
@@ -245,16 +245,16 @@ def _live_test():
         # keep the original options (Contract) so the additive gate accepts
         builder.classify_statement = lambda q, text: ("goal", "")
         _, sid2b, state = builder.handle_turn(
-            token, None, "Теперь счета до 50к утверждает руководитель")
+            token, None, "Now invoices up to 50k are approved by the manager")
         assert state["framework"] == "ap", state
         builder.classify_statement = lambda q, text: ("answer", "")
         _, sid2b, state = builder.handle_turn(
-            token, sid2b, "до 50к руководитель, до 1М финдир, до 2М гендир, выше собственник")
+            token, sid2b, "up to 50k manager, up to 1M CFO, up to 2M CEO, above owner")
         builder.classify_statement = lambda q, text: ("decision", "")
-        reply, sid2b, state = builder.handle_turn(token, sid2b, "да, построй")
+        reply, sid2b, state = builder.handle_turn(token, sid2b, "yes, build")
         assert state["phase"] == "modeling", (state, reply)
-        assert "Сущности не меняются." in reply, reply
-        reply, sid2b, state = builder.handle_turn(token, sid2b, "да, предложи")
+        assert "Entities do not change." in reply, reply
+        reply, sid2b, state = builder.handle_turn(token, sid2b, "yes, propose")
         assert state["phase"] == "proposed", (state, reply)
         proposal2b = state["proposal_id"]
         status, body = _rest("/api/proposals/%s/decide" % proposal2b, token,
@@ -271,14 +271,14 @@ def _live_test():
         # different questions, different spec builder.
         builder.classify_statement = lambda q, text: ("goal", "")
         reply, sid3, state = builder.handle_turn(
-            token, None, "Нам нужен service desk с инцидентами и SLA")
+            token, None, "We need a service desk with incidents and SLA")
         assert state["framework"] == "itsm", state
         answers3 = {
-            "what_is_incident": "сбои сервисов",
-            "who_resolves": "своя команда",
-            "sla_levels": "P1 1ч/4ч, P2 4ч/8ч, P3 8ч/24ч, P4 24ч/72ч",
-            "change_control": "да, нужен CAB",
-            "portal_self_service": "да",
+            "what_is_incident": "service outages",
+            "who_resolves": "our own team",
+            "sla_levels": "P1 1h/4h, P2 4h/8h, P3 8h/24h, P4 24h/72h",
+            "change_control": "yes, need CAB",
+            "portal_self_service": "yes",
         }
         for _ in range(8):
             payload, is_err = builder.mcp_call(token, "query", {
@@ -290,12 +290,12 @@ def _live_test():
             if topic == "build_confirm":
                 break
             builder.classify_statement = lambda q, text: ("answer", "")
-            _, sid3, state = builder.handle_turn(token, sid3, answers3.get(topic, "да"))
+            _, sid3, state = builder.handle_turn(token, sid3, answers3.get(topic, "yes"))
         builder.classify_statement = lambda q, text: ("decision", "")
-        reply, sid3, state = builder.handle_turn(token, sid3, "да, построй")
+        reply, sid3, state = builder.handle_turn(token, sid3, "yes, build")
         assert state["phase"] == "modeling", (state, reply)
         assert "Incident" in reply and "SLA" in reply, reply
-        reply, sid3, state = builder.handle_turn(token, sid3, "да, предложи")
+        reply, sid3, state = builder.handle_turn(token, sid3, "yes, propose")
         assert state["phase"] == "proposed", (state, reply)
         proposal3 = state["proposal_id"]
         status, body = _rest("/api/proposals/%s/decide" % proposal3, token,

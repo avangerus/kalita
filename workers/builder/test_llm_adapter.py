@@ -64,23 +64,23 @@ def test_hostile_llm_cannot_change_enterprise_semantics(monkeypatch):
 
     # 1) the classifier's hostile "kind" must be whitelist-filtered: only
     # kinds in _KINDS survive; anything else falls back deterministically
-    kind, topic = builder.classify_statement("Какие новые пороги?", "что-то")
+    kind, topic = builder.classify_statement("What are the new thresholds?", "something")
     assert kind in builder._KINDS, kind
 
     # 2) framework matching validates against the REGISTRY — a made-up id
     # cannot be injected
-    fwid = builder.match_framework("хочу автоматизацию")
+    fwid = builder.match_framework("I want automation")
     assert fwid in builder.FRAMEWORKS or fwid is None
 
     # 3) full conversation with the hostile model: the parked proposal must
     # be the deterministic AP model (decisions, not model text)
-    _, sid, state = builder.handle_turn("tok", None, "Создай систему согласования счетов")
+    _, sid, state = builder.handle_turn("tok", None, "Create an invoice approval system")
     assert state["framework"] == "ap", state
     _run_discovery(node, sid)
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
-    reply, sid, state = builder.handle_turn("tok", sid, "да, построй")
+    reply, sid, state = builder.handle_turn("tok", sid, "yes, build")
     assert state["phase"] == "modeling", (state, reply)
-    reply, sid, state = builder.handle_turn("tok", sid, "да, предложи")
+    reply, sid, state = builder.handle_turn("tok", sid, "yes, propose")
     assert state["phase"] == "proposed", (state, reply)
 
     # the proposal must NOT contain the hostile demand
@@ -109,6 +109,6 @@ def test_no_provider_configured_is_deterministic(monkeypatch):
     """The LLM boundary is env-only: with LLM_URL unset the worker runs the
     deterministic path (no provider code is even imported)."""
     monkeypatch.setattr(builder, "LLM_URL", "")
-    assert builder.match_framework("Создай систему согласования счетов") == "ap"
-    kind, _ = builder.classify_statement(None, "сделай так")
+    assert builder.match_framework("Create an invoice approval system") == "ap"
+    kind, _ = builder.classify_statement(None, "make it so")
     assert kind in builder._KINDS

@@ -16,7 +16,7 @@ import synthesizer  # noqa: E402
 
 def test_parse_thresholds_three_tier_ladder():
     tiers = synthesizer.parse_thresholds(
-        "до 100к утверждает руководитель, до 1 млн — финдир, выше — гендир")
+        "up to 100k approved by the manager, up to 1 million — CFO, above — CEO")
     assert tiers == [
         {"min": 0, "max": 100000, "role": "Manager"},
         {"min": 100000, "max": 1000000, "role": "CFO"},
@@ -26,7 +26,7 @@ def test_parse_thresholds_three_tier_ladder():
 
 def test_parse_thresholds_ranges_and_above():
     tiers = synthesizer.parse_thresholds(
-        "от 100 тысяч до 1М финдир; выше 2М собственник")
+        "from 100 thousand to 1M CFO; above 2M owner")
     assert tiers == [
         {"min": 100000, "max": 1000000, "role": "CFO"},
         {"min": 2000000, "max": None, "role": "Owner"},
@@ -34,17 +34,17 @@ def test_parse_thresholds_ranges_and_above():
 
 
 def test_parse_thresholds_unparseable_returns_empty():
-    assert synthesizer.parse_thresholds("пусть решает кто-нибудь") == []
-    assert synthesizer.parse_thresholds("до 100к") == []  # amount, no role
+    assert synthesizer.parse_thresholds("let someone else decide") == []
+    assert synthesizer.parse_thresholds("up to 100k") == []  # amount, no role
     assert synthesizer.parse_thresholds("") == []
 
 
 def test_build_ap_spec_ladder_with_base_tier():
     dmap = {
-        "what_is_invoice": "счета поставщиков",
-        "approval_authority": "директор",
-        "amount_thresholds": "до 100к руководитель, до 1М финдир, выше гендир",
-        "contract_matching": "да, сверяем",
+        "what_is_invoice": "supplier invoices",
+        "approval_authority": "director",
+        "amount_thresholds": "up to 100k manager, up to 1M CFO, above CEO",
+        "contract_matching": "yes, we match",
     }
     spec = synthesizer.build_ap_spec(dmap)
     names = [e["name"] for e in spec["entities"]]
@@ -77,7 +77,7 @@ def test_build_ap_spec_ladder_with_base_tier():
 
 
 def test_build_ap_spec_single_approver_fallback():
-    spec = synthesizer.build_ap_spec({"approval_authority": "все утверждает директор"})
+    spec = synthesizer.build_ap_spec({"approval_authority": "all approved by the director"})
     wf = spec["workflows"][0]
     ladder_ts = [t for t in wf["transitions"]
                  if t["from"] == "ApprovalPending" and t["to"] == "Approved"]
@@ -88,8 +88,8 @@ def test_build_ap_spec_single_approver_fallback():
 
 def test_build_ap_spec_base_tier_below_first_threshold():
     spec = synthesizer.build_ap_spec({
-        "approval_authority": "директор",
-        "amount_thresholds": "выше 2М собственник",
+        "approval_authority": "director",
+        "amount_thresholds": "above 2M owner",
     })
     ladder = spec["_ladder"]
     assert ladder == [
@@ -99,7 +99,7 @@ def test_build_ap_spec_base_tier_below_first_threshold():
 
 
 def test_no_po_no_contract_entities():
-    spec = synthesizer.build_ap_spec({"approval_authority": "директор"})
+    spec = synthesizer.build_ap_spec({"approval_authority": "director"})
     names = [e["name"] for e in spec["entities"]]
     assert names == ["Vendor", "VendorInvoice", "PaymentHandoff"]
 
@@ -115,25 +115,25 @@ def test_decision_map_accepted_only():
 
 def test_explain_spec_sections_cover_mission_b():
     spec = synthesizer.build_ap_spec({
-        "approval_authority": "директор",
-        "amount_thresholds": "до 100к руководитель, выше финдир",
+        "approval_authority": "director",
+        "amount_thresholds": "up to 100k manager, above CFO",
     })
     frag = synthesizer.ap_fragments(spec)
     sections = synthesizer.explain_spec(spec, frag)
-    for required in ("Что создаётся", "Кто участвует", "Как идёт процесс",
-                     "Где нужен человек (подписи)", "Кто что может",
-                     "Что делает агент", "Какие системы подключаются",
-                     "Открытые вопросы"):
+    for required in ("What is created", "Who participates", "How the process runs",
+                     "Where a human is needed (signatures)", "Who can do what",
+                     "What the agent does", "Which systems connect",
+                     "Open questions"):
         assert required in sections, "missing EXPLAIN section: %s" % required
-    gates = sections["Где нужен человек (подписи)"]
-    assert "до 100000 — утверждает Manager" in gates
-    assert "выше 100000 — утверждает CFO" in gates
+    gates = sections["Where a human is needed (signatures)"]
+    assert "up to 100000 — approved by Manager" in gates
+    assert "above 100000 — approved by CFO" in gates
 
 
 def test_walk_ladder_routes_and_honest_unknown():
     spec = synthesizer.build_ap_spec({
-        "approval_authority": "директор",
-        "amount_thresholds": "до 100к руководитель, до 1М финдир, выше гендир",
+        "approval_authority": "director",
+        "amount_thresholds": "up to 100k manager, up to 1M CFO, above CEO",
     })
     traces = synthesizer.walk_ladder(spec, [
         {"id": "a", "values": {"amount": 80_000}},
@@ -144,13 +144,13 @@ def test_walk_ladder_routes_and_honest_unknown():
     assert roles == ["Manager", "CFO", "CEO"], traces
     assert all(t["ok"] for t in traces)
     # a tierless model (single approver) still routes everything to that role
-    single = synthesizer.build_ap_spec({"approval_authority": "директор"})
+    single = synthesizer.build_ap_spec({"approval_authority": "director"})
     traces = synthesizer.walk_ladder(single, [{"id": "d", "values": {"amount": 80_000}}])
     assert traces[0]["tier_role"] == "CEO"
 
 
 def test_ap_fragments_carry_provenance():
-    spec = synthesizer.build_ap_spec({"approval_authority": "директор"})
+    spec = synthesizer.build_ap_spec({"approval_authority": "director"})
     frag = synthesizer.ap_fragments(spec)
     assert "provenance" in frag and "packs/ap" in frag["provenance"]
     assert "event InvoiceApproved" in frag["events"]
@@ -161,8 +161,8 @@ def test_ap_fragments_carry_provenance():
 
 def test_build_itsm_spec_defaults_and_gates():
     dmap = {
-        "what_is_incident": "любые сбои сервисов",
-        "who_resolves": "своя команда",
+        "what_is_incident": "any service outages",
+        "who_resolves": "our own team",
     }
     spec = synthesizer.build_itsm_spec(dmap)
     names = [e["name"] for e in spec["entities"]]
@@ -186,8 +186,8 @@ def test_build_itsm_spec_defaults_and_gates():
 
 def test_build_itsm_spec_with_change_control():
     spec = synthesizer.build_itsm_spec({
-        "who_resolves": "своя команда",
-        "change_control": "да, нужен CAB",
+        "who_resolves": "our own team",
+        "change_control": "yes, need CAB",
     })
     names = [e["name"] for e in spec["entities"]]
     assert "Change" in names
@@ -197,41 +197,41 @@ def test_build_itsm_spec_with_change_control():
 
 
 def test_parse_sla():
-    rows = synthesizer._parse_sla("P1 1ч/4ч, P2 4ч/8ч, P3 8ч/24ч, P4 24ч/72ч")
+    rows = synthesizer._parse_sla("P1 1h/4h, P2 4h/8h, P3 8h/24h, P4 24h/72h")
     assert rows == [
         {"priority": "P1", "response_hours": 1, "resolve_hours": 4},
         {"priority": "P2", "response_hours": 4, "resolve_hours": 8},
         {"priority": "P3", "response_hours": 8, "resolve_hours": 24},
         {"priority": "P4", "response_hours": 24, "resolve_hours": 72},
     ], rows
-    assert synthesizer._parse_sla("как-нибудь") == []
+    assert synthesizer._parse_sla("somehow") == []
 
 
 def test_explain_itsm_sections_and_sla():
-    spec = synthesizer.build_itsm_spec({"who_resolves": "своя команда"})
+    spec = synthesizer.build_itsm_spec({"who_resolves": "our own team"})
     frag = synthesizer.itsm_fragments(spec)
     sections = synthesizer.explain_itsm(spec, frag)
-    for required in ("Что создаётся", "Кто участвует", "Как идёт процесс",
-                     "Где нужен человек (подписи)", "Что делает агент",
-                     "SLA-политика", "Открытые вопросы"):
+    for required in ("What is created", "Who participates", "How the process runs",
+                     "Where a human is needed (signatures)", "What the agent does",
+                     "SLA policy", "Open questions"):
         assert required in sections, "missing ITSM EXPLAIN section: %s" % required
-    assert "P1: реакция 1ч / решение 4ч" in sections["SLA-политика"]
+    assert "P1: response 1h / resolve 4h" in sections["SLA policy"]
 
 
 def test_itsm_business_diff_sla():
-    old = synthesizer.build_itsm_spec({"who_resolves": "команда", "sla_levels": "P1 1ч/4ч, P2 4ч/8ч, P3 8ч/24ч, P4 24ч/72ч"})
-    new = synthesizer.build_itsm_spec({"who_resolves": "команда", "sla_levels": "P1 1ч/2ч, P2 4ч/8ч, P3 8ч/24ч, P4 24ч/72ч"})
+    old = synthesizer.build_itsm_spec({"who_resolves": "team", "sla_levels": "P1 1h/4h, P2 4h/8h, P3 8h/24h, P4 24h/72h"})
+    new = synthesizer.build_itsm_spec({"who_resolves": "team", "sla_levels": "P1 1h/2h, P2 4h/8h, P3 8h/24h, P4 24h/72h"})
     lines = synthesizer.business_diff("itsm", old, new)
-    assert "Было (SLA):" in "\n".join(lines)
-    assert "P1: 1ч/4ч" in "\n".join(lines)
-    assert "P1: 1ч/2ч" in "\n".join(lines)
+    assert "Before (SLA):" in "\n".join(lines)
+    assert "P1: 1h/4h" in "\n".join(lines)
+    assert "P1: 1h/2h" in "\n".join(lines)
     assert synthesizer.business_diff("itsm", old, old) == []
 
 
 def test_build_spec_dispatch():
-    ap = synthesizer.build_spec("ap", {"approval_authority": "директор"})
+    ap = synthesizer.build_spec("ap", {"approval_authority": "director"})
     assert ap["pack"] == "ap"
-    itsm = synthesizer.build_spec("itsm", {"who_resolves": "команда"})
+    itsm = synthesizer.build_spec("itsm", {"who_resolves": "team"})
     assert itsm["pack"] == "itsm"
     try:
         synthesizer.build_spec("crm", {})

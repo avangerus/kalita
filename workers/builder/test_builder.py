@@ -342,7 +342,7 @@ def test_change_session_asks_only_for_the_new_rule(monkeypatch):
     _build_live_model(node)
     builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
     reply, sid, state = builder.handle_turn(
-        "tok", None, "Теперь счета выше 2 миллионов должен дополнительно утверждать собственник")
+        "tok", None, "Now invoices above 2 million must additionally be approved by the owner")
     assert state["framework"] == "ap"
     sess = node.records["DesignSession"][sid]
     assert sess["mode"] == "change", sess
@@ -356,11 +356,11 @@ def test_change_model_phase_business_diff_and_impact(monkeypatch):
     node.live_invoices = [{"id": "inv-1", "values": {"amount": 2500000}}]
     builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
     _, sid, state = builder.handle_turn(
-        "tok", None, "Теперь счета выше 2М должен утверждать собственник")
+        "tok", None, "Now invoices above 2M must be approved by the owner")
     assert state["framework"] == "ap"
     builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
     _, sid, state = builder.handle_turn(
-        "tok", sid, "до 100к руководитель, до 1М финдир, до 2М гендир, выше собственник")
+        "tok", sid, "up to 100k manager, up to 1M CFO, up to 2M CEO, above owner")
     assert state["phase"] == "discover"
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
     reply, sid, state = builder.handle_turn("tok", sid, "yes, build")
@@ -369,20 +369,20 @@ def test_change_model_phase_business_diff_and_impact(monkeypatch):
                  if m["kind"] == "proposal_summary"]
     assert summaries, "the change must produce an EXPLAIN summary"
     summary = summaries[-1]
-    assert "Было:" in summary and "Станет:" in summary, summary
-    assert "1000000–2000000 — CEO" in summary and "выше 2000000 — Owner" in summary, summary
-    assert "сменили бы маршрут: 1" in summary, summary
-    assert "Сущности не меняются." in summary
-    assert "Интеграции не меняются" in summary
+    assert "Before:" in summary and "After:" in summary, summary
+    assert "1000000–2000000 — CEO" in summary and "above 2000000 — Owner" in summary, summary
+    assert "would change route: 1" in summary, summary
+    assert "Entities do not change." in summary
+    assert "Integrations do not change" in summary
 
 
 def test_change_approve_proposes_merged_sources(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
     _build_live_model(node)
     builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
-    _, sid, _ = builder.handle_turn("tok", None, "Теперь счета выше 2М утверждает собственник")
+    _, sid, _ = builder.handle_turn("tok", None, "Now invoices above 2M are approved by the owner")
     builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
-    _, sid, _ = builder.handle_turn("tok", sid, "до 1М финдир, выше собственник")
+    _, sid, _ = builder.handle_turn("tok", sid, "up to 1M CFO, above owner")
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
     _, sid, _ = builder.handle_turn("tok", sid, "yes, build")
     reply, sid, state = builder.handle_turn("tok", sid, "yes, propose")
@@ -397,9 +397,9 @@ def test_change_without_live_model_answers_honestly(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
     node.has_ap_model = False
     builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
-    reply, sid, state = builder.handle_turn("tok", None, "Теперь счета утверждает финдир")
+    reply, sid, state = builder.handle_turn("tok", None, "Now invoices are approved by the CFO")
     assert sid == ""
-    assert "ИЗМЕНИТЬ" in reply or "создай" in reply
+    assert "CHANGE" in reply or "create" in reply
 
 
 def test_change_impact_honest_when_caller_cannot_read(monkeypatch):
@@ -407,13 +407,13 @@ def test_change_impact_honest_when_caller_cannot_read(monkeypatch):
     _build_live_model(node)
     node.deny_invoices = True  # the operator cannot read invoices
     builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
-    _, sid, _ = builder.handle_turn("tok", None, "Теперь счета выше 2М утверждает собственник")
+    _, sid, _ = builder.handle_turn("tok", None, "Now invoices above 2M are approved by the owner")
     builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
-    _, sid, _ = builder.handle_turn("tok", sid, "до 1М финдир, выше собственник")
+    _, sid, _ = builder.handle_turn("tok", sid, "up to 1M CFO, above owner")
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
     reply, sid, state = builder.handle_turn("tok", sid, "yes, build")
     assert state["phase"] == "modeling"
-    assert "не посчитано" in reply and "недостаточно прав" in reply, reply
+    assert "not calculated" in reply and "insufficient rights" in reply, reply
 
 
 def test_second_change_preserves_original_options(monkeypatch):
@@ -425,9 +425,9 @@ def test_second_change_preserves_original_options(monkeypatch):
 
     # first change: new thresholds, apply it
     builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
-    _, sid, _ = builder.handle_turn("tok", None, "Теперь счета выше 2М утверждает собственник")
+    _, sid, _ = builder.handle_turn("tok", None, "Now invoices above 2M are approved by the owner")
     builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
-    _, sid, _ = builder.handle_turn("tok", sid, "до 100к руководитель, до 1М финдир, до 2М гендир, выше собственник")
+    _, sid, _ = builder.handle_turn("tok", sid, "up to 100k manager, up to 1M CFO, up to 2M CEO, above owner")
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
     _, sid, _ = builder.handle_turn("tok", sid, "yes, build")
     _, sid, state = builder.handle_turn("tok", sid, "yes, propose")
@@ -436,16 +436,16 @@ def test_second_change_preserves_original_options(monkeypatch):
 
     # second change: the UNION base must keep Contract
     builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
-    _, sid2, _ = builder.handle_turn("tok", None, "Теперь счета до 50к утверждает руководитель")
+    _, sid2, _ = builder.handle_turn("tok", None, "Now invoices up to 50k are approved by the manager")
     builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
-    _, sid2, _ = builder.handle_turn("tok", sid2, "до 50к руководитель, до 1М финдир, до 2М гендир, выше собственник")
+    _, sid2, _ = builder.handle_turn("tok", sid2, "up to 50k manager, up to 1M CFO, up to 2M CEO, above owner")
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
     reply, sid2, state = builder.handle_turn("tok", sid2, "yes, build")
     assert state["phase"] == "modeling", (state, reply)
     names = [e["name"] for e in node.composed.get("entities", [])]
     assert "Contract" in names, \
         "the second change must keep the original Contract option: %r" % names
-    assert "Сущности не меняются." in reply, reply
+    assert "Entities do not change." in reply, reply
     _, sid2, state = builder.handle_turn("tok", sid2, "yes, propose")
     assert state["phase"] == "proposed", (state,)
 
@@ -455,15 +455,15 @@ def test_itsm_vertical_slice_e2e(monkeypatch):
     model — different framework, different questions, different spec builder;
     nothing in the protocol is AP-hardcoded."""
     node = _fresh(monkeypatch, FakeNode())
-    _, sid, state = builder.handle_turn("tok", None, "Нам нужен service desk с инцидентами и SLA")
+    _, sid, state = builder.handle_turn("tok", None, "We need a service desk with incidents and SLA")
     assert state["framework"] == "itsm", state
 
     answers = {
-        "what_is_incident": "сбои сервисов и заявки",
-        "who_resolves": "своя команда",
-        "sla_levels": "P1 1ч/4ч, P2 4ч/8ч, P3 8ч/24ч, P4 24ч/72ч",
-        "change_control": "да, нужен CAB",
-        "portal_self_service": "да",
+        "what_is_incident": "service outages and requests",
+        "who_resolves": "our own team",
+        "sla_levels": "P1 1h/4h, P2 4h/8h, P3 8h/24h, P4 24h/72h",
+        "change_control": "yes, need CAB",
+        "portal_self_service": "yes",
     }
     for _ in range(8):
         last_q = [m for m in node.records["SessionMessage"].values()
@@ -472,7 +472,7 @@ def test_itsm_vertical_slice_e2e(monkeypatch):
         if topic == "build_confirm":
             break
         builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
-        _, sid, state = builder.handle_turn("tok", sid, answers.get(topic, "да"))
+        _, sid, state = builder.handle_turn("tok", sid, answers.get(topic, "yes"))
 
     builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
     reply, sid, state = builder.handle_turn("tok", sid, "yes, build")
@@ -480,9 +480,9 @@ def test_itsm_vertical_slice_e2e(monkeypatch):
     summaries = [m["body"] for m in node.records["SessionMessage"].values()
                  if m["kind"] == "proposal_summary"]
     assert summaries, "ITSM model must produce an EXPLAIN summary"
-    assert "Что создаётся" in summaries[-1]
+    assert "What is created" in summaries[-1]
     assert "Incident" in summaries[-1] and "Change" in summaries[-1]
-    assert "P1: реакция 1ч / решение 4ч" in summaries[-1]
+    assert "P1: response 1h / resolve 4h" in summaries[-1]
 
     reply, sid, state = builder.handle_turn("tok", sid, "yes, propose")
     assert state["phase"] == "proposed", (state, reply)
@@ -524,7 +524,7 @@ def test_builder_http_surface_and_cors(monkeypatch):
             body = json.loads(r.read())
             assert body["ok"] is True and set(body["frameworks"]) == {"ap", "itsm", "crm"}
         # a turn without a bearer: 401 AUTH_REQUIRED
-        body = json.dumps({"message": "привет"}).encode()
+        body = json.dumps({"message": "hello"}).encode()
         req = urllib.request.Request(base + "/build/turn", data=body,
                                      headers={"Content-Type": "application/json"})
         try:
