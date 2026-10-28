@@ -175,7 +175,7 @@ row-scoped user sees totals over only their own rows — no separate "see all" g
 | **DSL compiler** | entities · rich types (money, email, file, `array[file]`, serial, duration…) · enums · refs & bidirectional links · workflows · ABAC permissions · automation · computed fields (arithmetic, aggregates, `days/hours/minutes_since` & `…_until`) · dashboards · i18n labels. Errors are `{code, file:line, message, fix_hint}` for agent self-correction. |
 | **Runtime** | CRUD + validation · guarded workflow transitions & auto-moves · **undo / time-travel** — one-step undo of any edit or transition, or rewind a record to any past point in its history, both as compensating events (history is never erased; the undo is itself journaled and reversible) · approval queue (signature-gated) · TTL task pool · automation triggers (schedule / event / stuck) · row-level ABAC on reads, writes **and** dashboard aggregates — direct (`where owner = $me`) and indirect (`where project.owner = $me`) scopes are served from secondary indexes, so the permitted-set query stays sub-millisecond on a 100k-row table instead of scanning it ([ADR-005](docs/adr/ADR-005-permitted-set-index.md)). |
 | **Event store** | append-only PostgreSQL journal · SHA-256 hash chain · DB-level immutability · node-key checkpoints · definitions and projections replay from the journal. |
-| **MCP gateway** | `32` tools at `/mcp` — generated count, see [MCP Contract](docs/MCP-CONTRACT-v1.md) (`kalita mcp contract`, gated against the code by `TestMcpContractMatchesCode`). An agent starts from an empty node, iterates DSL to green via `validate_dsl`, `propose_change`s a pack, and works inside it after a human signs — that loop is the acceptance test. |
+| **MCP gateway** | `33` tools at `/mcp` — generated count, see [MCP Contract](docs/MCP-CONTRACT-v1.md) (`kalita mcp contract`, gated against the code by `TestMcpContractMatchesCode`). An agent starts from an empty node, iterates DSL to green via `validate_dsl`, `propose_change`s a pack, and works inside it after a human signs — that loop is the acceptance test. |
 | **Generated UI** | one notation-driven client (no build step) renders any pack from per-actor metadata: lists, 3-column forms, kanban boards, record timelines, dashboards, the approval inbox, async people pickers. Invite-based customer portal with row-level visibility. |
 | **core.User** | built-in people directory projected from the identity registry — `ref[core.User]` pickers search it; no User table per pack. |
 
@@ -229,32 +229,35 @@ the CRM rolls up a weighted sales forecast, the e-shop sums order lines into an
 order total. KnowVault and the Service Desk are **separate products built on
 kalita**, not parts of it.
 
-## Design documents
+## Documentation
 
-[Roadmap](docs/ROADMAP.md) · [HLD](docs/HLD.md) · [DSL Spec](docs/DSL-SPEC-v0.md) ·
+Start with [docs/README.md](docs/README.md) — the single map. Key entry points:
+[Status](docs/STATUS.md) (version, what works, known limitations) ·
+[Development](docs/DEVELOPMENT.md) (build, run, test) ·
+[HLD](docs/HLD.md) · [Language](docs/LANGUAGE.md) · [DSL Spec](docs/DSL-SPEC-v0.md) ·
 [MCP Contract](docs/MCP-CONTRACT-v1.md) · [Event Store](docs/EVENT-STORE-v0.md) ·
-[Type System](docs/TYPE-SYSTEM-V1.md) · [Security threat model](docs/SECURITY.md)
-*(read before deploying beyond localhost)* · [ADRs](docs/adr/) · [docs/forge — owner's map](docs/forge/)
+[Security](docs/SECURITY.md) *(read before deploying beyond localhost)* · [ADRs](docs/adr/) ·
+[Target architecture N1 and roadmap](docs/next/README.md)
 
 ## Layout
 
 ```
-cmd/kalita/    single-binary entry point  (serve · check · agent/user add)
-internal/      kernel: eventstore · dsl · engine · identity · api · mcp
-web/           notation-driven UI (served from disk or embedded)
+cmd/kalita/    single-binary entry point  (serve · check · user/agent · verify · backup · egress · mcp)
+internal/      kernel: eventstore · dsl · engine · identity · api · mcp · pii · secrets · transport
+web/           notation-driven UI (no build step; served from disk or embedded)
+packages/      kalita-ui (UI atoms used by web/) · kalita-sdk (client SDK for custom frontends)
 packs/         product modules — the kernel knows no domains
 examples/      acceptance packs
-docs/          design documents + ADRs
+frameworks/    curated business frameworks for the builder (Ask Kalita)
+workers/       Python agents and integrations (agent_runner, builder, connectors, knowvault, bridge)
+deploy/        container entrypoint, quickstart, Prometheus, KnowVault and federation demos
+docs/          documentation — see docs/README.md
 ```
 
 ## Status
 
-**v1.0 release candidate** (staff-only pilot). The kernel passed independent
-Milestone A review («KERNEL READY FOR PILOT»), the integration boundary is proven
-(webhook runner + reference scenario), a 24-surface adversarial security review
-returned «RELEASE CANDIDATE ACCEPT», and a full clean-room acceptance (fresh
-PostgreSQL, build → workflow → HITL → webhook → backup → restore) passed — see
-docs/forge/RELEASE_CANDIDATE.md, docs/forge/RC_CLEANROOM_LOG.md and
-docs/forge/RELEASE_BLOCKERS.md for the current state and known limitations.
-revocation (`agent revoke`) and emergency lockdown (`kalita lockdown`). See
-[SECURITY.md](docs/SECURITY.md).
+**v1.0 release candidate** (staff-only pilot): last tag `v1.0.0-rc.2`; `main` adds the
+self-building product (Ask Kalita), English-first UI and durable webhook delivery, accepted by a
+clean-room run on PostgreSQL. Current state, known limitations and the path to 1.0 —
+[docs/STATUS.md](docs/STATUS.md). Agent tokens support revocation (`agent revoke`) and emergency
+lockdown (`kalita lockdown`); see [SECURITY.md](docs/SECURITY.md).

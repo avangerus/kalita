@@ -14,7 +14,7 @@ conversation over real MCP under the demo human's bearer:
     → human decision via REST decide → applied pack, def_version+1
     → describe_system shows the live ap.* entities
 
-This is the proof of DEVELOPMENT_GRAPH P4 acceptance: "owner phrase →
+This is the proof of DEVELOPMENT_GRAPH (git 5447fc5) P4 acceptance: "owner phrase →
 valid AP pack → parked proposal → signature → live model" — no LLM, no
 developer workaround, no DSL handwritten anywhere.
 """

@@ -31,7 +31,7 @@ I-4); что ротация — журналируемое событие с ove
 
 ## 2. Ротация ключа узла: эпохи (ядро I-5 — ревью Fable)
 
-> **НЕ реализовано (planned → DEVELOPMENT_GRAPH G7)** — `node.key_rotated`/
+> **НЕ реализовано (STATUS.md, post-release PR-2)** — `node.key_rotated`/
 > `key_epoch` в коде нет; есть только `actor.key_rotated` (registry.go:362).
 
 **Решение (не обсуждается).** Ключ узла подписывает чекпоинты; его нельзя

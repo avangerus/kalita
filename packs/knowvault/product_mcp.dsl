@@ -13,7 +13,7 @@ product.mcp:
     # Fully functional: the indexer picks up any Source with status=New on its
     # own (packs/knowvault/knowvault.dsl workflow `New -> Indexing:
     # start_index assignee=agent(Indexer)`, driven by the task pool — see
-    # docs/KNOWVAULT-INTEGRATION.md §1.2), so `create Source(...)` alone is
+    # packs/knowvault/README.md §1.2), so `create Source(...)` alone is
     # enough to get a document indexed; no extra `act` step is needed or
     # permitted here (start_index is only in the Indexer role's act list,
     # packs/knowvault/knowvault.dsl permissions — an MCP caller does not hold
@@ -38,6 +38,6 @@ product.mcp:
     # through the UI / POST /api/search under their own token (see
     # deploy/knowvault/README.md "Как искать"). The real MCP-native search
     # for agents is `search_perimeter` — a NODE-level core tool reserved by
-    # docs/KNOWVAULT-INTEGRATION.md §2; when it lands, agents get retrieval
+    # packs/knowvault/README.md §2; when it lands, agents get retrieval
     # with the same governance (search logged as SearchQuery by the node,
     # not by the caller's façade compose).

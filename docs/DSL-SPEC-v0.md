@@ -8,7 +8,7 @@
 Status: **frozen** — this reflects the grammar the shipped compiler accepts
 (authoritative companion: `internal/mcp/grammar.go`, served live by `get_grammar`,
 kept in lockstep with the parser). New constructs are additive and arrive through
-the pack feedback loop (see `docs/ROADMAP.md`); this surface does not change under
+the pack feedback loop (see `docs/next/delivery/ROADMAP.md`); this surface does not change under
 packs already built on it. Keywords are English (HLD §10). Files: `*.dsl`, UTF-8,
 4-space indent, no tabs. Pack = a directory with `pack.dsl` (manifest) + module
 files (entities / workflows / security / ops, split however the pack prefers).

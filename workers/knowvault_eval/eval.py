@@ -531,8 +531,9 @@ def phase_measure(qdata, embed_model, k):
 def main():
     global JUDGE_MODEL
     ap = argparse.ArgumentParser(description="KnowVault RAG eval harness (Phase 0)")
-    ap.add_argument("--questions-file", default="eval_questions.json",
-                    help="Held-out question set (generated once, path relative to cwd)")
+    ap.add_argument("--questions-file",
+                    default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "eval_questions.json"),
+                    help="Held-out question set (generated once; default: next to this script)")
     ap.add_argument("--results-dir", default=".",
                     help="Directory for timestamped results JSON files")
     ap.add_argument("--embed-model", default=EMBED_MODEL,

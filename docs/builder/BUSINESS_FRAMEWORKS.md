@@ -1,6 +1,6 @@
 # BUSINESS FRAMEWORKS — curated business expertise layer
 
-> Слой 2 из PRODUCT_ARCHITECTURE.md: curated reusable business expertise.
+> Слой 2 из ARCHITECTURE.md: curated reusable business expertise.
 > Не Go-код индустрии в kernel, не LLM-знания, не company policy.
 > Фреймворк — статический, версионированный, целостно-верифицируемый источник
 > знаний, который Expert использует в разговоре. Обновляется релизом, никогда —

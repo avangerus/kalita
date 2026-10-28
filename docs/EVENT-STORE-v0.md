@@ -56,7 +56,7 @@ New kinds are added only additively (like an enum in the DSL).
 | Agent | Ed25519 agent key (client-side request signature) | all mutations; the core verifies and stores the signature in the event |
 | Node | node key | checkpoints |
 
-> **OPEN QUESTION (G14, docs/forge/DEVELOPMENT_GRAPH.md):** «агент подписывает
+> **OPEN QUESTION (G14, см. docs/STATUS.md):** «агент подписывает
 > все мутации» — НЕ реализовано; только approvals/definitions/checkpoints
 > подписываются. Решение — за владельцем (trust model), см. G14.
 

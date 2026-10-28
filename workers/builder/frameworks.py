@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """frameworks.py — curated business-framework loader (product mission A).
 
-Layer 2 of PRODUCT_ARCHITECTURE.md: Kalita Business Frameworks. The loader is
+Layer 2 of docs/builder/ARCHITECTURE.md: Kalita Business Frameworks. The loader is
 the ONLY way framework content enters the builder worker, and it enforces the
-FRAMEWORK TRUST rules (BUSINESS_FRAMEWORKS.md §3):
+FRAMEWORK TRUST rules (docs/builder/BUSINESS_FRAMEWORKS.md §3):
 
   - integrity: every framework file's sha256 must match frameworks/manifest.json;
   - identity/version: meta.id/version must match the manifest entry;
@@ -12,7 +12,7 @@ FRAMEWORK TRUST rules (BUSINESS_FRAMEWORKS.md §3):
     FrameworkError and the builder refuses to start — never a silent skip;
   - read-only: loaded content is never mutated and never written back.
 
-Frameworks never change a running company (PRODUCT_ARCHITECTURE.md §3.1): they
+Frameworks never change a running company (docs/builder/ARCHITECTURE.md §3.1): they
 are knowledge for FUTURE sessions; a migration is an ordinary proposal.
 
 Zero non-stdlib dependencies (workers policy). Run tests: pytest test_frameworks.py

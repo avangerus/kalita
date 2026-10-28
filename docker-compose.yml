@@ -25,9 +25,9 @@ services:
     build:
       context: .
       args:
-        # OPS-1: the image's reported version comes from here — never the
-        # Dockerfile's dev default. Override with KALITA_VERSION at deploy time.
-        VERSION: ${KALITA_VERSION:-v1.0.0}
+        # OPS-1: the image reports this version. Unset = a dev build (0.1.0-dev,
+        # same default as the binary); release builds set KALITA_VERSION=<tag>.
+        VERSION: ${KALITA_VERSION:-0.1.0-dev}
     depends_on:
       postgres:
         condition: service_healthy

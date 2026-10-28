@@ -1,9 +1,9 @@
-# SYSTEM TRUTH — каноническая модель существующей Kalita
+# SYSTEM TRUTH — модель существующей Kalita по коду
 
-> Главный документ для владельца. Только то, что СУЩЕСТВУЕТ СЕЙЧАС — не маркетинг,
-> не future vision. Каждый факт — из кода/тестов (файл:строка), сверено аудитом
-> 2026-07 (10 областей, Cartographer flash) и независимым Skeptic-обзором.
-> Status актуализируется каждым циклом (фаза UPDATE SYSTEM TRUTH).
+> Справочник «как устроено то, что есть»: карта компонентов, потоки выполнения, матрица DSL.
+> Факты сверены с кодом (аудит 2026-07/08); числа тестов и статусы — снимок той даты.
+> Живое состояние — [STATUS.md](STATUS.md), долг — [TECHDEBT.md](TECHDEBT.md),
+> разрыв до целевой архитектуры — [next/AS_IS.md](next/AS_IS.md).
 
 ## Kalita in one page
 
@@ -41,7 +41,6 @@ flowchart LR
     subgraph A["Агенты и внешние системы"]
         W["workers/* Python: agent_runner, connectors, bridge, chat_runner, product_mcp, knowvault_*"]
         X["Внешние системы: HTTP inbound (secret+whitelist), webhook-получатели"]
-        F["DSH Forge (mcp__kalita__*)"]
     end
     subgraph N["Нода Kalita (один процесс; основной мьютекс engine.go:19 + idxMu для индексов)"]
         UI2["webui: статика с диска или go:embed (-tags embedui)"]
@@ -55,7 +54,7 @@ flowchart LR
     end
     PK["packs/*.dsl (16) + examples/*.dsl (3)"]
     B -->|REST| API; B -->|статика| UI2
-    W -->|MCP| MCP; X -->|HTTP| API; F -->|MCP| MCP
+    W -->|MCP| MCP; X -->|HTTP| API
     API --> T --> E; MCP --> T
     E --> J; J -. "replay (старт)" .-> E
     PK -->|компиляция| D; D -->|"definition.* (после подписи)"| J
@@ -199,42 +198,6 @@ TestGoldenReplay (замороженный журнал → точные про�
 | PII | `pii`-поля, seal/open/shred | records.go sealPII, pii.go, erase.go | pii_test | — | ✅ (AAD слабее LLD-16) |
 | i18n | label="..." | метки в meta | label_test | packs | 🟡 (рендер локалей не проверен) |
 
-## Claims vs reality (сводка 23 проверенных утверждений)
-
-> **Статус после Cycle-002 (doc-truth sync)**: все STALE-пункты ниже исправлены в
-> самих документах (README: 32 tools/16 паков; SECURITY gaps закрыты; V1-GATE маркер;
-> EVENT-STORE §1/§4/§5; DSL-SPEC §4/§5/§9/§10; DSL-CORE-LIB; PLATFORM-STDLIB;
-> TYPE-SYSTEM; PORTAL-VISION; MCP-CONTRACT-v0 → SUPERSEDED; HLD/HLD-V1; ROADMAP;
-> LLD-10/LLD-18 помечены planned→G6/G7). NOT IMPLEMENTED либо помечены в доках,
-> либо оставлены открытым вопросом (§4 → G14, решение владельца). Таблица ниже —
-> состояние ДО синхронизации (историческая фиксация аудита).
-
-| Claim | Verdict | Суть (evidence) |
-|---|---|---|
-| «31 tools» (README:61,178) | STALE | кода 32; v1-контракт=32 и гейтится; README не гейтится |
-| SECURITY P1#4–7, P2#8 «открыты» | STALE | WebAuthn/secrets/authfail/lockdown/shredding реализованы и покрыты тестами |
-| EVENT-STORE §1 payload jsonb | PARTIAL | код: TEXT (pgstore.go:20-23 — jsonb ломает хэш), спека не обновлена |
-| EVENT-STORE §4 «агент подписывает ВСЕ мутации» | NOT IMPLEMENTED | подписи только approvals/definitions/checkpoints; мутации — bearer-аутентификация |
-| EVENT-STORE §5 «проекции в той же транзакции» | PARTIAL | проекции in-memory (ADR-001); атомарность через мьютекс |
-| DSL-SPEC §4 reachability/конфликты auto-guards | NOT IMPLEMENTED | semantic_blocks.go проверяет только states/дубли |
-| DSL-SPEC §9 rollback определений | NOT IMPLEMENTED | definition.reverted — мёртвая константа |
-| DSL-SPEC §10 integration «reserved» | STALE | полностью реализован (parser.go:847-938) |
-| TYPE-SYSTEM geo | NOT IMPLEMENTED | в scalarTypes нет; док сам себе противоречит |
-| HLD «React» / «WASM» / «stdio MCP» | STALE / NOT IMPLEMENTED | preact+htm; wazero нет; stdio нет |
-| MCP-CONTRACT-v0 (6 пунктов) | STALE | get_grammar/query/get_record/update/read_journal/idem — сигнатуры изменились |
-| PORTAL-VISION self-registration «missing» | STALE | инвайт-регистрация работает (portal_test) |
-| RELEASE-1.0 N1/N2/N7/N10 | VERIFIED | WebAuthn, ошибки=события, lockdown/shadow/report/egress — в коде+тестах |
-| RELEASE-1.0 N8 «parity-тест» | VERIFIED | общий transport + tests/transport_parity_test.go:239 (байт-идентичность REST↔MCP); тест живёт в пакете tests/, а не в internal/transport |
-| LLD-10 PR-1/PR-2 | NOT IMPLEMENTED | Register не атомарен; инвайты full-scan |
-| LLD-16 PR-1/PR-2 | VERIFIED | шифр до журнала, хэш над шифртекстом (AAD — только subject) |
-| LLD-18 §2 эпохи ключа узла | NOT IMPLEMENTED | node.key_rotated нет; один nodePub на чекпоинты |
-| LLD-18 §3 ротация ключей акторов | VERIFIED | RotateKey + actor.key_rotated |
-| LLD-21 subscription.failed | VERIFIED | workers/lib/subscribe.py (не ядро, как и задумано) |
-| DSL-CORE-LIB §4 «миксинов нет» | STALE | include/миксины реализованы (LLD-22) |
-| PLATFORM-STDLIB B2/B3/C | NOT IMPLEMENTED / PARTIAL | справочников нет; core.User есть, Department нет; Comment — механизм, не сущность |
-| ROADMAP «10 паков» | STALE | 16 паков, все компилируются |
-| V1-GATE чекбоксы | STALE | блокеры закрыты к rc1; документ не обновлён |
-
 ## Архитектурная классификация крупных capability
 
 | Capability | Класс | Комментарий |
@@ -246,45 +209,7 @@ TestGoldenReplay (замороженный журнал → точные про�
 | web/, packages/kalita-ui | **KALITA CORE** (поверхность) | notation-UI — часть продукта, buildless |
 | MCP-шлюз, REST | **KALITA CORE** (поверхность) | оба транспорта ведут в ядро |
 | deploy/docker/upgrade/backup/TSA | **EXTERNAL INFRASTRUCTURE** (обвязка ноды) | операции вне семантики предприятия |
-| DSH Forge / Harness | **AGENT HARNESS** | намеренно вне Kalita |
-| Business frameworks (frameworks/*.json, packs/builder, workers/builder) | **BUSINESS FRAMEWORK + BUILDER** | продуктовая миссия Round-1: curated-знания + governed design-сессии (см. PRODUCT_ARCHITECTURE.md) |
+| Business frameworks (frameworks/*.json, packs/builder, workers/builder) | **BUSINESS FRAMEWORK + BUILDER** | продуктовая миссия Round-1: curated-знания + governed design-сессии (см. builder/ARCHITECTURE.md) |
 | definition.validated/reverted, projection.rebuilt, actor.role_changed (мёртвые kinds) | **LEGACY / CANDIDATE FOR REMOVAL** | не пишутся и не фолдятся нигде |
 | core.reference/Department (заявлены, нет) | не классифицируется — отсутствует | см. PLATFORM-STDLIB |
 
-## Технический долг — доказательный реестр
-
-| Sev | Тип | Проблема | Evidence |
-|---|---|---|---|
-| P1 | SECURITY | setPassword без self/Owner-гейта — impersonation-класс | TECHDEBT.md:258-271; internal/api/login.go:23 (setPassword) |
-| P1 | SECURITY | consumer-auth отсутствует | TECHDEBT.md:144 |
-| P1 | MISSING CAPABILITY | webhook-доставка: задача есть, runner ноды нет | engine/automation.go:290-294 (намерение); cmd/kalita — runner отсутствует (D-011) |
-| P1 | SECURITY | ~~guard HITL-перехода не перепроверяется в Decide (окно park→decide)~~ → **FIXED Cycle-003** (ре-оценка guard в Decide, workflow.go:321-359, + 8 регрессий decide_guard_test.go; D-013) | D-010 |
-| P1 | SECURITY | ~~анти-prompt-injection на ingest — только трипвайр~~ → **FIXED Cycle-A5** (детектор + flag_ingest core-журналирование; block-vs-tripwire = KNOWN LIMITATION) | TECHDEBT.md:155-171 |
-| P2 | BUG | ~~`verify` паникует на пустом журнале~~ → **FIXED Cycle-002** (verifyHeadSeq + тест) | cmd/kalita/main.go:107, verify_test.go |
-| P2 | ARCHITECTURE | дублирующиеся лимиты вложенности 8 vs 10 (зафиксировано D-012: осознанное расхождение) | engine/op.go:27 vs workflow.go:460 + комментарии |
-| P2 | ARCHITECTURE | retry-контекст не замораживает payload | automation.go:476-484 |
-| P2 | ARCHITECTURE | ~~«anchor» в backup ≠ «anchor» в anchor-команде~~ → **FIXED Cycle-002** (единая семантика ev.Hash последнего checkpoint.sealed + тест) | anchor.go:45-92, anchor_test.go |
-| P2 | BUG | verify читает только PG, а backup советует файл journal.jsonl | backup.go:136-137 vs main.go:89-94 |
-| P2 | MISSING CAPABILITY | LLD-10 PR-1/PR-2: Register не атомарен, инвайты full-scan | registry.go:138-160; invites.go:101-129 |
-| P2 | MISSING CAPABILITY | LLD-18 §2: эпохи ключа узла отсутствуют | checkpoint.go:61 (один nodePub) |
-| P2 | SECURITY | PII-AAD = только subjectID (поле можно перенести) | pii.go:111 vs LLD-16 §1 |
-| P2 | MISSING CAPABILITY | `on update`-триггеры не срабатывают после act-переходов | runEventTriggers только в records.go (194/277/341/517) |
-| P2 | DOCUMENTATION | расхождения доков с кодом: 8 STALE, 6 NOT IMPLEMENTED, 2 PARTIAL (из 23 проверенных) | таблица Claims vs reality |
-| P2 | ARCHITECTURE | CI не гоняет Python-воркеры (15 pytest-файлов) | .github/workflows/ci.yml (только Go) |
-| P2 | MISSING CAPABILITY | UI без браузерных тестов | tests/webui_static_test.go:3 |
-| P2 | BUG | inbound.py без теста | workers/connectors/ (нет test_inbound.py) |
-| P2 | MISSING CAPABILITY | `kalita upgrade` неработоспособен из коробки (нет publish/cosign) | upgrade.go:108-111; ci.yml без release |
-| P2 | SECURITY | `upgrade --insecure-skip-tls-verify` default true; prometheus insecure_skip_verify | upgrade.go:102; deploy/prometheus/prometheus.yml:15 |
-| P3 | ARCHITECTURE | мёртвые kind-константы (definition.validated/reverted, projection.rebuilt, actor.role_changed) | eventstore/event.go |
-| P3 | ARCHITECTURE | O(журнала) на супервизорные операции (lastMutation, recordStateAsOf, countActorEvents) | revert.go:388/329; tasks.go:299-312 |
-| P3 | BUG | ~~erase.go использует time.Now вместо инъекционных часов~~ → **FIXED Cycle-002** (e.now() + тест) | erase.go:63, erase_test.go |
-| P3 | DOCUMENTATION | .env.example не описывает KALITA_PG_DSN/KALITA_SECRETS_FILE | .env.example |
-| P3 | ARCHITECTURE | dev-оверрайд knowvault с Windows-путём может утечь | deploy/knowvault/docker-compose.override.yml:7 |
-| P3 | PRODUCT QUESTION | «agent подписывает каждую мутацию» (EVENT-STORE §4) — обещано, не реализовано | решение владельца: понизить док или реализовать |
-
-## Что НЕ проверено аудитом (честно)
-
-- Живой браузер/UI-скриншоты; pytest-прогон всех воркеров (запускался только
-  test_subscribe.py — 7 passed); реальный Postgres/CI-прогон; federation-demo и
-  docker-compose end-to-end; `kalita upgrade` с docker-демоном; бенчмарки.
-- eval_questions.json прочитан частично (структура известна, содержимое — нет).

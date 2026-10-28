@@ -98,7 +98,7 @@ diffPlan:249). Builder НЕ создаёт второй путь изменен�
   /api/meta. Это «Work»-слой — остаётся.
 - NEW маршруты: #/ask (разговор с builder), #/proposals (human approval inbox —
   REST `/api/proposals` уже есть, server.go:158-159), #/company-model, #/changes,
-  #/integrations, #/home. Подробно: PRODUCT_UX.md.
+  #/integrations, #/home. Подробно: UX.md.
 - Три уровня: Business / Operator / Developer (существующие developer-виды —
   journal/DSL — прячутся за Developer-переключателем).
 
@@ -189,7 +189,7 @@ definition-тени; walker — честная аппроксимация, не 
 - метрики worker'а (структурированный лог): turns/session, questions asked,
   validate-циклов до зелёного, propose→sign latency, simulation runs,
   framework hits. Ошибки — с correlation id, понятным текстом для пользователя
-  и кодом для разработчика (см. PRODUCT_UX.md §Error UX).
+  и кодом для разработчика (см. UX.md §Error UX).
 
 ## 8. Model independence
 

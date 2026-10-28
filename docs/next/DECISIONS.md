@@ -64,7 +64,7 @@ Hard budget требует консервативной цены/объёма д
 
 **Статус:** accepted for planning. UI agent создаёт ViewSpec из versioned catalog. View может быть ephemeral, pinned live, shared; snapshot отдельный object. Генератор — логическая роль, не обязательная отдельная модель/сервис. Смена аудитории проверяет bindings и literals/derived private text. Действия имеют trusted confirmation по точным args.
 
-**Замещает:** запрет «рантайм от агента» в старом [LLD-14](../lld/LLD-14-ui-as-data-embed.md), если он запрещает генерацию runtime-композиции вообще. **Сохраняет:** no arbitrary agent HTML/JS, закрытые schema/catalog, backend authority; старый I-6 уточняется до «доверенный runtime, недоверенная декларативная композиция». Выразительность не ограничена одной формой/таблицей. **Проверка:** generated mislabel, private literal publish, stale schema, revoke во время открытого view.
+**Замещает:** запрет «рантайм от агента» в старом LLD-14 (`docs/lld/LLD-14-ui-as-data-embed.md`, не реализован; удалён из дерева, см. git 5447fc5), если он запрещает генерацию runtime-композиции вообще. **Сохраняет:** no arbitrary agent HTML/JS, закрытые schema/catalog, backend authority; старый I-6 уточняется до «доверенный runtime, недоверенная декларативная композиция». Выразительность не ограничена одной формой/таблицей. **Проверка:** generated mislabel, private literal publish, stale schema, revoke во время открытого view.
 
 ## N-ADR-11 — опыт только с применимостью и управлением
 

@@ -4,7 +4,7 @@ mission B). The node MCP is faked (capturing every call and its bearer), the
 LLM is left unconfigured so the deterministic expert ladder runs — the exact
 isolation pattern of workers/chat_runner/test_chat_runner.py.
 
-What these tests prove (DEVELOPMENT_GRAPH.md P3 acceptance):
+What these tests prove (DEVELOPMENT_GRAPH (git 5447fc5) P3 acceptance):
   1. pass-through: EVERY node call carries the caller's bearer, no other
      identity exists;
   2. UNDERSTAND: a session opens with the matched framework (ap for invoice

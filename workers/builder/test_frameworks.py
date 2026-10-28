@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """test_frameworks.py — trust/schema tests for workers/builder/frameworks.py.
 
-Product mission A acceptance (DEVELOPMENT_GRAPH.md P1): the builder starts ONLY
+Product mission A acceptance (DEVELOPMENT_GRAPH (git 5447fc5) P1): the builder starts ONLY
 with a valid manifest; every discovery question carries id/question/why;
 integrity failures are loud and fail-closed. Stdlib-only (pytest is the runner,
 not a dependency of the worker).

@@ -2,7 +2,7 @@
 
 **Статус:** целевая архитектура N1, не реализована. **Срез:** 2026-10-07; база сравнения — коммит `67f3587fbcebeb552be9f3debcb30efd7e494608` плюс незакоммиченные изменения пользователя. Приведённые типы, JSON и гарантии описывают проектный контракт, а не текущий API.
 
-Связанные документы: [WORK_MODEL.md](WORK_MODEL.md), [EXECUTION.md](EXECUTION.md), [AUTHORITY_SECURITY.md](AUTHORITY_SECURITY.md), [EXPERIENCE.md](EXPERIENCE.md), [INTEGRATIONS.md](INTEGRATIONS.md), [пакет Client Delivery](../packs/CLIENT_DELIVERY.md). Этот текст уточняет целевое применение закрытого рендерера из [LLD-14](../../lld/LLD-14-ui-as-data-embed.md) и каталога из [LLD-15](../../lld/LLD-15-component-catalog-v1.md): рендерер остаётся границей доверия, а прежнее требование «никогда runtime от агента» заменяется на управляемую композицию декларативных представлений под правами автора.
+Связанные документы: [WORK_MODEL.md](WORK_MODEL.md), [EXECUTION.md](EXECUTION.md), [AUTHORITY_SECURITY.md](AUTHORITY_SECURITY.md), [EXPERIENCE.md](EXPERIENCE.md), [INTEGRATIONS.md](INTEGRATIONS.md), [пакет Client Delivery](../packs/CLIENT_DELIVERY.md). Этот текст уточняет целевое применение закрытого рендерера из LLD-14 (LLD-14, не реализован; git 5447fc5) и каталога из [LLD-15](../../lld/LLD-15-component-catalog-v1.md): рендерер остаётся границей доверия, а прежнее требование «никогда runtime от агента» заменяется на управляемую композицию декларативных представлений под правами автора.
 
 ## Назначение и границы
 

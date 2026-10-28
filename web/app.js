@@ -34,7 +34,7 @@ const b64std = {
   },
 };
 
-// humanizeError — the Error UX contract (PRODUCT_UX §4): a business user never
+// humanizeError — the Error UX contract (docs/builder/UX.md §4): a business user never
 // sees a bare engine code as the only answer. The human text leads; the code
 // and the engine's own message stay available as advanced details.
 const ERROR_HINTS = {
@@ -69,7 +69,7 @@ function humanizeError(e) {
 }
 
 // ErrBox: the ONE error presentation — human text first (business language),
-// engine details collapsed under "Details" (PRODUCT_UX §4: no bare codes as
+// engine details collapsed under "Details" (docs/builder/UX.md §4: no bare codes as
 // the only answer).
 function ErrBox({ err }) {
   if (!err) return null;
@@ -1150,7 +1150,7 @@ function AgentBoard() {
 // HomeView: "what needs my attention" — pending signatures, definition
 // changes, my role's tasks, failed agent work, and key business indicators
 // (top dashboard tiles). Aggregation of EXISTING REST endpoints only; no
-// business logic in the UI (PRODUCT_UX §2.1).
+// business logic in the UI (docs/builder/UX.md §2.1).
 function HomeView({ meta, refresh }) {
   const [data, setData] = useState(null); const [err, setErr] = useState(null);
   const load = () => Promise.all([
@@ -1202,7 +1202,7 @@ function HomeView({ meta, refresh }) {
 
 // CompanyModelView: the HUMAN view of the executable model — entities, roles,
 // processes (workflow actions with ✍ approval gates), agents. Not a YAML
-// editor: everything is read from /api/meta (PRODUCT_UX §2.6).
+// editor: everything is read from /api/meta (docs/builder/UX.md §2.6).
 function CompanyModelView({ meta }) {
   // the FULL model structure (approver-gated /api/model) so the person who
   // signs a model sees what they signed; other roles fall back to their
@@ -1255,7 +1255,7 @@ function CompanyModelView({ meta }) {
 
 // ChangesView: who changed the company, what, and when — the definition timeline
 // from the engine's proposal history (uuid v7 = time-ordered) plus the
-// design-session provenance links (PRODUCT_UX §2.8).
+// design-session provenance links (docs/builder/UX.md §2.8).
 const PROP_STATUS_LABELS = {
   pending: 'awaiting signature', approved: 'signed', rejected: 'rejected', applied: 'applied',
 };
@@ -1362,7 +1362,7 @@ function IntegrationsView() {
 }
 
 // AskView: the conversational interface to the Business Expert / Builder
-// (product mission B/D, PRODUCT_UX §2.3). Chat on the left, the governed
+// (product mission B/D, docs/builder/UX.md §2.3). Chat on the left, the governed
 // DesignSession on the right. Every message shown here is journaled data read
 // back from the node (ABAC `where owner = $me`) — the UI holds no business
 // logic and renders model text as DATA, never as HTML (chat_runner rule:
@@ -1533,7 +1533,7 @@ function App() {
   const [meta, setMeta] = useState(null); const [err, setErr] = useState(null);
   const [inboxCount, setInboxCount] = useState(0);
   // UX level: business (default) / operator / developer — nav visibility +
-  // detail depth (PRODUCT_UX §3). Pure UI state, persisted locally.
+  // detail depth (docs/builder/UX.md §3). Pure UI state, persisted locally.
   const [level, setLevel] = useState(() => localStorage.kalitaUxLevel || 'business');
   const setLvl = (l) => { setLevel(l); localStorage.kalitaUxLevel = l; };
   // ENH-03: collapsible sidebar, persisted across reloads (pure UI state —

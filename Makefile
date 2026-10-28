@@ -34,7 +34,7 @@ golden:
 	go run ./cmd/goldengen -ver $(VER) $(if $(FORCE),-force,)
 
 # passport runs the node performance passport benchmarks (docs/HLD-V1.md §H10,
-# docs/RELEASE-1.0.md N6 "не переделывать, а измерить" / N9 "измеримые пороги
+# RELEASE-1.0 (git 5447fc5) N6 "не переделывать, а измерить" / N9 "измеримые пороги
 # вместо веры"): P1 pilot mix, P2 bulk create, P3 journal replay, P4 auth
 # storm. The numbers are the v0 baseline this release ships in release notes;
 # regressing them >20% is the signal N6 asks for, even though nothing enforces

@@ -1,57 +1,41 @@
+# Build output
 /bin/
 *.exe
+*.exe~
 *.test
 *.out
+dist/
+internal/webui/embedded/
+
+# Local configuration and secrets — never committed
 .env
+
+# Editors / tooling
 .idea/
 .vscode/
+.claude/
 node_modules/
-dist/
-/tmp-vault/
-/kalita-data/
-internal/webui/embedded/
-/internal/webui/embedded/
-/kalita-files/
 
 # Python
 __pycache__/
 *.pyc
-tmp/
+.pytest_cache/
 
-# Native dev run state (node key, logs, indexed files)
+# Local runtime state of a dev node (journal files, keys, blobs, logs)
+/kalita-data/
+/kalita-files/
+/tmp-vault/
 /.native/
+*.log
+*.pid
 
-# Agent scratch: review/planning notes — must NOT enter git.
-# Strategy/commercial docs (masterplan, GTM, market, per-product plans, pricing)
-# live under agent/strategy/ — this repo is PUBLIC, only technical design of
-# record (docs/lld, docs/HLD*, docs/adr, docs/TECHDEBT) belongs in it.
+# Scratch: temporary files, research downloads, agent notes — keep them outside the repo
+/tmp/
 /agent/
 
-# Guard: strategy docs must never be tracked in the public repo even if
-# re-created under docs/ — their home is agent/strategy/ (ignored above).
+# Strategy / commercial documents never belong in this public repository
 /docs/MASTERPLAN.md
-/docs/AGENT-PLATFORM-VISION.md
-/docs/PLATFORM-NEXT.md
-/docs/EXECUTION-ROUTING.md
-/docs/MARKET.md
-/docs/gtm-legal.md
-/docs/DYNAMICS-VISION.md
-/docs/THOUGHTS-INBOX.md
-/docs/KNOWVAULT-PRODUCT.md
 /docs/products/
 
-# eval run artifacts (results are reproducible from the harness)
+# KnowVault eval run artifacts (reproducible from the harness)
 workers/knowvault_eval/eval_results_*.json
-
-# Local node/runtime artifacts (day-2 drift; never committed — see docs/forge/G4_COMMIT_PLAN.md)
-/_bk*/
-/_anchor-node.*
-/_anchor.txt
-/_livetest*.log
-/_mcpbody.json
-/kalita-dsh-test.*
-/kalita-metrics.*
-/kalita.exe~
-
-# DSH harness session state (skills, presets) — never part of the product repo
-/.dsh/

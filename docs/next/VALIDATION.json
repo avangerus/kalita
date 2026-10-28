@@ -1,11 +1,11 @@
 {
   "baseline": "N1",
-  "checked_at": "2026-10-28T10:55:48.320Z",
+  "checked_at": "2026-10-28T12:01:39.826Z",
   "result": "passed",
   "scope": "Documentation structure and catalog consistency only; no runtime tests or future capability proof",
   "counts": {
     "markdown_files": 22,
-    "local_links": 374,
+    "local_links": 372,
     "anchors": 80,
     "tasks": 80,
     "iterations": 16,

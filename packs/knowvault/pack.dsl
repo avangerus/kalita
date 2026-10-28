@@ -5,7 +5,7 @@ depends core >= 0.1
 
 # White-label identity (DSL-SPEC-v0 §1.1, LLD-05 §3, PK-4): kalita itself is
 # never shown to a KnowVault customer — the engine is invisible by design
-# (KNOWVAULT-INTEGRATION.md §0). Node --brand* flags default from this block;
+# (packs/knowvault/README.md §0). Node --brand* flags default from this block;
 # the frontend reads it via /api/meta to theme itself, no rebuild required.
 product:
     name "KnowVault"

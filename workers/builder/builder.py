@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """builder.py — the Business Expert + Conversational Builder worker (product
-mission A/B, PRODUCT_ARCHITECTURE.md §3.3).
+mission A/B, docs/builder/ARCHITECTURE.md §3.3).
 
 The worker is an ORDINARY ACTOR on the node: it has NO service credential.
 Every node call carries the CALLER'S bearer (pass-through, workers/chat_runner
@@ -142,7 +142,7 @@ def _extract_obj(text):
     return None
 
 
-# --- statement classification (CONVERSATIONAL_BUILDER.md §3) -----------------
+# --- statement classification (docs/builder/CONVERSATIONAL_BUILDER.md §3) -----------------
 # The Expert must distinguish: user fact / preference / answer, Kalita
 # recommendation / risk, required decision, unknown. Classification is a MODEL
 # decision over the message TEXT ONLY — the resulting label is data, and facts
@@ -790,7 +790,7 @@ def handle_turn(bearer, session_id, text):
     """One builder turn (public). Wraps _handle_turn with a structured log
     line: one JSON per turn, correlated by session_id — the observability
     contract user request → design session → model proposal → signed change
-    (PRODUCT_ARCHITECTURE.md §7)."""
+    (docs/builder/ARCHITECTURE.md §7)."""
     t0 = time.monotonic()
     reply, sid, state = _handle_turn(bearer, session_id, text)
     print(json.dumps({
@@ -957,7 +957,7 @@ class Handler(BaseHTTPRequestHandler):
     def _cors_headers(self):
         """Same-host CORS: the dev UI runs on another PORT of the SAME host
         (or loopback); production serves the worker same-origin behind a
-        proxy (PRODUCT_UX §2.3). Any other origin gets no CORS grant —
+        proxy (docs/builder/UX.md §2.3). Any other origin gets no CORS grant —
         fail-closed."""
         origin = self.headers.get("Origin") or ""
         host = (self.headers.get("Host") or "").split(":")[0]

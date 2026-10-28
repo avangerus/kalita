@@ -4,7 +4,7 @@
 # 100k the manager signs, up to 1M the finance director, above that the general
 # director. After the signature the invoice is handed to "system Y".
 #
-# Honest v1 boundaries (see docs/forge/DECISIONS.md, hypotheses H1/H2):
+# Honest v1 boundaries (see docs/DECISIONS.md, hypotheses H1/H2):
 #   - H1 proven: the threshold ladder is plain guarded transitions, no kernel
 #     change (three ApprovalPending -> Approved transitions with different
 #     `requires approval(Role)` + `when amount ...` guards).

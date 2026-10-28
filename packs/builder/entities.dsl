@@ -8,12 +8,12 @@
 # ABAC scoping; the transient working state (raw model JSON, validation error
 # list) intentionally lives ONLY in the worker and never reaches the journal.
 #
-# Correlation (PRODUCT_ARCHITECTURE.md §7): the proposal created at phase
+# Correlation (docs/builder/ARCHITECTURE.md §7): the proposal created at phase
 # APPROVE carries this session's id in its description, so the journal chain
 # user request -> session messages/decisions -> DefinitionProposed -> applied
 # is reconstructible end to end.
 #
-# Statement classification (CONVERSATIONAL_BUILDER.md §3): SessionMessage.kind
+# Statement classification (docs/builder/CONVERSATIONAL_BUILDER.md §3): SessionMessage.kind
 # is the label the Expert assigns to each statement. An LLM assumption is
 # NEVER journaled as fact/decision without user confirmation — the builder
 # protocol enforces this, and the enum values below are the vocabulary the UI
