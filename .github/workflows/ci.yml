@@ -30,6 +30,8 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
+      - name: gofmt
+        run: test -z "$(gofmt -l cmd internal tests | tee /dev/stderr)"
       - run: go build ./...
       # LLD-01 §3: side-effect errors in automation cascades must be journaled,
       # never swallowed — bans blank assignments on createTask/applyTransition
@@ -44,7 +46,7 @@ jobs:
       # it. Also covered by the blanket `go test ./...` above (it is ./tests/...);
       # kept as its own step so a fold regression is unmistakable in CI logs.
       - run: go test ./tests/... -run TestGoldenReplay -v
-      # release hygiene (docs/RELEASE-1.0.md DoD): known-vulnerability scan of
+      # release hygiene (RELEASE-1.0 (git 5447fc5) DoD): known-vulnerability scan of
       # the module graph. A finding fails the build — triage it, do not mute.
       - name: govulncheck
         run: |
@@ -81,16 +83,13 @@ jobs:
           go-version-file: go.mod
       - run: go test -race -short -count=1 -timeout=10m ./...
 
-  # Python workers (TST-1, Cycle-F2): the agent/integration layer was entirely
-  # outside CI — the node's release evidence stopped at the Go boundary. This
-  # job runs the NETWORK-FREE worker tests (connectors, lib, perimeter) — the
-  # stdlib-only trust boundaries that must not regress: inbound connector's
-  # secret/whitelist/idempotency (test_inbound.py), the durable subscription
-  # library (test_subscribe.py), the prompt-injection detector (test_detector.py).
-  # Live-node workers (agent_runner, product_mcp, bridge, chat_runner,
-  # knowvault_indexer) need a running node and get their own job after the pilot.
+  # Python workers: the agent/integration layer (connectors, subscriptions,
+  # prompt-injection perimeter, builder, agent_runner, bridge, chat_runner,
+  # knowvault_*). All suites run against mocks/local fixtures; tests that need a
+  # live node skip themselves (test_facade_live without Go on PATH,
+  # test_builder_live without KALITA_LIVE_TEST=1).
   workers:
-    name: python workers (network-free)
+    name: python workers
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,9 +97,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install --upgrade pytest
-      - run: python -m pytest workers/connectors/test_inbound.py workers/lib/test_subscribe.py workers/perimeter/test_detector.py -q
+      - run: python -m pytest workers -q
 
-  # Node performance passport (docs/HLD-V1.md §H10, docs/RELEASE-1.0.md N6/N9):
+  # Node performance passport (docs/HLD-V1.md §H10, RELEASE-1.0 (git 5447fc5) N6/N9):
   # P1 pilot mix, P2 bulk create, P3 journal replay, P4 auth storm — see
   # `make passport` / internal/engine/passport_bench_test.go /
   # internal/eventstore/replay_bench_test.go. Deliberately NOT part of the
