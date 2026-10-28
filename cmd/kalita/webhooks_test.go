@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -159,6 +160,42 @@ automation:
 	}
 	if len(e.FailedWebhookTasks()) != 1 {
 		t.Fatal("the delivery must dead-letter")
+	}
+}
+
+// TestRunnerAllowsCleartextBearerToLoopback: a loopback destination (an
+// on-host mock or sidecar) may receive a credentialed delivery over http://;
+// the bytes never leave the machine. Any non-loopback host stays refused
+// (TestRunnerRejectsCleartextWithSecret).
+func TestRunnerAllowsCleartextBearerToLoopback(t *testing.T) {
+	for _, host := range []string{"127.0.0.1", "127.0.0.2", "localhost"} {
+		pack := strings.Replace(webhookRunnerPack, "https://example.com/hook", "http://"+host+":8477/hook", 1)
+		model, errs := dsl.Compile(map[string]string{"w.dsl": pack})
+		if len(errs) > 0 {
+			t.Fatalf("pack must compile: %v", errs[0])
+		}
+		e, err := engine.New(context.Background(), model, eventstore.NewMemStore(nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
+		if _, err := e.Create(context.Background(), owner, "Doc", map[string]any{"title": "t"}, &eventstore.Basis{Type: "human", ID: "o"}, ""); err != nil {
+			t.Fatal(err)
+		}
+		norm := normalizeHost(host)
+		var gotBearer string
+		n := runWebhookDeliveries(context.Background(), e, []string{norm},
+			map[string]string{norm: "Bearer sk_x"}, true,
+			func(_ context.Context, _ string, _ []byte, bearer string) *webhookDeliveryError {
+				gotBearer = bearer
+				return nil
+			})
+		if n != 1 || gotBearer != "Bearer sk_x" {
+			t.Fatalf("%s: loopback credentialed delivery must go out: processed=%d bearer=%q", host, n, gotBearer)
+		}
+		if len(e.FailedWebhookTasks()) != 0 {
+			t.Fatalf("%s: delivery must not dead-letter", host)
+		}
 	}
 }
 

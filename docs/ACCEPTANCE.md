@@ -1,5 +1,25 @@
 # Release acceptance — clean-room procedure (English-first)
 
+**Automated part — run it first.** `tests/acceptance` drives the real binary built from
+the checkout against a real Postgres: CLI identities, the AP workflow over MCP and REST,
+the manager's signature, egress success / DLQ / operator retry / allowlist / missing
+secret / crash mid-delivery, backup → verify → restore, credential hygiene. CI runs it
+on every push (`acceptance` job).
+
+```bash
+KALITA_ACCEPT_PG_DSN='postgres://postgres:kalita@127.0.0.1:55432/postgres?sslmode=disable' \
+  go test -tags acceptance ./tests/acceptance -v -count=1 -timeout 15m
+```
+
+The DSN must be allowed to CREATE/DROP DATABASE (each run uses a fresh database).
+It covers steps 1, 3, 4, 7–9, 11–19 below, the served-UI part of 5, the REST form of 10,
+and the journal/backup/pack/log hygiene of 20.
+
+**Manual part — a person in a browser**, before tagging a release: step 5 (every visible
+string English), step 6 (Ask builder conversation), step 10 in the UI Approvals view (and
+with a passkey when the node runs `--require-human-signature`), step 20's ITSM builder
+loop. The full table stays below so the whole run can also be done by hand.
+
 > Run by an operator who did NOT build the system, LITERALLY step by step, in a
 > clean environment (no existing local state, no prior knowledge assumed).
 > Where a step requires guessing, the release is NOT accepted — open a doc gap.
@@ -56,7 +76,7 @@ Set-Content tmp\en-cleanroom\secrets\egress.json '{"127.0.0.1":"Bearer <destinat
 | 1 | **Build** | `go build -ldflags "-X main.version=$(git describe --tags --always)"` | binary builds; `kalita version` prints the `git describe` value (the release tag, or `v1.0.0-rc.2-N-g<sha>` between tags), never `0.1.0-dev` |
 | 2 | **Frameworks integrity** | `py -m pytest workers/builder/test_frameworks.py -q` | 8 passed — every English framework file matches its manifest sha256 (fail-closed loader) |
 | 3 | **Bootstrap identities** | `kalita user add --id admin --role Owner`, `--id clerk --role APClerk`, `--id manager --role Manager`; `kalita agent add --id checker --role APChecker` | 4 tokens issued, only hashes journaled |
-| 4 | **Start the node** | `serve --pack packs/ap --ui-dir web --listen 127.0.0.1:8470 --data-dir tmp\en-cleanroom\data --egress-domains 127.0.0.1` with `KALITA_PG_DSN` (above) and `KALITA_EGRESS_SECRETS=tmp\en-cleanroom\secrets\egress.json` set | `/healthz` = ok; `/readyz` = ready; boot log: "webhook runner: 1 allowed egress domain(s)"; "egress secrets: loaded 1 destination credential(s)" |
+| 4 | **Start the node** | copy `packs/ap` to `tmp\en-cleanroom\pack-ap` and set the `webhook out` URL in its `ops.dsl` to `http://127.0.0.1:8477/hook` (the URL is per-deployment), then `serve --pack tmp\en-cleanroom\pack-ap --ui-dir web --listen 127.0.0.1:8470 --data-dir tmp\en-cleanroom\data --egress-domains 127.0.0.1` with `KALITA_PG_DSN` (above) and `KALITA_EGRESS_SECRETS=tmp\en-cleanroom\secrets\egress.json` set | `/healthz` = ok; `/readyz` = ready; boot log: "webhook runner: 1 allowed egress domain(s)"; "egress secrets: loaded 1 destination credential(s)" |
 | 5 | **UI is English** | open `http://127.0.0.1:8470/` in a browser, sign in as admin | login screen, shell nav, Inbox/entity lists/Agents/Integrations/Company Model/Changes/Ask — every visible string is English; empty states are English ("No approvals pending", not Cyrillic) |
 | 6 | **Ask (builder, English)** | start the builder worker in a second terminal: `$env:KALITA_URL='http://127.0.0.1:8470'; py workers\builder\builder.py` (no LLM configured = deterministic expert), open the Ask view, write the goal "I need to approve supplier invoices before payment" | the expert detects the AP framework, interviews in English, records an English DesignSession; no Cyrillic in any expert message |
 | 7 | **Company Model** | open Company Model view as admin | entities/roles/fields render with English labels; the approver-only gate holds (manager gets 403 on the full model) |

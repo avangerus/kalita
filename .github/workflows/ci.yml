@@ -83,6 +83,35 @@ jobs:
           go-version-file: go.mod
       - run: go test -race -short -count=1 -timeout=10m ./...
 
+  # Release acceptance (docs/ACCEPTANCE.md, automated part): the real binary
+  # against a real Postgres — identities, AP workflow over MCP/REST, signature,
+  # egress success/DLQ/retry/allowlist/missing secret/crash, backup → verify →
+  # restore. Each run creates and drops its own database.
+  acceptance:
+    name: release acceptance
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: kalita
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git describe → the version the binary reports
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -tags acceptance ./tests/acceptance -v -count=1 -timeout 15m
+        env:
+          KALITA_ACCEPT_PG_DSN: postgres://postgres:kalita@localhost:5432/postgres?sslmode=disable
+
   # Python workers: the agent/integration layer (connectors, subscriptions,
   # prompt-injection perimeter, builder, agent_runner, bridge, chat_runner,
   # knowvault_*). All suites run against mocks/local fixtures; tests that need a

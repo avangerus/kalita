@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -129,6 +130,16 @@ func allowed(domains []string, rawURL string) bool {
 	return false
 }
 
+// isLoopbackHost reports whether a normalized host is the local machine
+// (localhost, 127.0.0.0/8, ::1) — traffic to it never crosses a network.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // webhookHostOf extracts the normalized host of a webhook URL ("" on garbage).
 func webhookHostOf(raw string) string {
 	u, err := url.Parse(raw)
@@ -229,10 +240,11 @@ func runWebhookDeliveries(ctx context.Context, eng *engine.Engine, domains []str
 			processed++
 			continue
 		}
-		// a credential must never ride cleartext, and a URL must not smuggle
-		// its own credentials (userinfo) past the runtime-secret channel
-		// (Security Pro MINOR-1 cleartext sub-case + MINOR-3 hygiene).
-		if bearer != "" && strings.HasPrefix(strings.ToLower(rawURL), "http://") {
+		// a credential must never ride cleartext over a network, and a URL must
+		// not smuggle its own credentials (userinfo) past the runtime-secret
+		// channel (Security Pro MINOR-1 cleartext sub-case + MINOR-3 hygiene).
+		// Loopback destinations are exempt: the bytes never leave the host.
+		if bearer != "" && strings.HasPrefix(strings.ToLower(rawURL), "http://") && !isLoopbackHost(host) {
 			_ = eng.RecordWebhookAttempt(ctx, t.ID, 1, "failed", "insecure_transport",
 				host, 0, "wh-att:"+t.ID+":1")
 			if err := eng.SettleWebhookTask(ctx, t.ID, false,

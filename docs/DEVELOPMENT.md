@@ -57,6 +57,7 @@ bash scripts/embed-ui.sh                                # один бинарь 
 | запрет «проглатывания» ошибок автоматики | `bash scripts/check-automation-error-swallow.sh` |
 | все Go-тесты | `go test ./... -count=1 -cover` (= `make test`) |
 | PG-журнал (иначе эти тесты skip) | `docker run -d --rm --name kalita-pg -e POSTGRES_PASSWORD=kalita -p 127.0.0.1:55432:5432 postgres:16-alpine`, затем `KALITA_TEST_PG_DSN='postgres://postgres:kalita@127.0.0.1:55432/postgres?sslmode=disable' go test ./internal/eventstore/ -count=1` |
+| приёмка релиза (реальный бинарь + PG, ~2 мин) | `KALITA_ACCEPT_PG_DSN='postgres://postgres:kalita@127.0.0.1:55432/postgres?sslmode=disable' go test -tags acceptance ./tests/acceptance -v -count=1` (тот же контейнер PG; база создаётся и удаляется сама) |
 | golden-реплей | `go test ./tests/... -run TestGoldenReplay -v` (= `make golden-test`) |
 | bench smoke | `go test -bench=Bench -benchtime=50x -run='^$' ./internal/engine` |
 | уязвимости | `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` |

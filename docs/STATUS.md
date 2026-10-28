@@ -11,7 +11,20 @@
 | Текущая версия | ветка `main`. `make build` / `kalita version` берут версию из `git describe`; сборка без версии — `0.1.0-dev` |
 | Что добавлено после rc.2 | self-building продукт (Ask Kalita: builder-воркер, `packs/builder`, бизнес-фреймворки, web-оболочка Home/Ask/Company Model/Changes/Integrations), English-first UI/фреймворки/отчёты, долговечная доставка webhook (D-011: DeliveryID, retry, DLQ, receipts, секреты получателей), hardening egress, фиксы по ревью |
 | Последняя приёмка | English clean-room на PG, 20 шагов + egress A–H — PASS на `67f3587` (сборка-кандидат `v1.0.0-rc.3`); процедура — [ACCEPTANCE.md](ACCEPTANCE.md), журнал прогона — `git show 67f3587:docs/forge/ENGLISH_CLEANROOM_LOG.md` |
-| Следующий тег | `v1.0.0-rc.3` — после зелёного CI и повторного прогона [ACCEPTANCE.md](ACCEPTANCE.md) на финальном коммите |
+| Следующий тег | см. «Путь к 1.0» ниже: rc-тег на каждом этапе, затем `v1.0.0` |
+
+## Путь к 1.0
+
+Скоуп и критерии — [D-018](DECISIONS.md). Каждый этап заканчивается зелёными тестами, CI и rc-тегом.
+
+| Этап | Результат | Состояние |
+|---|---|---|
+| S1 | Автоматическая приёмка `scripts/acceptance.sh` на PG (сборка → роли → workflow → MCP → egress → backup/verify/restore) | готово, `v1.0.0-rc.3` |
+| S2 | Корректность рантайма: ошибки журнала не теряются (expire, runner), мьютекс в RotateKey/Disable, LIM-1/LIM-7 по итогам проверки | в работе |
+| S3 | Egress: IDN/punycode и DNS-rebinding (LIM-9), dead-letter подписок с плоским payload | — |
+| S4 | Супервизорные операции без прохода по журналу (LIM-3), мёртвые kind-константы | — |
+| S5 | Release-пайплайн: бинарники linux/windows/darwin, sha256, образ GHCR, подпись cosign (OPS-3) | — |
+| S6 | G14 закрыт в документах, CHANGELOG, тег `v1.0.0` | — |
 
 ## Что работает
 
