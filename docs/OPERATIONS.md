@@ -16,6 +16,7 @@ cosign verify-blob --bundle SHA256SUMS.bundle \
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 Образ: `cosign verify` с теми же двумя флагами и `ghcr.io/avangerus/kalita:<версия>`.
+В Git Bash на Windows перед командой — `MSYS2_ARG_CONV_EXCL='*'`, иначе оболочка портит regexp.
 
 ## Ежедневно: ничего
 

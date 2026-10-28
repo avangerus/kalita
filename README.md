@@ -181,8 +181,15 @@ row-scoped user sees totals over only their own rows — no separate "see all" g
 
 ## Quick start
 
+Signed builds for linux, windows and macOS (UI embedded) are on
+[GitHub Releases](https://github.com/avangerus/kalita/releases); the image is
+`ghcr.io/avangerus/kalita`. Verifying a download: [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
 ```bash
-# native (in-memory journal — dev only):
+# from a release archive (UI embedded):
+./kalita serve --pack packs/servicedesk --demo
+
+# from source (in-memory journal — dev only):
 go build ./cmd/kalita
 ./kalita serve --pack packs/servicedesk --ui-dir web --demo
 #   UI + REST : http://127.0.0.1:8080         (--demo prints a token per role)
@@ -256,8 +263,6 @@ docs/          documentation — see docs/README.md
 
 ## Status
 
-**v1.0 release candidate** (staff-only pilot): last tag `v1.0.0-rc.2`; `main` adds the
-self-building product (Ask Kalita), English-first UI and durable webhook delivery, accepted by a
-clean-room run on PostgreSQL. Current state, known limitations and the path to 1.0 —
-[docs/STATUS.md](docs/STATUS.md). Agent tokens support revocation (`agent revoke`) and emergency
+**v1.0.0** — see [CHANGELOG.md](CHANGELOG.md). Every tag is accepted by an automated run on a real
+node and PostgreSQL. Current state and known limitations — [docs/STATUS.md](docs/STATUS.md). Agent tokens support revocation (`agent revoke`) and emergency
 lockdown (`kalita lockdown`); see [SECURITY.md](docs/SECURITY.md).

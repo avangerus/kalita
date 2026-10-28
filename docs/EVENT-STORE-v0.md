@@ -55,12 +55,12 @@ written by the current binary.
 | Subject | Mechanism | What is signed (mandatory) |
 |---|---|---|
 | Human | **WebAuthn/passkey** (key on the user's device, not on the server) | `approval.granted/.rejected`, `definition.approved` — the assertion is stored in `signature` |
-| Agent | Ed25519 agent key (client-side request signature) | all mutations; the core verifies and stores the signature in the event |
+| Agent | Ed25519 agent key (client-side request signature) | HITL decisions the agent takes (`approval.*`) when the node requires signatures; the core verifies and stores the signature in the event |
 | Node | node key | checkpoints |
 
-> **OPEN QUESTION (G14, см. docs/STATUS.md):** «агент подписывает
-> все мутации» — НЕ реализовано; только approvals/definitions/checkpoints
-> подписываются. Решение — за владельцем (trust model), см. G14.
+Other agent mutations are not signed per event: the agent authenticates with its bearer token, the
+event records it as `actor`, and the hash chain plus signed checkpoints make the record tamper-evident.
+Per-mutation agent signatures are not part of 1.0 (G14, D-023).
 
 Decision: no server-side storage of human keys — otherwise the signature has no evidentiary force ("the server could have done it itself"). The MVP includes WebAuthn from day 1: it is cheap (standard libraries) and cannot be retrofitted later.
 

@@ -7,13 +7,13 @@
 
 | | |
 |---|---|
-| Последний тег | `v1.0.0-rc.7` (этап S5 пути к 1.0, первый опубликованный выпуск); последний пилотный — `v1.0.0-rc.2` (`12fb6f7`, 2026-08-18, staff-only) |
+| Последний тег | `v1.0.0` — первая релизная версия (D-018): [GitHub Releases](https://github.com/avangerus/kalita/releases), образ `ghcr.io/avangerus/kalita:v1.0.0`, изменения — [CHANGELOG.md](../CHANGELOG.md) |
 | Текущая версия | ветка `main`. `make build` / `kalita version` берут версию из `git describe`; сборка без версии — `0.1.0-dev` |
-| Что добавлено после rc.2 | self-building продукт (Ask Kalita: builder-воркер, `packs/builder`, бизнес-фреймворки, web-оболочка Home/Ask/Company Model/Changes/Integrations), English-first UI/фреймворки/отчёты, долговечная доставка webhook (D-011: DeliveryID, retry, DLQ, receipts, секреты получателей), hardening egress, фиксы по ревью |
+| Что вошло в 1.0 после rc.2 | см. [CHANGELOG.md](../CHANGELOG.md) |
 | Последняя приёмка | автоматическая `tests/acceptance` (реальный узел + PG) — PASS на каждом rc-теге, в CI на каждом push; ручная часть (браузер, passkey) — [ACCEPTANCE.md](ACCEPTANCE.md) |
-| Следующий тег | см. «Путь к 1.0» ниже: rc-тег на каждом этапе, затем `v1.0.0` |
+| Следующий тег | `v1.0.x` — исправления 1.0 (D-018: нарушение критериев эксплуатации = патч-релиз); новая разработка — N1 (`docs/next`) |
 
-## Путь к 1.0
+## Путь к 1.0 (пройден)
 
 Скоуп и критерии — [D-018](DECISIONS.md). Каждый этап заканчивается зелёными тестами, CI и rc-тегом.
 
@@ -24,7 +24,7 @@
 | S3 | Egress: IDN/punycode, IPv6-канонизация и DNS-rebinding (LIM-9, D-021), плоский payload dead-letter подписок | готово, `v1.0.0-rc.5` |
 | S4 | События записи через индекс, а не проход по журналу (LIM-3: история, rewind/diff, revert, проверка фактов задачи); неписуемые kind-ы помечены как зарезервированные | готово, `v1.0.0-rc.6` |
 | S5 | Release-пайплайн `release.yml`: архивы linux/windows/darwin со встроенным UI, SHA256SUMS, образ GHCR amd64+arm64, подпись cosign keyless; `kalita upgrade` проверяет её (D-022) | готово, `v1.0.0-rc.7` |
-| S6 | G14 закрыт в документах, CHANGELOG, тег `v1.0.0` | в работе |
+| S6 | G14 закрыт в документах (D-023), CHANGELOG, тег `v1.0.0` | готово, `v1.0.0` |
 
 ## Что работает
 
@@ -83,11 +83,9 @@ race, python workers, ночной passport. Включён 2026-10-28; прог
 
 ## Открытые решения владельца
 
-1. **G14** — EVENT-STORE §4 «агент подписывает каждую мутацию»: понизить документ или реализовать
-   (рекомендация: понизить сейчас; подписи сейчас — у approvals, definitions, checkpoints).
-2. **Переход RC → 1.0**: пилот ≥ 2 недель на реальном процессе без BLOCKER; egress с реальной системой Y;
-   финальный suite зелёный; явное решение о теге `v1.0.0`.
-3. **Вход в N1 (gate R0, итерация I00)**: KAL-002 первый покупатель/процесс и baseline, KAL-003 PG против
+Решены: G14 — документ понижен (D-023); переход RC → 1.0 без пилота (D-018).
+
+1. **Вход в N1 (gate R0, итерация I00)**: KAL-002 первый покупатель/процесс и baseline, KAL-003 PG против
    Temporal, KAL-004 два источника и профиль развёртывания, KAL-005 утверждение N1 — см.
    [next/delivery/ITERATIONS.md](next/delivery/ITERATIONS.md).
 
