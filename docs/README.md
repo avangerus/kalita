@@ -88,7 +88,7 @@
 
 Продуктовый контракт, HLD, решения N-ADR, LLD N1 (work model, agent protocol, execution, authority,
 API, integrations, views, experience, operations), starter pack Client Delivery и delivery-план.
-Основания — [research/](research/STARTER_PACK_SELECTION.md). Все задачи N1 в статусе `planned`;
+Основания — исследования [выбора starter pack](research/STARTER_PACK_SELECTION.md) и [сценариев 2036](research/future-2036/README.md) (гипотезы, не подтверждение рынка). Все задачи N1 в статусе `planned`;
 структурная проверка — `node docs/next/delivery/validate.cjs`.
 
 ## История

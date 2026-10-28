@@ -53,7 +53,7 @@ Set-Content tmp\en-cleanroom\secrets\egress.json '{"127.0.0.1":"Bearer <destinat
 
 | # | Step | Command / fact | Acceptance |
 |---|---|---|---|
-| 1 | **Build** | `go build -ldflags "-X main.version=$(git describe --tags --always)"` | binary builds; `kalita version` prints `kalita v1.0.0-rc.3`, not `0.1.0-dev` |
+| 1 | **Build** | `go build -ldflags "-X main.version=$(git describe --tags --always)"` | binary builds; `kalita version` prints the `git describe` value (the release tag, or `v1.0.0-rc.2-N-g<sha>` between tags), never `0.1.0-dev` |
 | 2 | **Frameworks integrity** | `py -m pytest workers/builder/test_frameworks.py -q` | 8 passed — every English framework file matches its manifest sha256 (fail-closed loader) |
 | 3 | **Bootstrap identities** | `kalita user add --id admin --role Owner`, `--id clerk --role APClerk`, `--id manager --role Manager`; `kalita agent add --id checker --role APChecker` | 4 tokens issued, only hashes journaled |
 | 4 | **Start the node** | `serve --pack packs/ap --ui-dir web --listen 127.0.0.1:8470 --data-dir tmp\en-cleanroom\data --egress-domains 127.0.0.1` with `KALITA_PG_DSN` (above) and `KALITA_EGRESS_SECRETS=tmp\en-cleanroom\secrets\egress.json` set | `/healthz` = ok; `/readyz` = ready; boot log: "webhook runner: 1 allowed egress domain(s)"; "egress secrets: loaded 1 destination credential(s)" |
