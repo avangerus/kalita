@@ -76,8 +76,8 @@ def test_hostile_llm_cannot_change_enterprise_semantics(monkeypatch):
     # be the deterministic AP model (decisions, not model text)
     _, sid, state = builder.handle_turn("tok", None, "Create an invoice approval system")
     assert state["framework"] == "ap", state
-    _run_discovery(node, sid)
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    _run_discovery(monkeypatch, node, sid)
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     reply, sid, state = builder.handle_turn("tok", sid, "yes, build")
     assert state["phase"] == "modeling", (state, reply)
     reply, sid, state = builder.handle_turn("tok", sid, "yes, propose")

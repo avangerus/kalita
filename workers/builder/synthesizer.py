@@ -53,12 +53,24 @@ def _role_for(text):
     return None
 
 
+def has_amount_mention(text):
+    """True when the text mentions an amount (digits or amount words) — the
+    caller uses it to tell 'no thresholds given' from 'thresholds given but
+    not parseable' (the latter must be re-asked, never silently defaulted)."""
+    low = (text or "").lower()
+    if re.search(r"\d", low):
+        return True
+    return any(w in low for w in ("thousand", "million", "hundred", "k",
+                                  "m", "mln", "rub", "usd", "eur", "amount"))
+
+
 def parse_thresholds(text):
     """Parse 'up to 100k manager, up to 1M CFO, above CEO' into
     [{min, max, role}]. Deterministic segment splitter supporting:
       'up to X <role>' (max=X), 'above/more than/over X <role>' (min=X),
       'X-Y <role>' / 'from X to Y <role>' (min=X, max=Y),
-      'above <role>' with no amount (min=previous max).
+      'above <role>' with no amount (min=previous max),
+      'otherwise/else/instead/everything else <role>' catch-all.
     A segment must carry a role and enough amount info, otherwise [] (the
     caller then asks the LLM / the user — never guesses)."""
     text = (text or "").strip()
@@ -79,6 +91,11 @@ def parse_thresholds(text):
                 raw.append({"min": amounts[0], "max": None, "role": role})
             else:
                 raw.append({"min": None, "max": None, "role": role})  # 'above <role>'
+        elif any(w in low for w in ("otherwise", "else", "instead",
+                                    "everything else", "the rest", "default")) \
+                and len(amounts) == 0:
+            # catch-all: no own amount, fills from the previous tier's max
+            raw.append({"min": None, "max": None, "role": role})
         elif "from" in low and len(amounts) >= 2:
             raw.append({"min": amounts[0], "max": amounts[1], "role": role})
         elif len(amounts) == 2:
@@ -96,6 +113,14 @@ def parse_thresholds(text):
         return (t["min"] if t["min"] is not None else -1,
                 t["max"] if t["max"] is not None else 10 ** 18)
     raw.sort(key=key)
+    # catch-alls ('otherwise the CFO') fill UP TO the next explicit tier's
+    # minimum: 'over 2M the owner, otherwise the CFO' = CFO up to 2M
+    for i, t in enumerate(raw):
+        if t["min"] is None and t["max"] is None:
+            for nxt in raw[i + 1:]:
+                if nxt["min"] is not None:
+                    t["max"] = nxt["min"]
+                    break
     out, prev_max = [], 0
     for t in raw:
         lo = t["min"] if t["min"] is not None else prev_max
@@ -648,7 +673,8 @@ def explain_spec(spec, fragments):
 
     integrations = [
         "Input: system X (inbound connector, least-privilege role) — template workers/connectors/inbound.py",
-        "Output: system Y — InvoiceApproved event → egress; webhook delivery — known gap D-011 (status honestly shown)",
+        "Output: system Y — InvoiceApproved event → egress webhook, delivered by the node runner "
+        "under KALITA_EGRESS_DOMAINS (at-least-once + idempotency key; failures land in the DLQ)",
     ]
 
     return {

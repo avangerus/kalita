@@ -179,12 +179,16 @@ def classify_statement(question_asked, user_text):
     if question_asked:
         return "answer", ""
     low = user_text.lower()
+    # goal words first: "we need to approve invoices" is a GOAL, not a
+    # yes/no decision (Product Skeptic F3 — the audit trail mislabeled the
+    # first statement because 'approve' matched the yes/no heuristic)
+    if any(w in low for w in ("need", "want", "build", "create", "automate",
+                              "design", "handle", "set up", "manage", "track",
+                              "system", "process")):
+        return "goal", ""
     if any(w in low for w in ("yes", "no", "ok", "okay", "sure", "agree",
-                              "accept", "approve", "confirm", "build", "create",
-                              "make", "need", "want", "please", "automate")):
-        return ("decision" if any(w in low for w in ("yes", "no", "ok", "okay",
-                                                     "sure", "agree", "accept",
-                                                     "confirm", "approve")) else "goal", "")
+                              "accept", "approve", "confirm")):
+        return "decision", ""
     return "goal", ""
 
 
@@ -222,6 +226,35 @@ def match_framework(goal_text):
         if fid in FRAMEWORKS and fid in synthesizer.BUILDABLE:
             return fid
     return None
+
+
+def known_but_not_buildable(goal_text):
+    """The framework id the goal's keywords point at when it EXISTS in the
+    registry but has no spec builder (e.g. crm) — so the UNDERSTAND reply can
+    say 'I know about sales/CRM but cannot build it yet' instead of a dead-end
+    'I don't understand' (Product Skeptic F5)."""
+    low = (goal_text or "").lower()
+    best_id, best_n = None, 0
+    for fid, words in _FW_HINTS.items():
+        n = sum(1 for w in words if w in low)
+        if n > best_n:
+            best_id, best_n = fid, n
+    if best_id and best_n > 0 and best_id not in synthesizer.BUILDABLE:
+        return best_id
+    return None
+
+
+def _actor_id(bearer):
+    """The caller's own actor id (audit truth for the session basis). One
+    REST read per session start; falls back to 'operator' when the node does
+    not answer (tests/old nodes) so the basis is never empty."""
+    try:
+        req = urllib.request.Request(NODE + "/api/meta",
+                                     headers={"Authorization": "Bearer " + bearer})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return (json.load(resp) or {}).get("actor_id", "") or ""
+    except Exception:
+        return ""
 
 
 # --- session state (reads journaled records only) ---------------------------
@@ -555,6 +588,25 @@ def _model_phase(bearer, session, session_id, decs, turn):
     mode = (session.get("values") or {}).get("mode", "create")
     dmap = synthesizer.decision_map(decs)
 
+    # F1 (Product Skeptic MAJOR): a threshold answer that MENTIONS amounts but
+    # does not parse must be re-asked — silently defaulting to a single
+    # approver would quietly corrupt the business model. The EXPLAIN summary
+    # renders the parsed ladder before signing, but the operator deserves the
+    # correction loop at the SOURCE of the misparse.
+    if fwid == "ap":
+        raw_th = dmap.get("amount_thresholds", "")
+        if raw_th and synthesizer.has_amount_mention(raw_th) \
+                and not synthesizer.parse_thresholds(raw_th):
+            reply = ("I couldn't parse the approval thresholds from your "
+                     "answer. Please write them like this: "
+                     "'up to 100k — Manager, above — CFO'.")
+            _post_message(bearer, session_id, "expert", "question", reply,
+                          provenance="expert ladder", turn=turn,
+                          topic="amount_thresholds")
+            return reply, session_id, {
+                "phase": "discover", "topic": "amount_thresholds",
+                "class": "required", "framework": fwid}
+
     if mode == "change":
         base = _base_decisions(bearer)
         old_spec = synthesizer.build_spec(fwid, synthesizer.decision_map(base))
@@ -771,6 +823,23 @@ def _handle_turn(bearer, session_id, text):
     if not session_id:
         fwid = match_framework(text)
         framework_label = (fwid + "@" + FRAMEWORKS[fwid]["meta"]["version"]) if fwid else ""
+        if not fwid:
+            known = known_but_not_buildable(text)
+            if known:
+                # F5: say WHAT is known instead of a dead-end (crm has no
+                # spec builder today — ap/itsm do)
+                buildable = ", ".join(
+                    FRAMEWORKS[f]["meta"]["name"]
+                    for f in synthesizer.BUILDABLE
+                    if f in FRAMEWORKS)
+                reply = ("I know about %s, but I cannot build it yet. "
+                         "Today I can build these workflows: %s. "
+                         "Describe one of those goals."
+                         % (FRAMEWORKS[known]["meta"]["name"], buildable))
+                _post_message(bearer, session_id or "", "expert", "question",
+                              reply, provenance="builder (known framework)")
+                return reply, session_id or "", {
+                    "phase": "understand", "framework": ""}
         mode = "create"
         if _is_change_intent(text) and fwid in _LIVE_ENTITY:
             if _live_has(bearer, fwid):
@@ -786,7 +855,9 @@ def _handle_turn(bearer, session_id, text):
             "entity": "DesignSession",
             "values": {"goal": text[:200], "framework": framework_label,
                        "mode": mode},
-            "basis": {"type": "human", "id": "operator"},
+            # F7: the journaled initiator is the REAL actor, not a phantom
+            # 'operator' (fallback only when the node cannot answer / tests)
+            "basis": {"type": "human", "id": _actor_id(bearer) or "operator"},
             # a NEW conversation is a NEW operation: explicit nonce part
             "idempotency_key": _idem("session", text, uuid.uuid4().hex)})
         if is_err:
@@ -830,10 +901,22 @@ def _handle_turn(bearer, session_id, text):
     fwid = (session.get("values") or {}).get("framework", "").split("@")[0]
     fw = FRAMEWORKS.get(fwid) if fwid else None
     if fw is None:
-        # no framework matched: ask the user which domain, honestly
-        reply = ("I don't yet understand which domain this belongs to. "
-                 "Describe the goal in more detail — for example, \"invoice "
-                 "approval\", \"service desk\", or \"sales\".")
+        # no framework matched: ask the user which domain, honestly — and if
+        # the words point at a KNOWN but not buildable framework, say so
+        # instead of a dead-end (Product Skeptic F5)
+        known = known_but_not_buildable(text)
+        if known:
+            buildable = ", ".join(
+                FRAMEWORKS[f]["meta"]["name"]
+                for f in synthesizer.BUILDABLE
+                if f in FRAMEWORKS)
+            reply = ("I know about %s, but I cannot build it yet. "
+                     "Today I can build these workflows: %s."
+                     % (FRAMEWORKS[known]["meta"]["name"], buildable))
+        else:
+            reply = ("I don't yet understand which domain this belongs to. "
+                     "Describe the goal in more detail — for example, \"invoice "
+                     "approval\", \"service desk\", or \"sales\".")
         _post_message(bearer, session_id, "expert", "question", reply,
                       provenance="builder (no framework)", turn=turn)
         return reply, session_id, {"phase": "understand", "framework": ""}

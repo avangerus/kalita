@@ -39,6 +39,31 @@ def test_parse_thresholds_unparseable_returns_empty():
     assert synthesizer.parse_thresholds("") == []
 
 
+def test_parse_thresholds_hedged_english_catch_all():
+    """Product Skeptic F1: ordinary hedged phrasings must parse, not collapse
+    to a single approver."""
+    tiers = synthesizer.parse_thresholds("over 2M the owner, otherwise the CFO")
+    assert tiers == [
+        {"min": 0, "max": 2000000, "role": "CFO"},
+        {"min": 2000000, "max": None, "role": "Owner"},
+    ], tiers
+    tiers = synthesizer.parse_thresholds("up to 100k manager, otherwise CFO")
+    assert tiers == [
+        {"min": 0, "max": 100000, "role": "Manager"},
+        {"min": 100000, "max": None, "role": "CFO"},
+    ], tiers
+    # a change-statement shape is NOT silently defaulted: no role+amount
+    # structure the parser trusts -> [] -> the builder re-asks
+    assert synthesizer.parse_thresholds("actually, make it 200k instead") == []
+
+
+def test_has_amount_mention():
+    assert synthesizer.has_amount_mention("actually, make it 200k instead")
+    assert synthesizer.has_amount_mention("up to one million")
+    assert not synthesizer.has_amount_mention("let the director decide")
+    assert not synthesizer.has_amount_mention("")
+
+
 def test_build_ap_spec_ladder_with_base_tier():
     dmap = {
         "what_is_invoice": "supplier invoices",

@@ -38,7 +38,7 @@ const b64std = {
 // sees a bare engine code as the only answer. The human text leads; the code
 // and the engine's own message stay available as advanced details.
 const ERROR_HINTS = {
-  GUARD_FAILED: 'The data changed after the action was requested — the approval conditions no longer hold.',
+  GUARD_FAILED: 'The approval conditions no longer hold for this record.',
   PERMISSION_DENIED: 'Your role cannot perform this action. Request the needed role from an administrator (Agents → invites) or sign in under a different role.',
   SIGNATURE_REQUIRED: 'An owner signature (passkey) is required. Without it the change will not apply.',
   VALIDATION_ERROR: 'Check the entered data.',
@@ -51,7 +51,14 @@ const ERROR_HINTS = {
 function humanizeError(e) {
   const code = (e && e.code) || 'ERROR';
   const msg = (e && e.message) || String(e);
-  const lead = ERROR_HINTS[code] || '';
+  let lead = ERROR_HINTS[code] || '';
+  // the amount-ladder case is the one guard failure an operator actually
+  // hits: the data did not change, the amount is simply above their tier
+  // (Product Skeptic F2) — say it in business words, keep the raw guard
+  // under Details.
+  if (code === 'GUARD_FAILED' && (msg || '').toLowerCase().includes('amount')) {
+    lead = 'This amount is outside your approval tier — it needs a higher-level approver.';
+  }
   return {
     code,
     text: (lead ? lead + ' ' : '') + (msg && msg !== code ? msg : ''),
@@ -593,7 +600,7 @@ function SearchView() {
         onKeyDown=${e => e.key === 'Enter' && ask()} />
       <button class="btn green" onClick=${ask} disabled=${busy}>${busy ? '…' : 'Ask'}</button>
     </div>
-    ${err && html`<div class="err">${err.message || JSON.stringify(err)}</div>`}
+    ${err && html`<${ErrBox} err=${err} />`}
     ${!res && !busy && !err && html`<div class="muted search-hint">Ask a question to get started — the answer will cite the documents it came from.</div>`}
     ${busy && html`<div class="card" aria-busy="true" aria-live="polite">
       <div class="skel" style="height:20px;width:70%;margin-bottom:12px"></div>
@@ -1016,7 +1023,7 @@ function RecordView({ ent, id, refresh, meta }) {
       <button class="btn ${showHist ? 'on' : ''}" onClick=${() => setShowHist(!showHist)}>${showHist ? 'hide history' : '🕰 History'}</button>
     </div>
     ${note && html`<div class="muted" style="margin:8px 0">${note}</div>`}
-    ${err && html`<div class="err">${err.message} ${err.rule ? `(${err.rule})` : ''} ${err.fix_hint || ''}</div>`}
+    ${err && html`<${ErrBox} err=${err} />`}
     <div class="card">
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 18px">
       ${ent.fields.filter(f => f.readable).map(f => {
@@ -1373,7 +1380,7 @@ const ASK_STATUS_LABELS = {
   abandoned: 'Abandoned',
 };
 
-function AskView({ meta }) {
+function AskView({ meta, level }) {
   const hasBuilder = !!(meta && meta.entities && meta.entities.find(x => x.name === 'DesignSession'));
   const [messages, setMessages] = useState([]);
   const [sessions, setSessions] = useState(null);
@@ -1498,10 +1505,10 @@ function AskView({ meta }) {
         <input value=${text} onInput=${e => setText(e.target.value)} placeholder="What needs to be done?" disabled=${busy} aria-label="Message Kalita" />
         <button class="btn green" type="submit" disabled=${busy || !text.trim()}>Send</button>
       </form>
-      <div class="muted ask-url">
+      ${level !== 'business' && html`<div class="muted ask-url">
         Builder: <input value=${builderUrl} onInput=${e => setBuilderUrl(e.target.value)} style="width:220px" aria-label="Builder worker address" />
         <button class="btn" onClick=${saveUrl}>Save</button>
-      </div>
+      </div>`}
     </div>
     <div class="ask-side">
       <h3>My design sessions</h3>
@@ -1563,7 +1570,7 @@ function App() {
   const canUpload = !!(sourceEnt && sourceEnt.can_create);
   let view = html`<${HomeView} meta=${meta} refresh=${refresh} />`;
   if (parts[0] === 'home') view = html`<${HomeView} meta=${meta} refresh=${refresh} />`;
-  else if (parts[0] === 'ask') view = html`<${AskView} meta=${meta} />`;
+  else if (parts[0] === 'ask') view = html`<${AskView} meta=${meta} level=${level} />`;
   else if (parts[0] === 'company-model') view = html`<${CompanyModelView} meta=${meta} />`;
   else if (parts[0] === 'changes') view = html`<${ChangesView} />`;
   else if (parts[0] === 'integrations') view = html`<${IntegrationsView} />`;

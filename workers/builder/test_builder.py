@@ -127,6 +127,9 @@ def _fresh(monkeypatch, node):
     monkeypatch.setattr(builder, "LLM_URL", "")  # deterministic expert ladder
     monkeypatch.setattr(builder, "mcp_call",
                         lambda bearer, tool, args: node.mcp(bearer, tool, args))
+    # the real _actor_id does a REST /api/meta read per session start; the
+    # fake node has no HTTP surface — pin it so tests never hit the network
+    monkeypatch.setattr(builder, "_actor_id", lambda bearer: "test-actor")
     # per-test isolation: the worker's call-budget caches are module state
     monkeypatch.setattr(builder, "_SYNC_CACHE", {})
     monkeypatch.setattr(builder, "_BASE_CACHE", {})
@@ -184,12 +187,12 @@ def test_answer_becomes_accepted_decision_fact_does_not(monkeypatch):
     topic = state1["topic"]
 
     # a plain fact (no open question) must NOT become a decision
-    builder.classify_statement = lambda q, text: ("fact", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("fact", ""))
     _, _, _ = builder.handle_turn("tok", session_id, "All invoices are approved by the director")
     assert not node.records.get("DesignDecision", {}), "a bare fact must not become a decision"
 
     # an answer to the open question DOES become an accepted decision
-    builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("answer", ""))
     _, _, state2 = builder.handle_turn("tok", session_id, "Approved by the director")
     decs = node.records.get("DesignDecision", {}).values()
     assert any(d["topic"] == topic and d["status"] == "accepted" for d in decs)
@@ -207,7 +210,7 @@ def test_no_framework_asks_honestly(monkeypatch):
 def test_discovery_completion_is_labeled_not_applied(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
     _, session_id, state1 = builder.handle_turn("tok", None, "Create an invoice approval system")
-    _run_discovery(node, session_id)
+    _run_discovery(monkeypatch, node, session_id)
     last_q = [m for m in node.records["SessionMessage"].values()
               if m["kind"] == "question"][-1]
     assert last_q["topic"] == "build_confirm"
@@ -229,7 +232,7 @@ def test_session_is_scoped_by_mcp_not_by_worker(monkeypatch):
     assert after == before + 2, "each turn journals user + expert messages"
 
 
-def _run_discovery(node, session_id):
+def _run_discovery(monkeypatch, node, session_id, answers_override=None):
     """Answer every required/important question deterministically; STOP when
     the build_confirm question appears (its answer belongs to the test)."""
     answers = {
@@ -240,6 +243,8 @@ def _run_discovery(node, session_id):
         "po_matching": "no",
         "org_roles": "there are managers and a CFO",
     }
+    if answers_override:
+        answers.update(answers_override)
     state = None
     for _ in range(8):
         last_q = [m for m in node.records["SessionMessage"].values()
@@ -247,7 +252,7 @@ def _run_discovery(node, session_id):
         topic = last_q[-1]["topic"] if last_q else ""
         if topic == "build_confirm":
             break  # do not consume the build question here
-        builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
+        monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("answer", ""))
         _, _, state = builder.handle_turn(
             "tok", session_id, answers.get(topic, "yes, let's do that"))
     return state
@@ -263,13 +268,13 @@ def test_full_vertical_slice_model_then_propose(monkeypatch):
     assert state1["framework"] == "ap"
 
     # answer discovery until the build question
-    _run_discovery(node, session_id)
+    _run_discovery(monkeypatch, node, session_id)
     last_q = [m for m in node.records["SessionMessage"].values()
               if m["kind"] == "question"][-1]
     assert last_q["topic"] == "build_confirm"
 
     # CONFIRM -> MODEL phase
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     reply, session_id, state = builder.handle_turn("tok", session_id, "yes, build")
     assert state["phase"] == "modeling"
     kinds = [m["kind"] for m in node.records["SessionMessage"].values()]
@@ -281,7 +286,7 @@ def test_full_vertical_slice_model_then_propose(monkeypatch):
     assert sess["status"] == "modeling"
 
     # second CONFIRM -> APPROVE phase (parked, never applied)
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     reply, session_id, state = builder.handle_turn("tok", session_id, "yes, propose")
     assert state["phase"] == "proposed"
     assert state["proposal_id"] == "prop-1"
@@ -300,7 +305,7 @@ def test_full_vertical_slice_model_then_propose(monkeypatch):
 def test_model_phase_validation_failure_never_proposes(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
     _, session_id, _ = builder.handle_turn("tok", None, "Create an invoice approval system")
-    _run_discovery(node, session_id)
+    _run_discovery(monkeypatch, node, session_id)
     # force the fake validator to fail
     orig = node.mcp
 
@@ -310,7 +315,7 @@ def test_model_phase_validation_failure_never_proposes(monkeypatch):
         return orig(bearer, tool, args)
 
     node.mcp = failing
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     reply, session_id, state = builder.handle_turn("tok", session_id, "yes, build")
     assert state["phase"] == "validate_failed"
     assert "fails" in reply or "validation" in reply
@@ -321,11 +326,48 @@ def test_model_phase_validation_failure_never_proposes(monkeypatch):
 def test_rejecting_build_confirm_changes_nothing(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
     _, session_id, _ = builder.handle_turn("tok", None, "Create an invoice approval system")
-    _run_discovery(node, session_id)
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    _run_discovery(monkeypatch, node, session_id)
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     reply, session_id, state = builder.handle_turn("tok", session_id, "no, not yet")
     assert "won't change anything" in reply
     assert not any(tool in ("compose_pack", "propose_change") for tool, _, _ in node.calls)
+
+
+def test_threshold_misparse_is_reasked_not_defaulted(monkeypatch):
+    """Product Skeptic F1: an amount-bearing threshold answer that does not
+    parse must be RE-ASKED — never silently defaulted to a single approver."""
+    node = _fresh(monkeypatch, FakeNode())
+    _, session_id, _ = builder.handle_turn("tok", None, "Create an invoice approval system")
+    _run_discovery(monkeypatch, node, session_id, {"amount_thresholds": "actually, make it 200k instead"})
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
+    reply, session_id, state = builder.handle_turn("tok", session_id, "yes, build")
+    assert state["phase"] == "discover" and state["topic"] == "amount_thresholds", state
+    assert "couldn't parse" in reply.lower(), reply
+    assert not any(tool == "compose_pack" for tool, _, _ in node.calls), \
+        "a misparsed ladder must not reach the assembler"
+    # the corrected answer goes back through the ladder and models cleanly
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("answer", ""))
+    _, session_id, state = builder.handle_turn("tok", session_id,
+                                               "up to 100k manager, above CFO")
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
+    _, session_id, state = builder.handle_turn("tok", session_id, "yes, build")
+    assert state["phase"] == "modeling", state
+
+
+def test_goal_with_approve_word_classifies_as_goal(monkeypatch):
+    """Product Skeptic F3: 'we need to approve supplier invoices' is a GOAL,
+    not a decision — the audit trail's first statement must not be mislabeled."""
+    assert builder.classify_statement(None,
+        "We need to approve supplier invoices before payment") == ("goal", "")
+
+
+def test_known_but_not_buildable_framework_says_so(monkeypatch):
+    """Product Skeptic F5: a CRM goal must answer 'I know about Sales CRM but
+    cannot build it yet', not a dead-end 'I don't understand'."""
+    node = _fresh(monkeypatch, FakeNode())
+    reply, _, state = builder.handle_turn("tok", None, "Build me a CRM for leads and deals")
+    assert state["phase"] == "understand", state
+    assert "Sales CRM" in reply and "cannot build" in reply, reply
 
 
 def test_propose_ok_false_is_a_rejection_not_a_signature_wait(monkeypatch):
@@ -336,8 +378,8 @@ def test_propose_ok_false_is_a_rejection_not_a_signature_wait(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
     node.reject_proposal = True
     _, session_id, _ = builder.handle_turn("tok", None, "Create an invoice approval system")
-    _run_discovery(node, session_id)
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    _run_discovery(monkeypatch, node, session_id)
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     _, session_id, _ = builder.handle_turn("tok", session_id, "yes, build")
     assert node.records["DesignSession"][session_id]["status"] == "modeling"
     reply, session_id, state = builder.handle_turn("tok", session_id, "yes, propose")
@@ -351,13 +393,13 @@ def test_propose_ok_false_is_a_rejection_not_a_signature_wait(monkeypatch):
         "the session must not be marked proposed when the journal has no proposal"
 
 
-def _build_live_model(node):
+def _build_live_model(monkeypatch, node):
     """Drive a full create flow to a proposed session, then simulate the human
     decision (engine applied) — the precondition for a conversational CHANGE."""
     _, session_id, state1 = builder.handle_turn("tok", None, "Create an invoice approval system")
     assert state1["framework"] == "ap"
-    _run_discovery(node, session_id)
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    _run_discovery(monkeypatch, node, session_id)
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     _, session_id, state = builder.handle_turn("tok", session_id, "yes, build")
     assert state["phase"] == "modeling", state
     _, session_id, state = builder.handle_turn("tok", session_id, "yes, propose")
@@ -369,8 +411,8 @@ def _build_live_model(node):
 
 def test_change_session_asks_only_for_the_new_rule(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
-    _build_live_model(node)
-    builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
+    _build_live_model(monkeypatch, node)
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("goal", ""))
     reply, sid, state = builder.handle_turn(
         "tok", None, "Now invoices above 2 million must additionally be approved by the owner")
     assert state["framework"] == "ap"
@@ -382,17 +424,17 @@ def test_change_session_asks_only_for_the_new_rule(monkeypatch):
 
 def test_change_model_phase_business_diff_and_impact(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
-    _build_live_model(node)
+    _build_live_model(monkeypatch, node)
     node.live_invoices = [{"id": "inv-1", "values": {"amount": 2500000}}]
-    builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("goal", ""))
     _, sid, state = builder.handle_turn(
         "tok", None, "Now invoices above 2M must be approved by the owner")
     assert state["framework"] == "ap"
-    builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("answer", ""))
     _, sid, state = builder.handle_turn(
         "tok", sid, "up to 100k manager, up to 1M CFO, up to 2M CEO, above owner")
     assert state["phase"] == "discover"
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     reply, sid, state = builder.handle_turn("tok", sid, "yes, build")
     assert state["phase"] == "modeling", state
     summaries = [m["body"] for m in node.records["SessionMessage"].values()
@@ -408,12 +450,12 @@ def test_change_model_phase_business_diff_and_impact(monkeypatch):
 
 def test_change_approve_proposes_merged_sources(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
-    _build_live_model(node)
-    builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
+    _build_live_model(monkeypatch, node)
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("goal", ""))
     _, sid, _ = builder.handle_turn("tok", None, "Now invoices above 2M are approved by the owner")
-    builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("answer", ""))
     _, sid, _ = builder.handle_turn("tok", sid, "up to 1M CFO, above owner")
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     _, sid, _ = builder.handle_turn("tok", sid, "yes, build")
     reply, sid, state = builder.handle_turn("tok", sid, "yes, propose")
     assert state["phase"] == "proposed", (state, reply)
@@ -426,7 +468,7 @@ def test_change_approve_proposes_merged_sources(monkeypatch):
 def test_change_without_live_model_answers_honestly(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
     node.has_ap_model = False
-    builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("goal", ""))
     reply, sid, state = builder.handle_turn("tok", None, "Now invoices are approved by the CFO")
     assert sid == ""
     assert "CHANGE" in reply or "create" in reply
@@ -434,13 +476,13 @@ def test_change_without_live_model_answers_honestly(monkeypatch):
 
 def test_change_impact_honest_when_caller_cannot_read(monkeypatch):
     node = _fresh(monkeypatch, FakeNode())
-    _build_live_model(node)
+    _build_live_model(monkeypatch, node)
     node.deny_invoices = True  # the operator cannot read invoices
-    builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("goal", ""))
     _, sid, _ = builder.handle_turn("tok", None, "Now invoices above 2M are approved by the owner")
-    builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("answer", ""))
     _, sid, _ = builder.handle_turn("tok", sid, "up to 1M CFO, above owner")
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     reply, sid, state = builder.handle_turn("tok", sid, "yes, build")
     assert state["phase"] == "modeling"
     assert "not calculated" in reply and "insufficient rights" in reply, reply
@@ -451,25 +493,25 @@ def test_second_change_preserves_original_options(monkeypatch):
     DELTA. The diff base must UNION all applied sessions' decisions, so a
     second change keeps the original build's optional elements (Contract)."""
     node = _fresh(monkeypatch, FakeNode())
-    _build_live_model(node)  # build session: contract_matching = yes, applied
+    _build_live_model(monkeypatch, node)  # build session: contract_matching = yes, applied
 
     # first change: new thresholds, apply it
-    builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("goal", ""))
     _, sid, _ = builder.handle_turn("tok", None, "Now invoices above 2M are approved by the owner")
-    builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("answer", ""))
     _, sid, _ = builder.handle_turn("tok", sid, "up to 100k manager, up to 1M CFO, up to 2M CEO, above owner")
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     _, sid, _ = builder.handle_turn("tok", sid, "yes, build")
     _, sid, state = builder.handle_turn("tok", sid, "yes, propose")
     assert state["phase"] == "proposed"
     node.proposal_status = {"status": "applied", "def_version": 3}
 
     # second change: the UNION base must keep Contract
-    builder.classify_statement = lambda q, text: ("goal", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("goal", ""))
     _, sid2, _ = builder.handle_turn("tok", None, "Now invoices up to 50k are approved by the manager")
-    builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("answer", ""))
     _, sid2, _ = builder.handle_turn("tok", sid2, "up to 50k manager, up to 1M CFO, up to 2M CEO, above owner")
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     reply, sid2, state = builder.handle_turn("tok", sid2, "yes, build")
     assert state["phase"] == "modeling", (state, reply)
     names = [e["name"] for e in node.composed.get("entities", [])]
@@ -501,10 +543,10 @@ def test_itsm_vertical_slice_e2e(monkeypatch):
         topic = last_q[-1]["topic"] if last_q else ""
         if topic == "build_confirm":
             break
-        builder.classify_statement = lambda q, text: ("answer", "")  # type: ignore[assignment]
+        monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("answer", ""))
         _, sid, state = builder.handle_turn("tok", sid, answers.get(topic, "yes"))
 
-    builder.classify_statement = lambda q, text: ("decision", "")  # type: ignore[assignment]
+    monkeypatch.setattr(builder, "classify_statement", lambda q, text: ("decision", ""))
     reply, sid, state = builder.handle_turn("tok", sid, "yes, build")
     assert state["phase"] == "modeling", (state, reply)
     summaries = [m["body"] for m in node.records["SessionMessage"].values()
