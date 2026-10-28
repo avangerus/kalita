@@ -47,7 +47,7 @@
 | 10 | Journal tampering | DB access | SHA-256 chain + PG trigger + checkpoint подписи | P2 |
 | 11 | Replay non-determinism | — | канонический JSON + golden replay | P3 |
 | 12 | Webhook spoofing (ingress) | сеть | shared secret + worker identity | P2 |
-| 13 | SSRF (egress) | auth-воркер | KALITA_EGRESS_DOMAINS fail-closed + no-redirect | P1 KNOWN (LIM-9 IDN/DNS) |
+| 13 | SSRF (egress) | auth-воркер | KALITA_EGRESS_DOMAINS fail-closed + no-redirect; точное сравнение канонических хостов (IPv6 тоже), IDN только в punycode, resolve-and-pin без приватных адресов по умолчанию (D-021) | P2 |
 | 14 | Credential leakage | файл/OS | 0600-check Loader, <NAME>_FILE, без логов | P3 |
 | 15 | File upload abuse | auth-запрос | content-addressed SHA256, без execution | P2 |
 | 16 | Path traversal | auth-запрос | hash-only lookup, нет user-path | P3 |
@@ -64,5 +64,5 @@
 
 **SECURITY REVIEW: RELEASE CANDIDATE ACCEPT** (staff-only pilot). Новых P0/P1 нет;
 все остаточные P1 — задокументированы как KNOWN LIMITATION / accepted exception
-(SEC-2, SEC-5, LIM-9, SEC-4, LIM-6). Pre-pilot требования (не блокеры): SEC-4 (G8 gate),
+(SEC-2, SEC-5, SEC-4, LIM-6; LIM-9 закрыт D-021). Pre-pilot требования (не блокеры): SEC-4 (G8 gate),
 операторская дисциплина (TLS, dev-auth off, 0600 secrets).

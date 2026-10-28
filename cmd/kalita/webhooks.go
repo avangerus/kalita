@@ -56,6 +56,9 @@ func (d *webhookDeliveryError) Error() string {
 
 // retryable classifies the failure per the release contract.
 func (d *webhookDeliveryError) retryable() bool {
+	if d.category == "private_target" {
+		return false // a policy refusal does not change on retry
+	}
 	if d.status == 0 {
 		return true // network/timeout
 	}
@@ -87,22 +90,39 @@ func parseEgressDomains(raw string) []string {
 	var out []string
 	for _, d := range strings.Split(raw, ",") {
 		d = normalizeHost(d)
-		if d != "" {
-			out = append(out, d)
+		if d == "" {
+			continue
 		}
+		if !isASCIIHost(d) {
+			log.Printf("egress: ignoring non-ASCII allowlist entry %q — list its punycode (xn--) form", d)
+			continue
+		}
+		out = append(out, d)
 	}
 	return out
 }
 
 // normalizeHost normalizes a host for whitelist comparison (Cycle-B1):
-// lowercase, port stripped, trailing dot stripped, empty on garbage.
+// lowercase, port stripped, trailing dot stripped, IP addresses in canonical
+// form (bare or bracketed IPv6 alike), empty on garbage (incl. IPv6 zones).
 func normalizeHost(hostport string) string {
 	h := strings.TrimSpace(strings.ToLower(hostport))
 	if h == "" {
 		return ""
 	}
-	if u, err := url.Parse("//" + h); err == nil {
-		h = u.Hostname()
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.String()
+	}
+	u, err := url.Parse("//" + h)
+	if err != nil {
+		return ""
+	}
+	h = u.Hostname()
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.String()
+	}
+	if strings.ContainsAny(h, ":%") {
+		return ""
 	}
 	return strings.TrimSuffix(h, ".")
 }
@@ -122,6 +142,9 @@ func allowed(domains []string, rawURL string) bool {
 		return false // credentials belong in KALITA_EGRESS_SECRETS, never the URL
 	}
 	host := normalizeHost(u.Hostname())
+	if host == "" || !isASCIIHost(host) {
+		return false // IDN hosts are matched only in their punycode form
+	}
 	for _, d := range domains {
 		if d == host {
 			return true
@@ -149,16 +172,35 @@ func webhookHostOf(raw string) string {
 	return normalizeHost(u.Hostname())
 }
 
-// deliverOnce posts payload to rawURL with a timeout; the client never follows
-// a redirect (a redirect could escape the whitelist — the FIRST url is the only
+// deliverOnce is the production deliverer under the default egress policy.
+var deliverOnce = newEgressDeliverer(egressPolicy{proxies: envProxies()})
+
+// newEgressDeliverer returns a deliverer that posts payload with a timeout over
+// connections vetted by policy (egress_dial.go). The client never follows a
+// redirect (a redirect could escape the whitelist — the FIRST url is the only
 // one the allowlist authorized).
-func deliverOnce(ctx context.Context, rawURL string, payload []byte, bearer string) *webhookDeliveryError {
+func newEgressDeliverer(policy egressPolicy) webhookDeliverFunc {
 	client := &http.Client{
 		Timeout: webhookTimeout,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           policy.dialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          16,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: time.Second,
+		},
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse // never follow — redirects bypass the whitelist
 		},
 	}
+	return func(ctx context.Context, rawURL string, payload []byte, bearer string) *webhookDeliveryError {
+		return deliverWith(ctx, client, rawURL, payload, bearer)
+	}
+}
+
+func deliverWith(ctx context.Context, client *http.Client, rawURL string, payload []byte, bearer string) *webhookDeliveryError {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(payload))
 	if err != nil {
 		return &webhookDeliveryError{category: "payload", err: err}
@@ -170,7 +212,9 @@ func deliverOnce(ctx context.Context, rawURL string, payload []byte, bearer stri
 	resp, err := client.Do(req)
 	if err != nil {
 		cat := "network"
-		if ctx.Err() != nil {
+		if isEgressRefusal(err) {
+			cat = "private_target"
+		} else if ctx.Err() != nil {
 			cat = "timeout"
 		}
 		return &webhookDeliveryError{category: cat, err: err}
@@ -215,6 +259,9 @@ func runWebhookDeliveries(ctx context.Context, eng *engine.Engine, domains []str
 			if u, uerr := url.Parse(rawURL); uerr == nil && u.User != nil {
 				cat = "url_credentials"
 				reason = "webhook URLs must not carry credentials (userinfo) — inject them via KALITA_EGRESS_SECRETS"
+			} else if uerr == nil && !isASCIIHost(u.Hostname()) {
+				cat = "idn_host"
+				reason = "non-ASCII (IDN) webhook host — use its punycode (xn--) form in the URL and in KALITA_EGRESS_DOMAINS"
 			}
 			log.Printf("webhook: %s denied — %q outside KALITA_EGRESS_DOMAINS", t.ID, rawURL)
 			_ = eng.RecordWebhookAttempt(ctx, t.ID, 1, "failed", cat,

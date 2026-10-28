@@ -443,6 +443,7 @@ func serve(args []string) {
 	listen := fs.String("listen", "127.0.0.1:8080", "listen address")
 	approver := fs.String("approver", "Owner", "role whose human signature applies definition changes")
 	egressDomains := fs.String("egress-domains", os.Getenv("KALITA_EGRESS_DOMAINS"), "comma-separated allowlist of hosts the node's webhook runner may deliver to (KALITA_EGRESS_DOMAINS); empty = no outbound webhooks (fail-closed, Cycle-B1)")
+	egressAllowPrivate := fs.Bool("egress-allow-private", os.Getenv("KALITA_EGRESS_ALLOW_PRIVATE") == "1", "let allowlisted webhook domains resolve to private/link-local addresses (KALITA_EGRESS_ALLOW_PRIVATE=1); off = only public and loopback addresses (LIM-9)")
 	tlsCert := fs.String("tls-cert", "", "TLS certificate file")
 	tlsKey := fs.String("tls-key", "", "TLS key file")
 	dataDir := fs.String("data-dir", "kalita-data", "node key directory (node.key/node.pub)")
@@ -681,6 +682,10 @@ func serve(args []string) {
 		if !secretsConfigured {
 			log.Print("WARNING: webhook egress is enabled without KALITA_EGRESS_SECRETS — deliveries will be UNAUTHENTICATED (fine for an internal mock, not for production destinations)")
 		}
+		deliver := newEgressDeliverer(egressPolicy{allowPrivate: *egressAllowPrivate, proxies: envProxies()})
+		if *egressAllowPrivate {
+			log.Print("webhook runner: private network targets ALLOWED (KALITA_EGRESS_ALLOW_PRIVATE)")
+		}
 		go func() {
 			tick := time.NewTicker(10 * time.Second)
 			defer tick.Stop()
@@ -689,7 +694,7 @@ func serve(args []string) {
 				case <-ctx.Done():
 					return
 				case <-tick.C:
-					n := runWebhookDeliveries(context.Background(), eng, webhookDomains, webhookSecrets, secretsConfigured, deliverOnce)
+					n := runWebhookDeliveries(context.Background(), eng, webhookDomains, webhookSecrets, secretsConfigured, deliver)
 					if n > 0 {
 						log.Printf("webhook runner: settled %d task(s)", n)
 					}

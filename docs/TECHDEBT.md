@@ -117,15 +117,10 @@ severity: **P0** блокирует прод · **P1** мешает заявле
 
 ## Ядро: подписки (LLD-21, PR-1 построен 2026-07-06)
 
-- **P1 dead-letter не подключаем к реальному узлу как есть.**
-  `workers/lib/subscribe.py`'s `DeadLetter.report` эмитит `subscription.failed`
-  с ВЛОЖЕННЫМ payload `{error:{code,message}}`, а схема паковых событий
-  допускает только скаляры+ref (LLD-01 §4.1); плюс событие должно быть
-  объявлено и роль воркера должна держать emit-грант. Сегодня безопасно
-  (bridge работает с dead_letter=None), но PR-4 (подключение dead-letter)
-  обязан: (a) уплощить payload (error_code/error_message строками) или
-  (b) завести core-kind для subscription.failed. НЕ подключать как есть —
-  упадёт валидацией на первом же ядовитом факте. (2026-07-06, ревью Fable PR-1)
+- **P2 dead-letter подписок ещё не подключён к узлу.** Payload
+  `subscription.failed` уже плоский (`error_code`/`error_message`, 2026-10-28).
+  При подключении (PR-4) событие нужно объявить в паке и выдать роли воркера
+  emit-грант. Сегодня bridge работает с `dead_letter=None` (федерация — LIM-6).
 
 ## Ядро: journal read / outbox (LLD-08)
 

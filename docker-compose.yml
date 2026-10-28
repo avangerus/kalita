@@ -36,6 +36,7 @@ services:
       KALITA_TLS: ${KALITA_TLS:-self-signed}   # self-contained HTTPS; empty + --insecure-http for proxy mode
       KALITA_TLS_CN: ${KALITA_TLS_CN:-localhost}
       KALITA_EGRESS_DOMAINS: ${KALITA_EGRESS_DOMAINS:-}   # webhook runner allowlist (empty = disabled)
+      KALITA_EGRESS_ALLOW_PRIVATE: ${KALITA_EGRESS_ALLOW_PRIVATE:-}   # 1 = allowlisted names may resolve to private networks
       # Ask Kalita worker URL advertised to the UI (same host, builder port;
       # put a TLS proxy in front of :8400 in production)
       KALITA_BUILDER_URL: ${KALITA_BUILDER_URL:-}

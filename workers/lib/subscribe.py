@@ -221,10 +221,13 @@ class DeadLetter:
         self.client = client
 
     def report(self, subscription_id, fact, error):
+        # flat scalars only: pack event payloads admit scalars and refs,
+        # never nested objects (LLD-01 §4.1)
         payload = {
             "subscription_id": subscription_id,
             "source_seq": fact["seq"],
-            "error": {"code": getattr(error, "code", "ERROR"), "message": str(error)},
+            "error_code": str(getattr(error, "code", "ERROR")),
+            "error_message": str(error),
         }
         key = f"{subscription_id}|{fact['seq']}|subscription.failed"
         self.client.call("emit_event", {

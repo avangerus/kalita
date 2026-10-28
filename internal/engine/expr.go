@@ -379,7 +379,13 @@ func (n *cmpNode) eval(c evalCtx) (bool, bool) {
 			return true, true
 		}
 		rv, _ := resolveOperand(n.right, c)
-		return sameValue(cur, rv), true
+		if sameValue(cur, rv) {
+			return true, true
+		}
+		// `amount changed to 5` reads a money amount like `amount = 5` does
+		cf, ok1 := toFloat(cur)
+		rf, ok2 := toFloat(rv)
+		return ok1 && ok2 && cf == rf, true
 	}
 	lv, lok := resolveOperand(n.left, c)
 	switch n.op {

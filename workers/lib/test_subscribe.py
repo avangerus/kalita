@@ -236,7 +236,8 @@ def test_subscribe_governed_dead_letters():
     assert call["name"] == "subscription.failed"
     assert call["payload"]["subscription_id"] == "sub-3"
     assert call["payload"]["source_seq"] == 5
-    assert call["payload"]["error"]["code"] == "PERMISSION_DENIED"
+    assert call["payload"]["error_code"] == "PERMISSION_DENIED"
+    assert all(not isinstance(v, (dict, list)) for v in call["payload"].values()),         "a pack event payload must be flat scalars (LLD-01 §4.1)"
     assert call["idempotency_key"] == "sub-3|5|subscription.failed"
 
 

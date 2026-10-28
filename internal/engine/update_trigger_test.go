@@ -198,3 +198,11 @@ roles:
 	_, err := New(ctx, model, eventstore.NewMemStore(nil))
 	wantCode(t, err, CodeValidation)
 }
+
+func TestChangedToReadsMoneyAmount(t *testing.T) {
+	c := evalCtx{values: map[string]any{"amount": map[string]any{"amount": 5.0, "currency": "EUR"}},
+		prev: map[string]any{"amount": map[string]any{"amount": 3.0, "currency": "EUR"}}}
+	if !evalWhere("amount changed to 5", c) || evalWhere("amount changed to 3", c) {
+		t.Fatal("`changed to` on money must compare the amount, like `=`")
+	}
+}

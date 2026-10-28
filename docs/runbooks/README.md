@@ -89,6 +89,9 @@ kalita egress-report --since 7d                   # что ушло за пер�
 # egress-report включает доставки webhook-раннера ноды (Cycle-B1): их «whitelist» —
 # KALITA_EGRESS_DOMAINS; доставка вне allowlist не выполняется (fail-closed), а в
 # отчёте видна как аномалия только если allowlist был настроен иначе.
+# Имя из allowlist резолвится один раз на соединение, соединение идёт на проверенный
+# адрес: приватные/link-local адреса — только с KALITA_EGRESS_ALLOW_PRIVATE=1
+# (квитанция `private_target`), IDN-хосты — только в punycode (квитанция `idn_host`).
 ```
 
 **Критерий успеха:** `verify` печатает «checkpoints ok: history is provably unrewritten».
