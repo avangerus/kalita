@@ -41,7 +41,7 @@
 | не прогонялось локально | `-race` (нужен cgo; гоняется в CI на Linux), passport-бенчи, браузерные тесты UI (их нет) |
 
 CI (`.github/workflows/ci.yml`): test (vet, gofmt, build, гейт, тесты на PG, bench smoke, golden, govulncheck),
-race, python workers, ночной passport.
+race, python workers, ночной passport. Включён 2026-10-28; прогон на `3285908` — все 4 джоба зелёные.
 
 ## Известные ограничения (выпускается с ними)
 
