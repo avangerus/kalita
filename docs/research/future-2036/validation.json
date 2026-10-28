@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-07",
+  "method": "Conditional qualitative scenario analysis",
+  "counts": {
+    "companies": 36,
+    "worlds": 6,
+    "variations": 216
+  },
+  "strict_json": true,
+  "required_fields": true,
+  "unique_case_ids": true,
+  "unique_variant_texts": 216,
+  "individual_variants_per_case": 6,
+  "browser": {
+    "engine": "isolated headless Chromium",
+    "selections_checked": 36,
+    "exact_variant_matches": 216,
+    "page_errors": [],
+    "viewports": [
+      {
+        "width": 320,
+        "documentWidth": 320,
+        "rows": 6
+      },
+      {
+        "width": 736,
+        "documentWidth": 736,
+        "rows": 6
+      },
+      {
+        "width": 1024,
+        "documentWidth": 1024,
+        "rows": 6
+      }
+    ],
+    "style_limit": "Approximation of conversation host styles; actual host renderer not tested",
+    "targeted_repair_checks": 2
+  },
+  "review": {
+    "status": "Complete: no unresolved material findings",
+    "reviewer": "Independent Astra/high",
+    "reviewed_artifacts": [
+      "SYNTHESIS.md",
+      "portfolio.json",
+      "boundaries.json",
+      "creation-and-delegation.json"
+    ],
+    "initial_findings": [
+      "Missing individual variants in boundaries source",
+      "Operations-exception bias",
+      "Need incumbent comparison and stop condition"
+    ],
+    "repairs": [
+      "60 individual boundary variants added",
+      "4 creation/delegation scenarios with24variants added",
+      "Goal/contract/execution distinction and competitor baseline added"
+    ],
+    "final_editorial_repairs": [
+      "Qualified incumbent portability claims in two variants"
+    ],
+    "limit": "Conditional reasoning only; no market validation or world probabilities established"
+  }
+}

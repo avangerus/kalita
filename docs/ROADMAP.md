@@ -1,5 +1,8 @@
 # Kalita — build order
 
+> **Target baseline N1, 2026-10-07:** Этот build order сохранён как история. Активный план N1: next/delivery/ROADMAP.md, RELEASES.md, ITERATIONS.md и TASKS.json. Gate labels не версии существующего продукта. Для новой разработки при конфликте применяется [карта N1](next/README.md) и её [решения](next/DECISIONS.md). Текст ниже сохранён как предшествующая спецификация; implementation/release evidence не переобозначается.
+
+
 **The principle: a loop, not a waterfall.** Build bottom-up, but treat the
 functional packs as the *discovery engine* for what the core and the language
 still lack. You cannot design the kernel to completeness in a vacuum — the market

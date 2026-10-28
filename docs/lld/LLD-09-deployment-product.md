@@ -1,5 +1,8 @@
 # LLD-09 — deployment-продукт: shadow-режим, «неделя в цифрах», egress-отчёт (N10)
 
+> **Target baseline N1, 2026-10-07:** Кооперативный worker egress не является enforced boundary N1. Trusted adapter/dev маркируются отдельно; enforced executor/broker и полный lifecycle описаны в N-ADR-06/13 и next/lld/OPERATIONS.md. Для новой разработки при конфликте применяется [карта N1](../next/README.md) и её [решения](../next/DECISIONS.md). Текст ниже сохранён как предшествующая спецификация; implementation/release evidence не переобозначается.
+
+
 Дата: 2026-07-02. Автор решений: Fable. Реализация: Sonnet 5 по документу.
 Родитель: RELEASE-1.0 §N10, HLD-V1 (I-1..I-5, choke point I-2), T11 (причины
 покупать). Зависимости: LLD-01 (op-скобки, event.emitted, идемпотентность),

@@ -1,0 +1,30 @@
+{
+  "baseline": "N1",
+  "checked_at": "2026-10-28T10:55:48.320Z",
+  "result": "passed",
+  "scope": "Documentation structure and catalog consistency only; no runtime tests or future capability proof",
+  "counts": {
+    "markdown_files": 22,
+    "local_links": 374,
+    "anchors": 80,
+    "tasks": 80,
+    "iterations": 16,
+    "releases": 8,
+    "invariants": 12
+  },
+  "checks": [
+    "Required catalog fields/statuses",
+    "Unique IDs",
+    "Release/iteration/task dependency DAG",
+    "Iteration/release consistency",
+    "Invariant task coverage",
+    "Local links and referenced anchors",
+    "Known task references",
+    "Task Markdown matches JSON deliverables/acceptance/verification"
+  ],
+  "tasks_json_sha256": "f25088eb2b613a71c6b7e424877993d5f439d309ab4ef3ffac980dd9022224c0",
+  "status_counts": {
+    "planned": 80
+  },
+  "errors": []
+}

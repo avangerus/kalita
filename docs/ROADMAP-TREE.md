@@ -1,5 +1,8 @@
 # Kalita Feature Tree (recorded 2026-06-13)
 
+> **Target baseline N1, 2026-10-07:** Это историческое дерево возможностей. Активные scoped release gates, условия и tasks находятся в next/delivery; старые сроки/порядок не являются текущим обязательством. Для новой разработки при конфликте применяется [карта N1](next/README.md) и её [решения](next/DECISIONS.md). Текст ниже сохранён как предшествующая спецификация; implementation/release evidence не переобозначается.
+
+
 Priority rule: first everything the live pilot needs (the Bitrix acquaintance),
 then public growth, then strategic layers.
 

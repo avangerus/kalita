@@ -1,5 +1,8 @@
 # LLD-14 — UI как данные: дерево из закрытого реестра, headless/visual, инвариант «ноль HTML от агента»
 
+> **Target baseline N1, 2026-10-07:** Для N1 агент может создавать runtime ViewSpec композицию. Trusted renderer/catalog и no arbitrary agent HTML/JS сохраняются; blanket запрет runtime composition заменён N-ADR-10 и next/lld/VIEWS.md. Для новой разработки при конфликте применяется [карта N1](../next/README.md) и её [решения](../next/DECISIONS.md). Текст ниже сохранён как предшествующая спецификация; implementation/release evidence не переобозначается.
+
+
 Дата: 2026-07-02. Автор решений: Fable. Реализация: Sonnet 5 по документу.
 Родитель: HLD-V1 §H7.1 (Product Kit UI), H4 (периметр — тот же принцип «данные ≠
 команды», применённый к презентации). Надстройка над LLD-05 (реестр компонентов):

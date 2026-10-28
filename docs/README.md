@@ -1,18 +1,24 @@
 # docs/ — карта проекта kalita
 
-Индекс всех документов. Обновлён: 2026-07-05.
+Индекс документов. Обновлён: 2026-10-07.
 
-## Как читать (порядок входа)
+## Активная целевая архитектура N1
+
+Новая разработка: [карта N1](next/README.md) → [продуктовый контракт](next/PRODUCT_CONTRACT.md) → [HLD](next/HLD.md) → [решения и замещение старых правил](next/DECISIONS.md) → LLD → pack → [roadmap](next/delivery/ROADMAP.md) → [релизы](next/delivery/RELEASES.md) → [итерации](next/delivery/ITERATIONS.md) → [80 задач](next/delivery/TASKS.md).
+
+Это целевой проект, не заявление реализованности. [AS_IS](next/AS_IS.md) описывает проверенный checkout; [REVIEW](next/REVIEW.md) — критику Astra. Для текущих данных/grammar/API и исторических releases действуют их опубликованные контракты. При конфликте **новых target rules** применяются N1 и явно scoped N-ADR; нижележащие tasks не меняют HLD. Исторические snapshots и acceptance logs сохраняются.
+
+## Предшествующая документация (контекст и compatibility)
 
 1. [HLD.md](HLD.md) — конституция платформы (7 принципов, on-prem, agent=сотрудник).
 2. [ARCHITECTURE.md](ARCHITECTURE.md) — якорь движка одной страницей (команда→факт, choke point).
 3. [LANGUAGE.md](LANGUAGE.md) — **канон языка** (DSL v0.9: словарь, граница язык/код, ревью-гейт).
 4. [PLATFORM-STDLIB.md](PLATFORM-STDLIB.md) — что платформа даёт из коробки.
 
-## Иерархия канона (правило конфликта)
+## Предшествующая иерархия (до N1)
 
 **HLD/HLD-V1 → ARCHITECTURE → LANGUAGE → DSL-CORE-LIB/PLATFORM-STDLIB → LLD → ADR.**
-Если нижний документ противоречит верхнему — прав верхний. Язык — авторитет
+Эта иерархия относится к предшествующей спецификации и не перекрывает scoped N-ADR новой разработки. Для её неизменённых областей язык — авторитет
 `LANGUAGE.md`; движок — `ARCHITECTURE.md`; принципы платформы — `HLD*`.
 
 ---

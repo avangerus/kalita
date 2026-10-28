@@ -1,0 +1,3420 @@
+{
+  "schema_version": "1.0",
+  "baseline": "N1",
+  "date": "2026-10-07",
+  "note": "План реализации; не состояние реализованных функций. Deliverables — будущие результаты, не ссылки на существующие файлы. R0 document gate не означает выполнение I00.",
+  "releases": [
+    {
+      "id": "R0",
+      "title": "Архитектурная база и решения входа",
+      "kind": "document",
+      "depends_on": [],
+      "exit_criteria": [
+        "N1 непротиворечива; baseline снят",
+        "Buyer/process/source/deployment и execution gates приняты либо явно blocked"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "R1",
+      "title": "Безопасное исполнение alpha",
+      "kind": "technical_alpha",
+      "depends_on": [
+        "R0"
+      ],
+      "exit_criteria": [
+        "Tx crash, fencing и parallel reserve матрица пройдена",
+        "Broker/lineage/isolation/cost caps и bounded harness подтверждены; один adapter"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "R2",
+      "title": "Первый value pilot",
+      "kind": "pilot",
+      "depends_on": [
+        "R1"
+      ],
+      "exit_criteria": [
+        "Два выбранных источника, ACL/freshness и подтверждённые обязательства работают",
+        "Серия сравнений и полная стоимость соответствуют заранее согласованным порогам"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "R3",
+      "title": "Адаптивные представления alpha",
+      "kind": "technical_alpha",
+      "depends_on": [
+        "R2"
+      ],
+      "exit_criteria": [
+        "Генерация/renderer/trusted actions/pin/share/snapshot проходят negative tests",
+        "Внешние эффекты и unknown reconciliation проходят ограниченный сценарий"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "R4",
+      "title": "Один поддерживаемый pack: кандидат",
+      "kind": "release_candidate",
+      "depends_on": [
+        "R3"
+      ],
+      "exit_criteria": [
+        "Методы и delegated work experiment пройдены",
+        "Install/upgrade/restore/exit и независимый review на clean-room candidate пройдены"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "R5",
+      "title": "Повторяемая коммерческая готовность",
+      "kind": "readiness_gate",
+      "depends_on": [
+        "R4"
+      ],
+      "exit_criteria": [
+        "Вторая компания использует тот же pack без fork",
+        "Измерены польза, стоимость поддержки и соблюдены agreed thresholds"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "R6",
+      "title": "Второй процесс и selective handover",
+      "kind": "conditional_release",
+      "depends_on": [
+        "R5"
+      ],
+      "exit_criteria": [
+        "Выбрана одна вертикаль по evidence",
+        "Второй pack и переход writer в ограниченном scope доказаны без dual-write"
+      ],
+      "condition": "Есть подтверждённый запрос, данные, owner и пройден previous gate",
+      "status": "planned"
+    },
+    {
+      "id": "R7",
+      "title": "Расширение границ организации",
+      "kind": "conditional_experiment",
+      "depends_on": [
+        "R6"
+      ],
+      "exit_criteria": [
+        "Обоснована востребованная новая граница",
+        "TCB/authority/recovery эксперименты дают решение продолжить либо отказаться"
+      ],
+      "condition": "Есть подтверждённый запрос, данные, owner и пройден previous gate",
+      "status": "planned"
+    }
+  ],
+  "iterations": [
+    {
+      "id": "I00",
+      "title": "Baseline и выбор первого пути",
+      "release": "R0",
+      "depends_on": [],
+      "goal": "Снять truth, проверить покупателя и долговечное исполнение",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I01",
+      "title": "Контракты работы и атомарная база",
+      "release": "R1",
+      "depends_on": [
+        "I00"
+      ],
+      "goal": "Закрепить work/authority/API contracts и Tx boundary",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I02",
+      "title": "Долговечный execution ledger",
+      "release": "R1",
+      "depends_on": [
+        "I01"
+      ],
+      "goal": "Run/Attempt, budgets, effects, безопасная миграция",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I03",
+      "title": "Broker и ограниченный агент",
+      "release": "R1",
+      "depends_on": [
+        "I02"
+      ],
+      "goal": "Enforced isolation, grants, model caps, durable loop",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I04",
+      "title": "Два источника и intake",
+      "release": "R2",
+      "depends_on": [
+        "I03"
+      ],
+      "goal": "Подключить выбранные источники, freshness/ACL и очередь",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I05",
+      "title": "Подтверждённые обязательства",
+      "release": "R2",
+      "depends_on": [
+        "I04"
+      ],
+      "goal": "Confirm/amend, handoff, acceptance и pilot onboarding",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I06",
+      "title": "Серия проверки ценности",
+      "release": "R2",
+      "depends_on": [
+        "I05"
+      ],
+      "goal": "Сравнить наблюдаемую пользу и полную стоимость",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I07",
+      "title": "Генеративная композиция UI",
+      "release": "R3",
+      "depends_on": [
+        "I06"
+      ],
+      "goal": "ViewSpec/catalog/генератор/trusted actions",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I08",
+      "title": "Жизненный цикл UI и эффекты",
+      "release": "R3",
+      "depends_on": [
+        "I07"
+      ],
+      "goal": "Pin/share/snapshot и ограниченный effect/reconcile",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I09",
+      "title": "Методы и делегированная область",
+      "release": "R4",
+      "depends_on": [
+        "I08"
+      ],
+      "goal": "Проверить experience, adaptive plan, goal change/handoff/stop",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I10",
+      "title": "Поддерживаемая эксплуатация",
+      "release": "R4",
+      "depends_on": [
+        "I03",
+        "I05"
+      ],
+      "goal": "Install, source auth, quarantine restore, upgrade, support",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I11",
+      "title": "Полный pack и candidate gate",
+      "release": "R4",
+      "depends_on": [
+        "I09",
+        "I10"
+      ],
+      "goal": "Manifest, compatibility, clean-room и independent review",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I12",
+      "title": "Вторая компания и повторяемость",
+      "release": "R5",
+      "depends_on": [
+        "I11"
+      ],
+      "goal": "Доказать reuse/configuration и экономику сопровождения",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "I13",
+      "title": "Выбор второго процесса",
+      "release": "R6",
+      "depends_on": [
+        "I12"
+      ],
+      "goal": "Выбрать одну вертикаль и подготовить её контракты",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "I14",
+      "title": "Второй pack и handover",
+      "release": "R6",
+      "depends_on": [
+        "I13"
+      ],
+      "goal": "Проверить selective ownership и пользу второго процесса",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "I15",
+      "title": "Новые границы: эксперимент",
+      "release": "R7",
+      "depends_on": [
+        "I14"
+      ],
+      "goal": "Third-party/federation/machine-first опыты по запросу",
+      "exit_criteria": [
+        "Все обязательные tasks этой итерации имеют acceptance evidence; blocked/отложенные изменения явно решены owner",
+        "Пройден независимый review material changes; дефекты исправлены и targeted verification повторена"
+      ],
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "KAL-001",
+      "title": "Inventory checkout, journaling и compatibility",
+      "iteration": "I00",
+      "release": "R0",
+      "area": "architecture",
+      "owner_role": "Tech lead",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P0",
+      "depends_on": [],
+      "contract_refs": [
+        "HLD.md",
+        "DECISIONS.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-08",
+        "N-12"
+      ],
+      "deliverables": [
+        "docs/next/AS_IS.md",
+        "baseline report"
+      ],
+      "acceptance": [
+        "HEAD/diff и existing egress delivery отделены от release evidence",
+        "Task/runner failure paths и поддерживаемые API записаны с воспроизведением"
+      ],
+      "verification": [
+        "Снять targeted baseline tests; reproduce Append failure и stale completion без отката пользовательских edits"
+      ],
+      "effort": "S",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-002",
+      "title": "Первый buyer, процесс, baseline и pilot thresholds",
+      "iteration": "I00",
+      "release": "R0",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-001"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "buyer/process selector",
+        "pilot measurement protocol"
+      ],
+      "acceptance": [
+        "Есть полномочный owner и повторяемый дорогой результат",
+        "До пилота зафиксированы время, качество, полная стоимость и stop thresholds"
+      ],
+      "verification": [
+        "Сопоставить текущую работу и доступную штатную автоматизацию на одинаковой выборке"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-003",
+      "title": "PG против Temporal: bounded fault/ops prototype",
+      "iteration": "I00",
+      "release": "R0",
+      "area": "execution",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-001"
+      ],
+      "contract_refs": [
+        "lld/EXECUTION.md",
+        "lld/API_CONTRACTS.md"
+      ],
+      "requirements": [
+        "N-04",
+        "N-05",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "N-ADR-05 evidence",
+        "durability comparison report"
+      ],
+      "acceptance": [
+        "Crash/lease/fence/budget/unknown restore сценарии оценены по заранее объявленным критериям",
+        "Выбран ровно один adapter либо реализация blocked; ownership ADR обновлён"
+      ],
+      "verification": [
+        "Убивать prototype на каждом commit boundary; parallel reserve; оценить install и operator recovery cost"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-004",
+      "title": "Два источника и один deployment profile",
+      "iteration": "I00",
+      "release": "R0",
+      "area": "operations",
+      "owner_role": "Operations engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-002"
+      ],
+      "contract_refs": [
+        "lld/OPERATIONS.md"
+      ],
+      "requirements": [
+        "N-03",
+        "N-11",
+        "N-12"
+      ],
+      "deliverables": [
+        "SourceBinding selection",
+        "installation profile decision"
+      ],
+      "acceptance": [
+        "Выбраны конкретные две системы, read scopes, owner и доступ",
+        "Выбран self-host либо managed путь с полной dependency/data-flow картой"
+      ],
+      "verification": [
+        "Проверить source ACL и token revoke; пройти setup с будущим оператором без изменения сети PC"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-005",
+      "title": "Утвердить N1, инварианты и критерии gates",
+      "iteration": "I00",
+      "release": "R0",
+      "area": "architecture",
+      "owner_role": "Tech lead",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-002",
+        "KAL-003",
+        "KAL-004"
+      ],
+      "contract_refs": [
+        "HLD.md",
+        "DECISIONS.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-08",
+        "N-12"
+      ],
+      "deliverables": [
+        "docs/next/DECISIONS.md",
+        "release acceptance register"
+      ],
+      "acceptance": [
+        "Новые правила явно supersede conflicts старых target docs",
+        "Все provisional решения имеют evidence/owner/stop; риск reviewed Astra/high"
+      ],
+      "verification": [
+        "Независимо попытаться опровергнуть HLD на recovery, authority и first value сценариях"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-006",
+      "title": "Минимальный WorkCase и стабильная идентичность",
+      "iteration": "I01",
+      "release": "R1",
+      "area": "domain",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-005"
+      ],
+      "contract_refs": [
+        "lld/WORK_MODEL.md",
+        "lld/AGENT_PROTOCOL.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-07",
+        "N-08"
+      ],
+      "deliverables": [
+        "proposed WorkCase contract",
+        "pack domain schema"
+      ],
+      "acceptance": [
+        "Case имеет owner, результат, refs/revision и не зависит от chat ID",
+        "Простой случай не требует всех сущностей платформы"
+      ],
+      "verification": [
+        "Закрыть чат, сменить actor/UI и открыть тот же case без потери условий"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-007",
+      "title": "Source authority и mapping contracts",
+      "iteration": "I01",
+      "release": "R1",
+      "area": "integrations",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-004",
+        "KAL-006"
+      ],
+      "contract_refs": [
+        "lld/INTEGRATIONS.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "SourceBinding schema",
+        "authority map"
+      ],
+      "acceptance": [
+        "Каждое поле/область имеет primary writer и freshness",
+        "Binding не превращает source credential в права всех пользователей"
+      ],
+      "verification": [
+        "Read через broad credential скрывает чужие object/fields и отмечает stale source"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-008",
+      "title": "Canonical contracts, versioning и transport parity",
+      "iteration": "I01",
+      "release": "R1",
+      "area": "api",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-005",
+        "KAL-006"
+      ],
+      "contract_refs": [
+        "lld/API_CONTRACTS.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-05",
+        "N-08"
+      ],
+      "deliverables": [
+        "canonical contract schema",
+        "REST/MCP compatibility matrix"
+      ],
+      "acceptance": [
+        "DSL adapter даёт version/digest и typed action contract",
+        "REST/MCP используют одинаковые hooks/errors/If-Match/idempotency"
+      ],
+      "verification": [
+        "Одинаковые forbidden/conflict/duplicate запросы обоих transports дают эквивалентный исход"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-009",
+      "title": "ResponsibilityContract и рискованные переходы",
+      "iteration": "I01",
+      "release": "R1",
+      "area": "domain",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-006",
+        "KAL-008"
+      ],
+      "contract_refs": [
+        "lld/WORK_MODEL.md",
+        "lld/AGENT_PROTOCOL.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-07",
+        "N-08"
+      ],
+      "deliverables": [
+        "responsibility/amendment schemas",
+        "risk policy contract"
+      ],
+      "acceptance": [
+        "Цель/критерии/grant отделены от execution plan revision",
+        "Handoff и изменение условий требуют authorised decision"
+      ],
+      "verification": [
+        "Model plan patch не меняет цель, сумму, права или подтверждённое обязательство"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-010",
+      "title": "Composable PG Tx API: ledger + journal + outbox",
+      "iteration": "I01",
+      "release": "R1",
+      "area": "execution",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-003",
+        "KAL-008"
+      ],
+      "contract_refs": [
+        "lld/EXECUTION.md",
+        "lld/API_CONTRACTS.md"
+      ],
+      "requirements": [
+        "N-04",
+        "N-05",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "internal/eventstore Tx extension (proposed)",
+        "transaction/lock-order tests"
+      ],
+      "acceptance": [
+        "Canonical event и operational state коммитятся/откатываются вместе",
+        "Все append paths соблюдают lock order, без nested pool Append; projections после commit",
+        "Durable aggregate/authority heads и applied-head barrier запрещают stale owner/criteria/ACL admission"
+      ],
+      "verification": [
+        "Fault injection до/после commit, конкурирующий append/reserve и deadlock retry не расходят ledger/journal",
+        "Commit owner rev11→projection failure→read/If-Match rev10 fail closed до catch-up"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-011",
+      "title": "Run/Attempt lease, heartbeat и fencing",
+      "iteration": "I02",
+      "release": "R1",
+      "area": "execution",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-009",
+        "KAL-010"
+      ],
+      "contract_refs": [
+        "lld/EXECUTION.md",
+        "lld/API_CONTRACTS.md"
+      ],
+      "requirements": [
+        "N-04",
+        "N-05",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "Run/Attempt schema",
+        "claim/heartbeat service"
+      ],
+      "acceptance": [
+        "Параллельный claim не выдаёт одну Attempt дважды",
+        "Expired heartbeat/complete и прежний fence отклоняются"
+      ],
+      "verification": [
+        "A истёк; новая Attempt того же actor; старый A complete не меняет запись"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-012",
+      "title": "Retry, cancel, DLQ и committed expiration",
+      "iteration": "I02",
+      "release": "R1",
+      "area": "execution",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-010",
+        "KAL-011"
+      ],
+      "contract_refs": [
+        "lld/EXECUTION.md",
+        "lld/API_CONTRACTS.md"
+      ],
+      "requirements": [
+        "N-04",
+        "N-05",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "execution state machine",
+        "operator DLQ commands"
+      ],
+      "acceptance": [
+        "Expiration меняет state только после commit",
+        "Cancel останавливает будущие шаги; DLQ retry сохраняет историю и authority"
+      ],
+      "verification": [
+        "Append/Tx failure, restart waiting_retry и отмена до/после dispatch дают оговорённые состояния"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-013",
+      "title": "Общий reservation/settlement ledger",
+      "iteration": "I02",
+      "release": "R1",
+      "area": "execution",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-010",
+        "KAL-011"
+      ],
+      "contract_refs": [
+        "lld/EXECUTION.md",
+        "lld/API_CONTRACTS.md"
+      ],
+      "requirements": [
+        "N-04",
+        "N-05",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "budget schema",
+        "reserve/settle service"
+      ],
+      "acceptance": [
+        "Children/calls/retry учитываются общим root без double count",
+        "Stable reservation key и duplicate receipt дают один settlement; unknown держит reserve"
+      ],
+      "verification": [
+        "Параллельные child/retry не превышают hard cap; повтор receipt не удваивает списание"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-014",
+      "title": "Effect intent, dispatch permit и unknown",
+      "iteration": "I02",
+      "release": "R1",
+      "area": "integrations",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-010",
+        "KAL-012",
+        "KAL-013"
+      ],
+      "contract_refs": [
+        "lld/INTEGRATIONS.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "effect ledger schema",
+        "dispatch/reconcile protocol"
+      ],
+      "acceptance": [
+        "Intent и reserve durable до сети; revoke сериализуется с permit",
+        "Unknown не переводится в failed/успех по отчёту worker и не повторяется вслепую"
+      ],
+      "verification": [
+        "Crash после remote acceptance до receipt удерживает reserve и блокирует unsafe retry"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-015",
+      "title": "Миграция legacy tasks и write protocol",
+      "iteration": "I02",
+      "release": "R1",
+      "area": "api",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-011",
+        "KAL-012",
+        "KAL-014"
+      ],
+      "contract_refs": [
+        "lld/API_CONTRACTS.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-05",
+        "N-08"
+      ],
+      "deliverables": [
+        "migration preflight/dry-run",
+        "versioned worker handshake"
+      ],
+      "acceptance": [
+        "Legacy reads сохраняются; writes требуют Attempt ID/token/fence",
+        "Old writers drained; ambiguity blocked; cutover с одним writer"
+      ],
+      "verification": [
+        "Legacy complete от того же actor после re-claim rejected; interrupted import идемпотентен"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-016",
+      "title": "Grant lineage, issuer edges и revocation",
+      "iteration": "I03",
+      "release": "R1",
+      "area": "security",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-009",
+        "KAL-011",
+        "KAL-013"
+      ],
+      "contract_refs": [
+        "lld/AUTHORITY_SECURITY.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-03",
+        "N-04"
+      ],
+      "deliverables": [
+        "grant/policy service",
+        "lineage revocation tests"
+      ],
+      "acceptance": [
+        "Child проверяет всю активную parent lineage до каждого protected call",
+        "Дополнительное specialist право создаёт самостоятельный issuer decision; parent PII не расширяется"
+      ],
+      "verification": [
+        "Revoke root при живом child/cached context блокирует новые reads/model/tool/effects"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-017",
+      "title": "Enforced executor boundary и broker credentials",
+      "iteration": "I03",
+      "release": "R1",
+      "area": "security",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-004",
+        "KAL-016"
+      ],
+      "contract_refs": [
+        "lld/AUTHORITY_SECURITY.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-03",
+        "N-04"
+      ],
+      "deliverables": [
+        "isolated executor profile",
+        "trusted tool/model broker"
+      ],
+      "acceptance": [
+        "Executor не имеет DB, long-lived secrets и direct outbound",
+        "Trusted adapter/dev явно маркированы; indirect redirects/DNS/telemetry gated"
+      ],
+      "verification": [
+        "Попробовать прямой socket/secret/DB, rebinding, attachment redirect и prompt injection"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-018",
+      "title": "Context и model broker: hard bounds и provenance",
+      "iteration": "I03",
+      "release": "R1",
+      "area": "security",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-007",
+        "KAL-013",
+        "KAL-016",
+        "KAL-017"
+      ],
+      "contract_refs": [
+        "lld/AUTHORITY_SECURITY.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-03",
+        "N-04"
+      ],
+      "deliverables": [
+        "context/model call schemas",
+        "pricing revision registry"
+      ],
+      "acceptance": [
+        "Input/output/duration/call caps и conservative cost reserve enforceable",
+        "Provider без bound доступен только soft mode; unknown billing держит максимум"
+      ],
+      "verification": [
+        "Lost response/provider cap failure/actual>bound выявлены, новые calls остановлены, ACL скрывает private refs"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-019",
+      "title": "Bounded durable agent harness",
+      "iteration": "I03",
+      "release": "R1",
+      "area": "agents",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-011",
+        "KAL-014",
+        "KAL-018"
+      ],
+      "contract_refs": [
+        "lld/AGENT_PROTOCOL.md",
+        "lld/EXPERIENCE.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-04",
+        "N-05",
+        "N-10"
+      ],
+      "deliverables": [
+        "agent intent loop/checkpoints",
+        "updated worker protocol"
+      ],
+      "acceptance": [
+        "Accepted proposal/next checkpoint атомарны; replay не повторяет committed tool",
+        "Round/graph/time/attempt limits останавливают loop; worker не пишет done до server confirmation"
+      ],
+      "verification": [
+        "Crash между model response/tool commit/next decision; repeated proposal и invalid tool завершаются безопасно"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-020",
+      "title": "R1 adversarial execution acceptance",
+      "iteration": "I03",
+      "release": "R1",
+      "area": "quality",
+      "owner_role": "Tester + independent critic",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P0",
+      "depends_on": [
+        "KAL-015",
+        "KAL-016",
+        "KAL-017",
+        "KAL-018",
+        "KAL-019"
+      ],
+      "contract_refs": [
+        "HLD.md",
+        "TRACEABILITY.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-12"
+      ],
+      "deliverables": [
+        "R1 test evidence",
+        "Astra/high review dispositions"
+      ],
+      "acceptance": [
+        "Пройдены Tx/fence/parallel budget/revoke/effect unknown матрицы",
+        "Один adapter, no direct bypass; material review defects устранены"
+      ],
+      "verification": [
+        "Review против исходных N-02–N-06; попытка обхода через MCP/automation/webhook"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-021",
+      "title": "Первый intake adapter по выбранному binding",
+      "iteration": "I04",
+      "release": "R2",
+      "area": "integrations",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-007",
+        "KAL-018",
+        "KAL-020"
+      ],
+      "contract_refs": [
+        "lld/INTEGRATIONS.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "source A adapter",
+        "source contract fixtures"
+      ],
+      "acceptance": [
+        "Поддержаны реальные IDs/версии/ACL и read-only scope",
+        "Cursor/checkpoint сохраняется; повтор входа не создаёт новый Claim"
+      ],
+      "verification": [
+        "Duplicate page, token revoke, schema mismatch и source downtime на fixture + разрешённом pilot sample"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-022",
+      "title": "Второй intake adapter по выбранному binding",
+      "iteration": "I04",
+      "release": "R2",
+      "area": "integrations",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-007",
+        "KAL-018",
+        "KAL-020"
+      ],
+      "contract_refs": [
+        "lld/INTEGRATIONS.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "source B adapter",
+        "source contract fixtures"
+      ],
+      "acceptance": [
+        "Есть отдельный source owner, mapping и error taxonomy",
+        "Данные связаны с case только по проверяемому mapping, без глобального импорта"
+      ],
+      "verification": [
+        "Конфликтующие IDs разных источников, private attachment и истёкшие permissions не смешиваются"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-023",
+      "title": "Freshness, completeness и source reconciliation",
+      "iteration": "I04",
+      "release": "R2",
+      "area": "integrations",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-021",
+        "KAL-022"
+      ],
+      "contract_refs": [
+        "lld/INTEGRATIONS.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "observation/cursor service",
+        "intake health view"
+      ],
+      "acceptance": [
+        "Observation содержит source time/receive time/version и доступный период",
+        "Gap/partial source явно виден; stale не изображается complete/current"
+      ],
+      "verification": [
+        "Pagination gap, late update, missing page и replay checkpoint не теряются и не дублируются"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-024",
+      "title": "ACL на intake, search, context и derived outputs",
+      "iteration": "I04",
+      "release": "R2",
+      "area": "security",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-016",
+        "KAL-021",
+        "KAL-022"
+      ],
+      "contract_refs": [
+        "lld/AUTHORITY_SECURITY.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-03",
+        "N-04"
+      ],
+      "deliverables": [
+        "source ACL mapping",
+        "privacy regression fixtures"
+      ],
+      "acceptance": [
+        "Одна граница company/client действует на snippets/counts/context/caches",
+        "Удаление/отзыв источника блокирует новые derivations и отображается честно"
+      ],
+      "verification": [
+        "Чужой клиент через поиск, ID, count, report и parent child summary не раскрывается"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-025",
+      "title": "Очередь кейсов и кандидатов обязательств",
+      "iteration": "I04",
+      "release": "R2",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-006",
+        "KAL-019",
+        "KAL-023",
+        "KAL-024"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "first queue/card UI",
+        "candidate extraction method"
+      ],
+      "acceptance": [
+        "Любое обещание сначала candidate со source quotation/ref",
+        "Пользователь видит owner, deadline, blocker и boundary наблюдения"
+      ],
+      "verification": [
+        "Вопрос/предположение/цитата чужой стороны не подтверждаются автоматически; закрытие чата сохраняет case"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-026",
+      "title": "Confirm/amend/withdraw обязательств",
+      "iteration": "I05",
+      "release": "R2",
+      "area": "domain",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-009",
+        "KAL-025"
+      ],
+      "contract_refs": [
+        "lld/WORK_MODEL.md",
+        "lld/AGENT_PROTOCOL.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-07",
+        "N-08"
+      ],
+      "deliverables": [
+        "obligation commands/workflow",
+        "versioned criteria contract"
+      ],
+      "acceptance": [
+        "Confirm пишет exact terms/actor/basis; amendment сохраняет прежние условия",
+        "Ожидаемая revision обязательна; изменение стороны/срока пересогласуется"
+      ],
+      "verification": [
+        "Два подтверждения/устаревшая revision/новая цитата не молча перезаписывают обещание"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-027",
+      "title": "Передача ответственности и следующий владелец",
+      "iteration": "I05",
+      "release": "R2",
+      "area": "domain",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-009",
+        "KAL-026"
+      ],
+      "contract_refs": [
+        "lld/WORK_MODEL.md",
+        "lld/AGENT_PROTOCOL.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-07",
+        "N-08"
+      ],
+      "deliverables": [
+        "handoff offer/accept contract",
+        "owner/wait UI"
+      ],
+      "acceptance": [
+        "Новое владение начинается при явном принятии; отказ сохраняет прежнего owner",
+        "Pending effects/reserves и ограничения видны в допустимом объёме"
+      ],
+      "verification": [
+        "Handoff отклонён/owner потерял права/ожидание без ответа не оставляют бесхозную работу"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-028",
+      "title": "Результат, Evidence, Acceptance и спор",
+      "iteration": "I05",
+      "release": "R2",
+      "area": "domain",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-026",
+        "KAL-027"
+      ],
+      "contract_refs": [
+        "lld/WORK_MODEL.md",
+        "lld/AGENT_PROTOCOL.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-07",
+        "N-08"
+      ],
+      "deliverables": [
+        "result/accept/dispute commands",
+        "criteria review UI"
+      ],
+      "acceptance": [
+        "Report модели отделён от результата/решения получателя",
+        "Acceptance привязан к criteria revision; новое свидетельство не переписывает прошлое"
+      ],
+      "verification": [
+        "Исполнитель пытается сам принять существенный результат; спор/conditional acceptance сохраняют авторство"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-029",
+      "title": "Revocation и client isolation end-to-end",
+      "iteration": "I05",
+      "release": "R2",
+      "area": "security",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-024",
+        "KAL-026",
+        "KAL-028"
+      ],
+      "contract_refs": [
+        "lld/AUTHORITY_SECURITY.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-03",
+        "N-04"
+      ],
+      "deliverables": [
+        "pilot security evidence",
+        "cache/subscription invalidation"
+      ],
+      "acceptance": [
+        "Отзыв применяется в открытом UI, context/search и background processing",
+        "Closed/foreign evidence не раскрывается через summaries/errors/counts"
+      ],
+      "verification": [
+        "Отозвать доступ между query, confirm и report; другой клиент пробует shared refs"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-030",
+      "title": "Onboarding value pilot и operator fallback",
+      "iteration": "I05",
+      "release": "R2",
+      "area": "operations",
+      "owner_role": "Operations engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-004",
+        "KAL-025",
+        "KAL-026",
+        "KAL-027",
+        "KAL-028",
+        "KAL-029"
+      ],
+      "contract_refs": [
+        "lld/OPERATIONS.md"
+      ],
+      "requirements": [
+        "N-03",
+        "N-11",
+        "N-12"
+      ],
+      "deliverables": [
+        "pilot guide",
+        "manual correction/escalation path"
+      ],
+      "acceptance": [
+        "Owner выбирает источники и пределы; first useful case проходится без developer editing",
+        "Есть понятный разбор ложного Claim/stale source/blocked run и прекращение пилота"
+      ],
+      "verification": [
+        "Новый координатор проходит setup→confirm→handoff→accept и исправляет неверный candidate"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-031",
+      "title": "Measurement protocol и comparison выборка",
+      "iteration": "I06",
+      "release": "R2",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-002",
+        "KAL-030"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "baseline/comparison dataset",
+        "measurement definitions"
+      ],
+      "acceptance": [
+        "Окно, критерии выборки и thresholds утверждены до series",
+        "Текущий метод и native alternative имеют те же данные/условия"
+      ],
+      "verification": [
+        "Проверить inclusion отрицательных случаев и missing-channel denominator без post-hoc выбора успехов"
+      ],
+      "effort": "S",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-032",
+      "title": "Серия Client Delivery value pilot",
+      "iteration": "I06",
+      "release": "R2",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-031"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "pilot outcome dataset",
+        "user feedback"
+      ],
+      "acceptance": [
+        "Повторяемые cases измерены по времени/пропускам/исправлениям",
+        "Качество наблюдаемых источников отделено от общей полноты компании"
+      ],
+      "verification": [
+        "Провести серию по согласованной выборке; вручную проверить ложные обещания и исключённые случаи"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-033",
+      "title": "Failure/revoke/downtime audit пилота",
+      "iteration": "I06",
+      "release": "R2",
+      "area": "quality",
+      "owner_role": "Tester + independent critic",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-029",
+        "KAL-032"
+      ],
+      "contract_refs": [
+        "HLD.md",
+        "TRACEABILITY.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-12"
+      ],
+      "deliverables": [
+        "pilot fault evidence",
+        "incident dispositions"
+      ],
+      "acceptance": [
+        "Материальные утечки/дубли/неконтролируемый расход разбираются до continuation",
+        "Downtime/injection/late evidence включены в наблюдаемый исход"
+      ],
+      "verification": [
+        "Повторить worst pilot failure и подтвердить stop/escalation на исходном бизнес-сценарии"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-034",
+      "title": "Полная экономика и operational burden",
+      "iteration": "I06",
+      "release": "R2",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-030",
+        "KAL-032"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "full-cost comparison report",
+        "support time log"
+      ],
+      "acceptance": [
+        "Учитываются модели, настройка, ручной review, инфраструктура и поддержка",
+        "ROI выводится из согласованного метода; uncertain estimates обозначены"
+      ],
+      "verification": [
+        "Сравнить результат со штатной альтернативой с учётом всех ручных действий"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-035",
+      "title": "R2 decision: continue, narrow или stop",
+      "iteration": "I06",
+      "release": "R2",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-032",
+        "KAL-033",
+        "KAL-034"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "R2 gate decision",
+        "updated pack scope"
+      ],
+      "acceptance": [
+        "Продолжение разрешено только при согласованных quality/value/cost thresholds",
+        "Один workflow не объявляется доказанной delegated organization"
+      ],
+      "verification": [
+        "Process owner рассматривает полную серию; failed gate даёт исправление/новый измеряемый probe"
+      ],
+      "effort": "S",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-036",
+      "title": "ViewSpec/revision/binding/action schemas",
+      "iteration": "I07",
+      "release": "R3",
+      "area": "views",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-008",
+        "KAL-035"
+      ],
+      "contract_refs": [
+        "lld/VIEWS.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-09"
+      ],
+      "deliverables": [
+        "ViewSpec contract",
+        "view version registry"
+      ],
+      "acceptance": [
+        "Композиция expressive, но декларативная: нет arbitrary HTML/JS/SQL/network",
+        "Audience/bindings/version refs и action intents имеют schemas"
+      ],
+      "verification": [
+        "Попытки unsupported node/version/injection/oversized graph отклонены валидатором"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-037",
+      "title": "Versioned component catalog и trusted renderer",
+      "iteration": "I07",
+      "release": "R3",
+      "area": "views",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-036"
+      ],
+      "contract_refs": [
+        "lld/VIEWS.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-09"
+      ],
+      "deliverables": [
+        "catalog contracts",
+        "renderer components"
+      ],
+      "acceptance": [
+        "Компоненты имеют typed inputs, accessibility и безопасные slots",
+        "ACL авторитетен на backend; renderer не принимает данные чужого audience"
+      ],
+      "verification": [
+        "Keyboard/mobile/empty/redacted/error states и unsafe literal/URL проверены"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-038",
+      "title": "UI-agent composition и human repair",
+      "iteration": "I07",
+      "release": "R3",
+      "area": "agents",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-019",
+        "KAL-036",
+        "KAL-037"
+      ],
+      "contract_refs": [
+        "lld/VIEWS.md",
+        "lld/AGENT_PROTOCOL.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-09"
+      ],
+      "deliverables": [
+        "view generator role",
+        "generation evaluation fixtures"
+      ],
+      "acceptance": [
+        "Генератор выбирает подходящий layout/data bindings для нескольких tasks",
+        "Invalid proposal имеет repair/fallback; генерация не публикует автоматически"
+      ],
+      "verification": [
+        "Сравнить queue/card/comparison views и попытку private context reuse вне audience"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-039",
+      "title": "Trusted consequential action confirmation",
+      "iteration": "I07",
+      "release": "R3",
+      "area": "views",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-014",
+        "KAL-016",
+        "KAL-037"
+      ],
+      "contract_refs": [
+        "lld/VIEWS.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-09"
+      ],
+      "deliverables": [
+        "action preview/challenge UI",
+        "digest binding service"
+      ],
+      "acceptance": [
+        "Confirmation строится из canonical connector args доверенным кодом",
+        "Recipient/amount/object/limits/version видны и связаны с nonce/digest"
+      ],
+      "verification": [
+        "Generated label ложно обещает действие; изменённый payload/expired approval отвергнуты до dispatch"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-040",
+      "title": "View safety, ACL и useful interaction verification",
+      "iteration": "I07",
+      "release": "R3",
+      "area": "quality",
+      "owner_role": "Tester + independent critic",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-036",
+        "KAL-037",
+        "KAL-038",
+        "KAL-039"
+      ],
+      "contract_refs": [
+        "HLD.md",
+        "TRACEABILITY.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-12"
+      ],
+      "deliverables": [
+        "view regression evidence",
+        "usability review"
+      ],
+      "acceptance": [
+        "Agent composition полезна для нескольких ролей без единого fixed screen",
+        "Renderer/read/action paths сохраняют current rights и safe catalog boundary; publication/snapshot проверяются KAL-041/042"
+      ],
+      "verification": [
+        "Revoke while view open, mislabel, source injection и sensitive aggregate regression; user completes original render/read/action task"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-041",
+      "title": "Ephemeral/pinned/shared live lifecycle",
+      "iteration": "I08",
+      "release": "R3",
+      "area": "views",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-038",
+        "KAL-040"
+      ],
+      "contract_refs": [
+        "lld/VIEWS.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-09"
+      ],
+      "deliverables": [
+        "view lifecycle service",
+        "pin/share/audience UI"
+      ],
+      "acceptance": [
+        "Pin сохраняет запрос/композицию, не snapshot; expiry чистит ephemeral по retention",
+        "Share проверяет bindings и generated literals/provenance private context"
+      ],
+      "verification": [
+        "Смена аудитории, revoke автора/читателя и удалённая source link не раскрывают старые private literals"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-042",
+      "title": "Snapshot/export и отдельные права копии",
+      "iteration": "I08",
+      "release": "R3",
+      "area": "views",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-040",
+        "KAL-041"
+      ],
+      "contract_refs": [
+        "lld/VIEWS.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-09"
+      ],
+      "deliverables": [
+        "snapshot/export contract",
+        "snapshot retention UI"
+      ],
+      "acceptance": [
+        "Snapshot фиксирует values/versions и отдельную аудиторию/retention",
+        "Пользователь видит ограничения отзыва уже скачанного экспорта"
+      ],
+      "verification": [
+        "Создать snapshot, поменять live данные, revoke/source erasure и проверить объявленную copy policy"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-043",
+      "title": "Объединить existing egress delivery с Effect broker",
+      "iteration": "I08",
+      "release": "R3",
+      "area": "integrations",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-001",
+        "KAL-014",
+        "KAL-016",
+        "KAL-039"
+      ],
+      "contract_refs": [
+        "lld/INTEGRATIONS.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "existing webhook integration mapping",
+        "one limited outbound connector"
+      ],
+      "acceptance": [
+        "DeliveryID/DLQ/receipts не дублируются второй независимой delivery системой",
+        "Transitive automation использует тот же grant/intent/approval contract"
+      ],
+      "verification": [
+        "Webhook retry, revoked grant и handler-triggered outgoing action проходят один authority gate"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-044",
+      "title": "Reconciliation и bounded external action pilot",
+      "iteration": "I08",
+      "release": "R3",
+      "area": "integrations",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-043"
+      ],
+      "contract_refs": [
+        "lld/INTEGRATIONS.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "receipt lookup/manual reconcile UI",
+        "limited action evidence"
+      ],
+      "acceptance": [
+        "Unknown/reserve видны owner и разбираются по endpoint contract",
+        "Retry не происходит без proven receiver idempotency или confirmed-not-applied"
+      ],
+      "verification": [
+        "Lost response, duplicate callback, cancel-after-dispatch и stale executor receipt не создают второе действие"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-045",
+      "title": "R3 adaptive views/effect alpha gate",
+      "iteration": "I08",
+      "release": "R3",
+      "area": "quality",
+      "owner_role": "Tester + independent critic",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-041",
+        "KAL-042",
+        "KAL-043",
+        "KAL-044"
+      ],
+      "contract_refs": [
+        "HLD.md",
+        "TRACEABILITY.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-12"
+      ],
+      "deliverables": [
+        "R3 acceptance evidence",
+        "Astra/high review dispositions"
+      ],
+      "acceptance": [
+        "View lifecycle, literals/ACL и trusted confirmations проверены end-to-end",
+        "Limited effect crash/reconcile proof есть; коммерческий pack ещё не объявлен"
+      ],
+      "verification": [
+        "Review пытается утечь через shared snapshot и повторить неизвестный external effect"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-046",
+      "title": "MethodRevision registry, owner и applicability",
+      "iteration": "I09",
+      "release": "R4",
+      "area": "experience",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-035",
+        "KAL-045"
+      ],
+      "contract_refs": [
+        "lld/EXPERIENCE.md",
+        "lld/AGENT_PROTOCOL.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-10"
+      ],
+      "deliverables": [
+        "method revision schema/service",
+        "method review UI"
+      ],
+      "acceptance": [
+        "Метод содержит owner, scope, basis, version, expiry и revoke",
+        "Чужой client material не переносится без отдельного разрешения"
+      ],
+      "verification": [
+        "Попробовать применить чужой/expired/revoked метод и сохранить сырой prompt как approved experience"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-047",
+      "title": "Positive/negative/new-case method evaluation",
+      "iteration": "I09",
+      "release": "R4",
+      "area": "quality",
+      "owner_role": "Tester + independent critic",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-046"
+      ],
+      "contract_refs": [
+        "HLD.md",
+        "TRACEABILITY.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-12"
+      ],
+      "deliverables": [
+        "method test corpus",
+        "evaluation report"
+      ],
+      "acceptance": [
+        "Acceptance thresholds определены до method rollout",
+        "Есть новые/отрицательные cases, drift и невидимые источники; оценка не из success count"
+      ],
+      "verification": [
+        "Новый метод ошибается на adversarial case; gate отклоняет до публикации"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-048",
+      "title": "Model/method rollout и обратимое переключение",
+      "iteration": "I09",
+      "release": "R4",
+      "area": "experience",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-018",
+        "KAL-046",
+        "KAL-047"
+      ],
+      "contract_refs": [
+        "lld/EXPERIENCE.md",
+        "lld/AGENT_PROTOCOL.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-10"
+      ],
+      "deliverables": [
+        "model/method compatibility policy",
+        "staged rollout controls"
+      ],
+      "acceptance": [
+        "Runs сохраняют pinned revisions; новый метод не меняет старые obligations",
+        "Откат/revoke блокирует future selection, не переписывает receipts/acceptance"
+      ],
+      "verification": [
+        "Смена provider/pricing/model ухудшает corpus; policy блокирует и переключает selection безопасно"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-049",
+      "title": "Adaptive plan patch и specialist delegation",
+      "iteration": "I09",
+      "release": "R4",
+      "area": "agents",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-009",
+        "KAL-016",
+        "KAL-019",
+        "KAL-046",
+        "KAL-048"
+      ],
+      "contract_refs": [
+        "lld/AGENT_PROTOCOL.md",
+        "lld/EXPERIENCE.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-04",
+        "N-05",
+        "N-10"
+      ],
+      "deliverables": [
+        "plan revision validator",
+        "delegation edges/child protocol"
+      ],
+      "acceptance": [
+        "Graph changes в ResponsibilityContract ограничены types/nodes/cost/time",
+        "Company issuer может выдать specialist edge; parent не наследует closed PII",
+        "Plan patch не меняет начатые step IDs/digests и не скрывает outstanding unknown/reserves"
+      ],
+      "verification": [
+        "Unauthorized graph/cycle/child scope, parent revoke и repeated decisions blocked; accepted checkpoint переживает crash",
+        "Удалить unknown effect из graph и повторить под новым ID запрещено; terminal success blocked"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-050",
+      "title": "Эксперимент области: goal change, handoff, stop",
+      "iteration": "I09",
+      "release": "R4",
+      "area": "quality",
+      "owner_role": "Tester + independent critic",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-027",
+        "KAL-028",
+        "KAL-044",
+        "KAL-049"
+      ],
+      "contract_refs": [
+        "HLD.md",
+        "TRACEABILITY.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-12"
+      ],
+      "deliverables": [
+        "delegated area experiment report",
+        "R4 behavioral evidence"
+      ],
+      "acceptance": [
+        "Агент выбирает метод и реагирует на новые разрешённые observations",
+        "Изменение цели/ответственного явно принято; stop не теряет pending effects/резервы"
+      ],
+      "verification": [
+        "Сменить goal/source condition, отказать grant, передать человеку и остановить во время unknown effect"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-051",
+      "title": "Один installer/reference profile и first-use wizard",
+      "iteration": "I10",
+      "release": "R4",
+      "area": "operations",
+      "owner_role": "Operations engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-004",
+        "KAL-020",
+        "KAL-030"
+      ],
+      "contract_refs": [
+        "lld/OPERATIONS.md"
+      ],
+      "requirements": [
+        "N-03",
+        "N-11",
+        "N-12"
+      ],
+      "deliverables": [
+        "packaged deployment manifest",
+        "installation/preflight guide"
+      ],
+      "acceptance": [
+        "Control plane/PG/executor/broker dependency versions и checks закреплены",
+        "Setup idempotent; не меняет VPN/routes/DNS; выводит actual trust profile"
+      ],
+      "verification": [
+        "Чистая площадка, повтор setup и прерывание каждого шага; новый оператор создаёт первый полезный case"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-052",
+      "title": "Source authentication, rotation и disconnect",
+      "iteration": "I10",
+      "release": "R4",
+      "area": "operations",
+      "owner_role": "Operations engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-021",
+        "KAL-022",
+        "KAL-024",
+        "KAL-051"
+      ],
+      "contract_refs": [
+        "lld/OPERATIONS.md"
+      ],
+      "requirements": [
+        "N-03",
+        "N-11",
+        "N-12"
+      ],
+      "deliverables": [
+        "source credential onboarding",
+        "rotation/disconnect runbook"
+      ],
+      "acceptance": [
+        "Credentials вне executor/prompt/logs; scopes и дата expiry видны owner",
+        "Disconnect закрывает новые calls/refresh/cache, историю отображает с ограничениями"
+      ],
+      "verification": [
+        "Rotate/revoke токен при queued и active calls; support export не содержит secret"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-053",
+      "title": "Backup, lost tail, restore quarantine и epoch",
+      "iteration": "I10",
+      "release": "R4",
+      "area": "operations",
+      "owner_role": "Operations engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-010",
+        "KAL-013",
+        "KAL-014",
+        "KAL-016",
+        "KAL-051"
+      ],
+      "contract_refs": [
+        "lld/OPERATIONS.md"
+      ],
+      "requirements": [
+        "N-03",
+        "N-11",
+        "N-12"
+      ],
+      "deliverables": [
+        "backup/restore runbook",
+        "recovery epoch gate"
+      ],
+      "acceptance": [
+        "Consistent backup включает journal/ledger/idempotency/definitions и keys plan",
+        "Restore не dispatch до lost-tail/effect reconciliation и актуальных grants"
+      ],
+      "verification": [
+        "Backup→effect+revoke→потеря базы→restore: отсутствующий effect не повторён, старое право не ожило; измерить RPO/RTO"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-054",
+      "title": "Upgrade/migration/replay и safe rollback",
+      "iteration": "I10",
+      "release": "R4",
+      "area": "operations",
+      "owner_role": "Operations engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-015",
+        "KAL-041",
+        "KAL-042",
+        "KAL-048",
+        "KAL-053"
+      ],
+      "contract_refs": [
+        "lld/OPERATIONS.md"
+      ],
+      "requirements": [
+        "N-03",
+        "N-11",
+        "N-12"
+      ],
+      "deliverables": [
+        "version compatibility matrix",
+        "checkpointed migration tooling"
+      ],
+      "acceptance": [
+        "Active runs/views/pack versions и schema preflight проверены",
+        "Rollback не unsend и не включает второй writer; incompatible objects blocked"
+      ],
+      "verification": [
+        "Прерывать миграцию; replay без effects; pinned view stale schema; app rollback читает новую историю безопасно"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-055",
+      "title": "Observability, cost/unknown panel, support и exit",
+      "iteration": "I10",
+      "release": "R4",
+      "area": "operations",
+      "owner_role": "Operations engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-023",
+        "KAL-044",
+        "KAL-051",
+        "KAL-052",
+        "KAL-053"
+      ],
+      "contract_refs": [
+        "lld/OPERATIONS.md"
+      ],
+      "requirements": [
+        "N-03",
+        "N-11",
+        "N-12"
+      ],
+      "deliverables": [
+        "health/cost dashboards",
+        "redacted support/export/exit runbooks"
+      ],
+      "acceptance": [
+        "Operator видит stale source, approvals, unknown, spend/reserve и backup status",
+        "Export выборочный; no secrets/private transcripts по умолчанию; данные переносимы"
+      ],
+      "verification": [
+        "Новый оператор разбирает source outage/unknown cost и отключает pack без потери accepted history"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-056",
+      "title": "Client Delivery pack manifest и supported scope",
+      "iteration": "I11",
+      "release": "R4",
+      "area": "packs",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-026",
+        "KAL-028",
+        "KAL-041",
+        "KAL-046",
+        "KAL-051"
+      ],
+      "contract_refs": [
+        "packs/CLIENT_DELIVERY.md",
+        "lld/WORK_MODEL.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-09",
+        "N-12"
+      ],
+      "deliverables": [
+        "pack manifest/version",
+        "contracts/views/policy defaults"
+      ],
+      "acceptance": [
+        "Manifest связывает process/version/adapters/methods/views/roles и requirements",
+        "Нет unsupported ERP/provider promises; одна documented supported profile"
+      ],
+      "verification": [
+        "Install manifest на чистой reference среде и проверить version mismatch/invalid policy rejected"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-057",
+      "title": "Demo fixtures, real onboarding и documentation",
+      "iteration": "I11",
+      "release": "R4",
+      "area": "packs",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-030",
+        "KAL-050",
+        "KAL-056"
+      ],
+      "contract_refs": [
+        "packs/CLIENT_DELIVERY.md",
+        "lld/WORK_MODEL.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-09",
+        "N-12"
+      ],
+      "deliverables": [
+        "synthetic fixture suite",
+        "pack user/operator guides"
+      ],
+      "acceptance": [
+        "Demo не содержит user data/secrets; показывает claims/acceptance/unknown честно",
+        "Guide объясняет first value, права, correction/stop и частичную полноту"
+      ],
+      "verification": [
+        "Новый координатор проходит несколько original business cases без DSL editing"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-058",
+      "title": "Compatibility и replay candidate audit",
+      "iteration": "I11",
+      "release": "R4",
+      "area": "quality",
+      "owner_role": "Tester + independent critic",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-015",
+        "KAL-054",
+        "KAL-056"
+      ],
+      "contract_refs": [
+        "HLD.md",
+        "TRACEABILITY.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-12"
+      ],
+      "deliverables": [
+        "compatibility/replay evidence",
+        "migration acceptance report"
+      ],
+      "acceptance": [
+        "Existing packs/events остаются читаемы; новые contract routes отдельно versioned",
+        "Replay/upgrade не повторяет effects; old unsafe writes explicitly rejected"
+      ],
+      "verification": [
+        "Golden history, legacy read clients и interrupted import/candidate downgrade scenarios"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-059",
+      "title": "Clean-room candidate и Astra/high adversarial review",
+      "iteration": "I11",
+      "release": "R4",
+      "area": "quality",
+      "owner_role": "Tester + independent critic",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-050",
+        "KAL-053",
+        "KAL-055",
+        "KAL-057",
+        "KAL-058"
+      ],
+      "contract_refs": [
+        "HLD.md",
+        "TRACEABILITY.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-12"
+      ],
+      "deliverables": [
+        "candidate artifact inventory",
+        "independent review + repair evidence"
+      ],
+      "acceptance": [
+        "Candidate воспроизводим из закреплённого source/diff, supported dependencies/pack versions",
+        "Независимый критик пытается опровергнуть исходные AC; material findings repaired"
+      ],
+      "verification": [
+        "Чистая install→first case→effect unknown→revoke→restore→upgrade→exit матрица с record outcome"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-060",
+      "title": "R4 release candidate decision и support ownership",
+      "iteration": "I11",
+      "release": "R4",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-059"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "R4 gate decision",
+        "support/incident ownership"
+      ],
+      "acceptance": [
+        "Есть owner поддержки, severity/escalation и known limits",
+        "RC не объявлен коммерчески повторяемым до второй компании; blockers закрыты"
+      ],
+      "verification": [
+        "Process/security/operations owners принимают evidence по AC-01–AC-09 и remaining limits"
+      ],
+      "effort": "S",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-061",
+      "title": "Вторая компания: независимый selector и setup",
+      "iteration": "I12",
+      "release": "R5",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-060"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "second-company eligibility",
+        "independent setup evidence"
+      ],
+      "acceptance": [
+        "Другой owner/data environment проходит тот же selector",
+        "Результаты первой компании не выдаются второй как её опыт/данные"
+      ],
+      "verification": [
+        "Setup и first useful case оператором второй компании по supported guide без developer rescue"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-062",
+      "title": "Reuse через configuration вместо code fork",
+      "iteration": "I12",
+      "release": "R5",
+      "area": "packs",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-056",
+        "KAL-061"
+      ],
+      "contract_refs": [
+        "packs/CLIENT_DELIVERY.md",
+        "lld/WORK_MODEL.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-09",
+        "N-12"
+      ],
+      "deliverables": [
+        "configuration portability report",
+        "pack extension decisions"
+      ],
+      "acceptance": [
+        "Различия полей/policies/views оформлены versioned configuration/overlay",
+        "Не возникает отдельный runtime fork для обычной работы компании"
+      ],
+      "verification": [
+        "Upgrade общего pack сохраняет локальные настройки и isolation обоих клиентов"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-063",
+      "title": "Support burden и lifecycle economics",
+      "iteration": "I12",
+      "release": "R5",
+      "area": "operations",
+      "owner_role": "Operations engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-055",
+        "KAL-061",
+        "KAL-062"
+      ],
+      "contract_refs": [
+        "lld/OPERATIONS.md"
+      ],
+      "requirements": [
+        "N-03",
+        "N-11",
+        "N-12"
+      ],
+      "deliverables": [
+        "support workload report",
+        "unit-cost model"
+      ],
+      "acceptance": [
+        "Измерены install/upgrade/recovery/support часы, model/infra costs",
+        "Фиксируются ручные вмешательства, unknown/incidents и hidden work"
+      ],
+      "verification": [
+        "Повторить отказ/restore со вторым оператором; cost reconciliation сравнить с реальными usage receipts"
+      ],
+      "effort": "M",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-064",
+      "title": "Повторная ценность против текущей/native работы",
+      "iteration": "I12",
+      "release": "R5",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-031",
+        "KAL-061",
+        "KAL-063"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "second-company comparison series",
+        "transferability evidence"
+      ],
+      "acceptance": [
+        "Benefit/quality измерены по новым заранее согласованным thresholds",
+        "Перенос метода не предполагается без applicability/evaluation"
+      ],
+      "verification": [
+        "Новая серия включает отрицательные cases/ограниченные channels и полную цену review"
+      ],
+      "effort": "L",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-065",
+      "title": "R5 gate: коммерческая повторяемость или исправление",
+      "iteration": "I12",
+      "release": "R5",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P1",
+      "depends_on": [
+        "KAL-062",
+        "KAL-063",
+        "KAL-064"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "R5 readiness decision",
+        "supported offer boundaries"
+      ],
+      "acceptance": [
+        "Подтверждены useful repeatability и предсказуемый lifecycle без fork",
+        "Не прошедший gate возвращает к narrow/repair с причиной, без объявления готовой платформы"
+      ],
+      "verification": [
+        "Buyer/operator рассматривают два независимых evidence наборa и agreed acceptance thresholds"
+      ],
+      "effort": "S",
+      "condition": null,
+      "status": "planned"
+    },
+    {
+      "id": "KAL-066",
+      "title": "Выбрать одну вторую вертикаль по evidence",
+      "iteration": "I13",
+      "release": "R6",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-065"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "Order Exceptions vs Document Close decision",
+        "second process selector"
+      ],
+      "acceptance": [
+        "Есть реальный buyer/owner/данные/частые cases выбранной вертикали",
+        "Не разрабатываются одновременно оба packs; сравнение native alternative учтено"
+      ],
+      "verification": [
+        "Selector + full-cost baseline на одинаковых cases выбранного процесса"
+      ],
+      "effort": "M",
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-067",
+      "title": "Контракты второго процесса и границы ontology",
+      "iteration": "I13",
+      "release": "R6",
+      "area": "domain",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-066"
+      ],
+      "contract_refs": [
+        "lld/WORK_MODEL.md",
+        "lld/AGENT_PROTOCOL.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-07",
+        "N-08"
+      ],
+      "deliverables": [
+        "second pack domain/action schemas",
+        "mapping to common contracts"
+      ],
+      "acceptance": [
+        "Shared abstractions переиспользуются только при semantic compatibility",
+        "Новые business terms/acceptance/risk не насильно превращаются в Client Delivery"
+      ],
+      "verification": [
+        "Различные meanings похожих полей и спорный outcome не смешиваются автоматически"
+      ],
+      "effort": "M",
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-068",
+      "title": "Source/ACL/risk для второй вертикали",
+      "iteration": "I13",
+      "release": "R6",
+      "area": "integrations",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-066",
+        "KAL-067"
+      ],
+      "contract_refs": [
+        "lld/INTEGRATIONS.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "second pack source bindings",
+        "risk policy/source authority map"
+      ],
+      "acceptance": [
+        "Выбраны actual systems/scopes и primary writer каждого limited scope",
+        "Financial/doc-sensitive effects получают отдельные bounds/review"
+      ],
+      "verification": [
+        "Broad source credential/duplicate transaction/document version и revoke не обходят local authority"
+      ],
+      "effort": "M",
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-069",
+      "title": "Проверить перенос опыта и стоимость адаптации",
+      "iteration": "I13",
+      "release": "R6",
+      "area": "experience",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-047",
+        "KAL-066",
+        "KAL-067"
+      ],
+      "contract_refs": [
+        "lld/EXPERIENCE.md",
+        "lld/AGENT_PROTOCOL.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-10"
+      ],
+      "deliverables": [
+        "cross-process method applicability report",
+        "new negative cases"
+      ],
+      "acceptance": [
+        "Метод переносится только при authorised applicability и новой evaluation",
+        "Издержки адаптации/поддержки учитываются, client data не мигрируют как method"
+      ],
+      "verification": [
+        "Применить старый метод к отличающемуся процессу; corpus должен поймать неверные assumptions"
+      ],
+      "effort": "M",
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-070",
+      "title": "R6 entry: scope, buyer и stop criteria",
+      "iteration": "I13",
+      "release": "R6",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-067",
+        "KAL-068",
+        "KAL-069"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "R6 scope gate",
+        "second pack acceptance thresholds"
+      ],
+      "acceptance": [
+        "Owner принимает ограниченный scope/value hypothesis, source access и support cost",
+        "Handover отложен без доказанного writer/reconcile/fallback плана"
+      ],
+      "verification": [
+        "Независимый review выбранного процесса пытается показать более дешёвую штатную альтернативу"
+      ],
+      "effort": "S",
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-071",
+      "title": "Поддерживаемые adapters второго pack",
+      "iteration": "I14",
+      "release": "R6",
+      "area": "integrations",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-068",
+        "KAL-070"
+      ],
+      "contract_refs": [
+        "lld/INTEGRATIONS.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "chosen source adapter versions",
+        "connector fault fixtures"
+      ],
+      "acceptance": [
+        "Поддержаны exact source contracts/versions и ACL по declared profile",
+        "Нет общей готовности ERP suite; unknown/retry/idempotency endpoint-specific"
+      ],
+      "verification": [
+        "Remote schema drift, partial page, lost receipt и permission downgrade scenarios"
+      ],
+      "effort": "L",
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-072",
+      "title": "Views, methods и process flow второго pack",
+      "iteration": "I14",
+      "release": "R6",
+      "area": "packs",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-067",
+        "KAL-069",
+        "KAL-071"
+      ],
+      "contract_refs": [
+        "packs/CLIENT_DELIVERY.md",
+        "lld/WORK_MODEL.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-09",
+        "N-12"
+      ],
+      "deliverables": [
+        "second pack manifest/views/methods",
+        "onboarding cases"
+      ],
+      "acceptance": [
+        "UI под роли использует тот же trusted catalog, новый process acceptance сохранён",
+        "Install/config/support guide дают first useful result выбранному owner"
+      ],
+      "verification": [
+        "Новый пользователь проходит ordinary, disputed и missing-source cases без чужого контекста"
+      ],
+      "effort": "L",
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-073",
+      "title": "Selective AuthorityTransition одного scope",
+      "iteration": "I14",
+      "release": "R6",
+      "area": "integrations",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-012",
+        "KAL-014",
+        "KAL-053",
+        "KAL-068",
+        "KAL-071"
+      ],
+      "contract_refs": [
+        "lld/INTEGRATIONS.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-08"
+      ],
+      "deliverables": [
+        "writer cutover/reconciliation protocol",
+        "manual fallback runbook"
+      ],
+      "acceptance": [
+        "Scope/cutover owner/old/new writer и boundaries явно приняты",
+        "Shadow comparison не пишет; cutover/rollback исключают simultaneous authoritative writers"
+      ],
+      "verification": [
+        "Network partition/late legacy write/failed cutover: одна область blocked или один writer, данные reconciled"
+      ],
+      "effort": "L",
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-074",
+      "title": "Вторая серия value/fault/ops verification",
+      "iteration": "I14",
+      "release": "R6",
+      "area": "quality",
+      "owner_role": "Tester + independent critic",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-072",
+        "KAL-073"
+      ],
+      "contract_refs": [
+        "HLD.md",
+        "TRACEABILITY.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-06",
+        "N-12"
+      ],
+      "deliverables": [
+        "second pack pilot/restore evidence",
+        "independent review dispositions"
+      ],
+      "acceptance": [
+        "Value измерен с полной ценой новой вертикали",
+        "Handover/restore/revoke/unknown defects исправлены до readiness decision"
+      ],
+      "verification": [
+        "Crash на cutover, потерянный хвост после backup и ошибочное acceptance по новым criteria"
+      ],
+      "effort": "L",
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-075",
+      "title": "R6 release decision и предел поддержки",
+      "iteration": "I14",
+      "release": "R6",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-074"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "R6 gate decision",
+        "second pack support matrix"
+      ],
+      "acceptance": [
+        "Есть поддерживаемые process/source/version limits и owner",
+        "Новая отрасль не объявляется универсальным поглощением legacy данных"
+      ],
+      "verification": [
+        "Process/operations/security owner принимают evidence; failures возвращают scope в read-only/manual"
+      ],
+      "effort": "S",
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-076",
+      "title": "Third-party tools: TCB и bounded extension experiment",
+      "iteration": "I15",
+      "release": "R7",
+      "area": "security",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-075"
+      ],
+      "contract_refs": [
+        "lld/AUTHORITY_SECURITY.md",
+        "lld/EXECUTION.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-03",
+        "N-04"
+      ],
+      "deliverables": [
+        "extension trust/permission proposal",
+        "isolated adapter prototype"
+      ],
+      "acceptance": [
+        "Каждое extension имеет typed contract, issuer scopes, egress limits и revoke",
+        "Plugin не получает общие secrets/DB/proxy bypass"
+      ],
+      "verification": [
+        "Malicious tool/redirect/exfiltration/recursive delegation blocked в prototype"
+      ],
+      "effort": "L",
+      "condition": "Только если выбран именно этот R7 эксперимент и есть owner/request",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-077",
+      "title": "Federation: ответственность и receipt semantics",
+      "iteration": "I15",
+      "release": "R7",
+      "area": "architecture",
+      "owner_role": "Tech lead",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-073",
+        "KAL-075"
+      ],
+      "contract_refs": [
+        "HLD.md",
+        "DECISIONS.md"
+      ],
+      "requirements": [
+        "N-01",
+        "N-08",
+        "N-12"
+      ],
+      "deliverables": [
+        "federation contract experiment",
+        "cross-company dispute/reconcile protocol"
+      ],
+      "acceptance": [
+        "Company authority, audience и protocol versions независимы",
+        "At-least-once/dedup/unknown явно описаны без global exactly-once"
+      ],
+      "verification": [
+        "Partition/duplicate/counterparty revoke/conflicting acceptance оставляют explainable responsibility"
+      ],
+      "effort": "L",
+      "condition": "Только если выбран именно этот R7 эксперимент и есть owner/request",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-078",
+      "title": "Machine-first business creation в ограниченном sandbox",
+      "iteration": "I15",
+      "release": "R7",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Independent engineer; material changes reviewed by Astra/high",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-049",
+        "KAL-050",
+        "KAL-075"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "business creation scenarios",
+        "human responsibility constraints"
+      ],
+      "acceptance": [
+        "Сценарий создаёт bounded область работы с issuer/owner/stop, не собственные права",
+        "Проверяются отличие нового бизнеса от автоматизации workflow и его экономика"
+      ],
+      "verification": [
+        "Agent пытается сам открыть scope/потратить чужой бюджет/назначить human acceptance — blocked"
+      ],
+      "effort": "L",
+      "condition": "Только если выбран именно этот R7 эксперимент и есть owner/request",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-079",
+      "title": "Interop опыта: provenance, portability, licensing",
+      "iteration": "I15",
+      "release": "R7",
+      "area": "experience",
+      "owner_role": "Engineer",
+      "executor_model": "Luna/high under root integration",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-069",
+        "KAL-075"
+      ],
+      "contract_refs": [
+        "lld/EXPERIENCE.md",
+        "lld/AGENT_PROTOCOL.md"
+      ],
+      "requirements": [
+        "N-02",
+        "N-10"
+      ],
+      "deliverables": [
+        "method exchange proposal",
+        "permission/applicability evaluation"
+      ],
+      "acceptance": [
+        "Передаваемый метод отделён от confidential cases/evidence",
+        "Получатель заново подтверждает applicability, owner/expiry/revoke и разрешение переноса"
+      ],
+      "verification": [
+        "Отозванный/заражённый/чужой метод и hidden client literal обнаружены до selection"
+      ],
+      "effort": "M",
+      "condition": "Только если выбран именно этот R7 эксперимент и есть owner/request",
+      "status": "planned"
+    },
+    {
+      "id": "KAL-080",
+      "title": "R7 decision: продолжить, сузить или отказаться",
+      "iteration": "I15",
+      "release": "R7",
+      "area": "product",
+      "owner_role": "Product owner + process owner",
+      "executor_model": "root; bounded research Luna/high",
+      "reviewer": "Astra/high (independent adversarial review)",
+      "priority": "P2",
+      "depends_on": [
+        "KAL-075"
+      ],
+      "contract_refs": [
+        "PRODUCT_CONTRACT.md",
+        "packs/CLIENT_DELIVERY.md"
+      ],
+      "requirements": [
+        "N-07",
+        "N-12"
+      ],
+      "deliverables": [
+        "experimental boundary review",
+        "new ADR/roadmap revision"
+      ],
+      "acceptance": [
+        "Отобранные востребованные experiments проверены; остальные явно deferred и не требуются для gate",
+        "Неподтверждённые future universes остаются исследованием, не release promises"
+      ],
+      "verification": [
+        "Astra/high пытается опровергнуть authority/recovery/economics; owner принимает scoped next decision"
+      ],
+      "effort": "S",
+      "condition": "Удовлетворено условие release и выбран конкретный scope",
+      "status": "planned"
+    }
+  ]
+}

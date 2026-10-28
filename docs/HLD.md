@@ -1,5 +1,8 @@
 # Kalita — High-Level Design
 
+> **Target baseline N1, 2026-10-07:** Новая цель и границы системы описаны в HLD N1. Прежние правила DSL-only, agent=employee, on-prem/no-egress и blanket signatures заменены в указанном scope решениями N-ADR-01/02/04/07/13. Для новой разработки при конфликте применяется [карта N1](next/README.md) и её [решения](next/DECISIONS.md). Текст ниже сохранён как предшествующая спецификация; implementation/release evidence не переобозначается.
+
+
 Version 0.1 (2026-06-12). Status: draft for discussion.
 
 Kalita is an executable runtime for business systems built for the agentic era: agents and humans describe the system in a constrained DSL, the runtime executes the description (no code generation to the outside), every change is a signed diff, and every action is an event in the audit log.

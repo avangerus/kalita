@@ -1,5 +1,8 @@
 # LLD-07 — федерация: bridge-агент, cross-node события, зеркальные ссылки
 
+> **Target baseline N1, 2026-10-07:** Для N1 не обещается exactly-once через произвольную внешнюю систему. Действуют intent/receipt/unknown и endpoint-specific dedup N-ADR-08; federation только conditional R7 experiment. Для новой разработки при конфликте применяется [карта N1](../next/README.md) и её [решения](../next/DECISIONS.md). Текст ниже сохранён как предшествующая спецификация; implementation/release evidence не переобозначается.
+
+
 Дата: 2026-07-02. Автор решений: Fable. Реализация: Sonnet 5 по документу.
 Родитель: HLD-V1 §H8, HLD.md §8a (конституция федерации), TECHDEBT «Федерация».
 Зависимости: PR-4 (`event`/`event.emitted`), PR-5 (`emit_event`, verb `emit`,
