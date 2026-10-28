@@ -23,9 +23,9 @@
 ## Конкретные проблемы для implementation backlog
 
 1. `finishTask` проверяет `TakenBy == actor.ID`, но не новый token/fence конкретной Attempt. Старый ответ того же actor после перевыдачи нельзя отделить от нового. Нужен новый write protocol и drain старых workers — KAL-011/KAL-013/KAL-015.
-2. `expireIfDue` игнорирует ошибку journal Append и открывает RAM task. Persistent truth и память могут разойтись. Нельзя исправить только отчёт: state transition должен зависеть от committed Tx — KAL-010/KAL-012.
+2. *(В 1.0 исправлено, D-018 S2: при ошибке Append lease сохраняется, ошибка — в лог и метрику; переход по committed Tx — по-прежнему KAL-010/012.)* `expireIfDue` игнорирует ошибку journal Append и открывает RAM task. Persistent truth и память могут разойтись. Нельзя исправить только отчёт: state transition должен зависеть от committed Tx — KAL-010/KAL-012.
 3. `countActorEvents` считает исторические изменения actor, не действия конкретной текущей Attempt. Не использовать как evidence completion/authority — KAL-015/KAL-021.
-4. `run_once` игнорирует ошибки report/complete/fail и печатает `done` по локальному handler result. Подтверждение executor должно отражать серверный исход; durable harness восстанавливается по checkpoint/receipts — KAL-019/KAL-020.
+4. *(В 1.0 исправлено, D-018 S2: исход — по ответу узла, отказ = `rejected`; checkpoint/receipts — по-прежнему KAL-019/020.)* `run_once` игнорирует ошибки report/complete/fail и печатает `done` по локальному handler result. Подтверждение executor должно отражать серверный исход; durable harness восстанавливается по checkpoint/receipts — KAL-019/KAL-020.
 5. Durable webhook delivery в локальных изменениях уже есть. Её нужно исследовать и адаптировать к Effect/authority contract, а не писать вторую несвязанную delivery систему — KAL-001/KAL-043.
 
 ## Границы сохранения

@@ -169,14 +169,17 @@ func (e *Engine) Tick(ctx context.Context) error {
 	e.retryFailedActions(ctx)
 
 	for _, t := range e.tasks {
-		e.expireIfDue(ctx, t)
+		if err := e.expireIfDue(ctx, t); err != nil {
+			log.Printf("engine: lease expiry of task %s could not be journaled, lease kept: %v", t.ID, err)
+			AutomationJournalFailures.Add(1)
+		}
 	}
 	return nil
 }
 
 // runEventTriggers fires create/update rules for a record (called inline
 // after the mutation, under the engine lock).
-func (e *Engine) runEventTriggers(ctx context.Context, trigger, entity, id string) {
+func (e *Engine) runEventTriggers(ctx context.Context, trigger, entity, id string, prev map[string]any) {
 	decl := e.model.Entities[entity]
 	for _, rule := range e.model.Automations {
 		if rule.Trigger != trigger || rule.Entity != entity {
@@ -187,7 +190,9 @@ func (e *Engine) runEventTriggers(ctx context.Context, trigger, entity, id strin
 			return
 		}
 		full := e.withComputed(decl, rec.ID, rec.Values)
-		if rule.When != "" && !evalWhere(rule.When, e.ctxFor(rec.ID, eventstore.Actor{}, full)) {
+		ec := e.ctxFor(rec.ID, eventstore.Actor{}, full)
+		ec.prev = prev
+		if rule.When != "" && !evalWhere(rule.When, ec) {
 			continue
 		}
 		e.fireActions(ctx, rule, entity, id, "")

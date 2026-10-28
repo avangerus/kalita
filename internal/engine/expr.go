@@ -1,10 +1,14 @@
 package engine
 
 import (
+	"fmt"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/avangerus/kalita/internal/dsl"
 )
 
 var reDotSpace = regexp.MustCompile(`\s*\.\s*`)
@@ -36,28 +40,56 @@ type evalCtx struct {
 	// resolve follows a dotted path (ref hops) from the current record;
 	// wired by the engine. nil falls back to flat field lookup.
 	resolve func(path string) (any, bool)
+	// prev holds the record's values before the change that fired an
+	// `on update` rule; nil everywhere else, where `changed` fails closed.
+	prev map[string]any
 }
 
 // evalWhere reports whether expr matches in ctx. Empty expr matches.
 func evalWhere(expr string, c evalCtx) bool {
-	expr = strings.TrimSpace(expr)
-	if expr == "" {
+	if strings.TrimSpace(expr) == "" {
 		return true
 	}
+	node, ok := parseWhere(expr)
+	if !ok {
+		return false // unparseable (incl. trailing garbage) fails closed
+	}
+	v, ok := node.eval(c)
+	return ok && v
+}
+
+// parseWhere parses a non-empty condition; ok=false when it cannot be read.
+func parseWhere(expr string) (exprNode, bool) {
 	// the DSL tokenizer joins ref paths with spaces ("project . owner");
 	// collapse them back so a path is one lexeme
-	expr = reDotSpace.ReplaceAllString(expr, ".")
+	expr = reDotSpace.ReplaceAllString(strings.TrimSpace(expr), ".")
 	toks, ok := lexExpr(expr)
 	if !ok {
-		return false
+		return nil, false
 	}
 	p := &exprParser{toks: toks}
 	node := p.parseOr()
 	if node == nil || p.pos != len(p.toks) {
-		return false // trailing garbage fails closed
+		return nil, false
 	}
-	v, ok := node.eval(c)
-	return ok && v
+	return node, true
+}
+
+// checkAutomationConditions refuses a model with an automation `when` that
+// cannot be parsed: evalWhere fails closed on it, so the rule would sit in the
+// model silently dead.
+func checkAutomationConditions(m *dsl.Model) error {
+	for _, r := range m.Automations {
+		if strings.TrimSpace(r.When) == "" {
+			continue
+		}
+		if _, ok := parseWhere(r.When); !ok {
+			return &Err{Code: CodeValidation,
+				Message: fmt.Sprintf("%s:%d: automation condition `%s` cannot be evaluated", r.File, r.Line, r.When),
+				FixHint: "use comparisons (=, !=, <, >, in [...]), and/or/not, and `field changed [to V]` in on update rules"}
+		}
+	}
+	return nil
 }
 
 // --- lexer --------------------------------------------------------------------
@@ -292,6 +324,19 @@ func (p *exprParser) parseComparison() exprNode {
 		p.pos++ // consume ]
 		return &cmpNode{left: left, op: "in", inList: list}
 	}
+	// `field changed` / `field changed to V` (on update rules only)
+	if p.isWord("changed") {
+		p.pos++
+		if !p.isWord("to") {
+			return &cmpNode{left: left, op: "changed"}
+		}
+		p.pos++
+		right, ok := p.parseOperand()
+		if !ok {
+			return nil
+		}
+		return &cmpNode{left: left, op: "changed_to", right: right}
+	}
 	t, ok := p.peek()
 	if !ok || t.kind != "punct" || !cmpOps[t.text] {
 		// a bare path with no operator: truthiness (bool field = true)
@@ -320,6 +365,21 @@ func (n *cmpNode) eval(c evalCtx) (bool, bool) {
 			return present, true
 		}
 		return !present, true
+	}
+	if n.op == "changed" || n.op == "changed_to" {
+		// only the record's own fields, and only where a previous state exists
+		if c.prev == nil || n.left.kind != "path" || strings.Contains(n.left.text, ".") {
+			return false, false
+		}
+		cur := c.values[n.left.text]
+		if sameValue(cur, c.prev[n.left.text]) {
+			return false, true
+		}
+		if n.op == "changed" {
+			return true, true
+		}
+		rv, _ := resolveOperand(n.right, c)
+		return sameValue(cur, rv), true
 	}
 	lv, lok := resolveOperand(n.left, c)
 	switch n.op {
@@ -453,6 +513,18 @@ func valuesEqual(a, b any) bool {
 		return false
 	}
 	return a == b
+}
+
+// sameValue is valuesEqual that is also safe for map values (money, json):
+// scalar numbers compare numerically, everything else (a money object
+// included: amount AND currency) structurally.
+func sameValue(a, b any) bool {
+	if af, ok := numberScalar(a); ok {
+		if bf, ok := numberScalar(b); ok {
+			return af == bf
+		}
+	}
+	return reflect.DeepEqual(a, b)
 }
 
 // numberScalar coerces only true numeric scalars — used by validation, where a

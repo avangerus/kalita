@@ -396,8 +396,13 @@ func (r *Registry) foldLocked(ctx context.Context) error {
 }
 
 // RotateKey appends actor.key_rotated with the new public key.
+//
+// Holds r.mu over lookup+append (PR-6): a rotation racing a Disable or another
+// rotation of the same actor is serialized against the folded directory.
 func (r *Registry) RotateKey(ctx context.Context, registrar eventstore.Actor, id string, pub ed25519.PublicKey, basis *eventstore.Basis) error {
-	info, err := r.Get(ctx, id)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	info, err := r.getLocked(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -421,7 +426,9 @@ func (r *Registry) Disable(ctx context.Context, registrar eventstore.Actor, id s
 	if registrar.Type != eventstore.ActorHuman {
 		return fmt.Errorf("identity: only humans disable actors")
 	}
-	if _, err := r.Get(ctx, id); err != nil {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, err := r.getLocked(ctx, id); err != nil {
 		return err
 	}
 	_, err := r.store.Append(ctx, eventstore.AppendInput{
@@ -466,9 +473,25 @@ func (r *Registry) VerifySignature(ctx context.Context, id string, msg, sig []by
 
 // lookup resolves one actor through the incremental cache.
 func (r *Registry) lookup(ctx context.Context, id string) (*ActorInfo, error) {
-	infos, err := r.all(ctx)
-	if err != nil {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	info, err := r.getLocked(ctx, id)
+	if err == ErrActorUnknown {
+		return nil, nil
+	}
+	return info, err
+}
+
+// getLocked folds new events and returns a copy of one actor (O(1), no
+// directory snapshot) or ErrActorUnknown. Callers hold r.mu.
+func (r *Registry) getLocked(ctx context.Context, id string) (*ActorInfo, error) {
+	if err := r.foldLocked(ctx); err != nil {
 		return nil, err
 	}
-	return infos[id], nil
+	info, ok := r.cache[id]
+	if !ok {
+		return nil, ErrActorUnknown
+	}
+	cp := *info
+	return &cp, nil
 }

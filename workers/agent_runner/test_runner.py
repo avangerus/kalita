@@ -213,5 +213,39 @@ class TestHandleLegalPerimeter(unittest.TestCase):
         self.assertGreaterEqual(score, runner.perimeter.THRESHOLD, reasons)
 
 
+class TestRunOnceReportsServerOutcome(unittest.TestCase):
+    """AS_IS defect 4: run_once must report what the NODE accepted, not the
+    local handler result — a refused complete_task is not "done"."""
+
+    def _cycle(self, handler_ok, settle_refused):
+        calls = []
+
+        def fake_mcp(token, name, args):
+            calls.append(name)
+            if name == "wait_for_task":
+                return {"tasks": [{"id": "t1", "entity": "Doc", "record_id": "d1", "action": "x"}]}, False
+            if name in ("complete_task", "fail_task") and settle_refused:
+                return {"code": "CONFLICT", "message": "task is not taken by this actor"}, True
+            return {}, False
+
+        with mock.patch.object(runner, "mcp", fake_mcp), \
+             mock.patch.object(runner, "_work", lambda token, t: (handler_ok, "handled")):
+            return runner.run_once("tok"), calls
+
+    def test_accepted_completion_is_done(self):
+        out, calls = self._cycle(handler_ok=True, settle_refused=False)
+        self.assertEqual(out, [("t1", "done")])
+        self.assertIn("complete_task", calls)
+
+    def test_refused_completion_is_rejected_not_done(self):
+        out, _ = self._cycle(handler_ok=True, settle_refused=True)
+        self.assertEqual(out, [("t1", "rejected")])
+
+    def test_refused_failure_is_rejected(self):
+        out, calls = self._cycle(handler_ok=False, settle_refused=True)
+        self.assertEqual(out, [("t1", "rejected")])
+        self.assertIn("fail_task", calls)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

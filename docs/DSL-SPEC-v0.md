@@ -220,6 +220,12 @@ Triggers: `on schedule <schedule> [for <Entity>] [when …]` (`when` requires
 `notify email(field)`, `webhook out <url>` (outbound only — egress is visible in
 the spec), `create|update <Entity> set {…}`, `escalate_to <Role>`.
 
+`on update` fires after any change of the record: a field update or a workflow
+move (an `act`, or an approval granted). In its `when`, `field changed` and
+`field changed to V` compare with the record as it was before that change; in
+any other condition they are false. A node refuses to load a model whose
+automation `when` it cannot parse.
+
 ## 7. Expressions
 
 One boolean/arithmetic language for guards, permission scopes, filters, and

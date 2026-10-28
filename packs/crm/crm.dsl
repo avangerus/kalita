@@ -39,8 +39,9 @@ entity Lead "Lead":
 # the Lead → Opportunity → Activities pipeline actually forms. The `convert`
 # transition now emits a domain event carrying the lead's fields; a subscriber
 # (below) creates the Opportunity deterministically in the SAME cascade
-# (LLD-01 §4 + §4b). `on update Lead` cannot see a transition — a workflow move
-# is a record.action, not a field update — so the event is the correct seam.
+# (LLD-01 §4 + §4b). The event carries the payload in the same cascade as the
+# move, which is why it is used here rather than `on update Lead when status
+# changed to Converted`.
 event LeadConverted "Lead converted":
     name:      string
     company:   string

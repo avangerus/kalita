@@ -206,7 +206,9 @@ func (e *Engine) TakeTask(ctx context.Context, actor eventstore.Actor, taskID, i
 	if !ok {
 		return nil, &Err{Code: CodeNotFound, Message: "task " + taskID + " not found"}
 	}
-	e.expireIfDue(ctx, t)
+	if err := e.expireIfDue(ctx, t); err != nil {
+		return nil, err
+	}
 	if t.Status != TaskOpen {
 		return nil, &Err{Code: CodeConflict, Message: "task is " + string(t.Status),
 			FixHint: "only open tasks can be taken"}
@@ -345,7 +347,9 @@ func (e *Engine) finishTask(ctx context.Context, actor eventstore.Actor, taskID 
 	if !ok {
 		return &Err{Code: CodeNotFound, Message: "task " + taskID + " not found"}
 	}
-	e.expireIfDue(ctx, t)
+	if err := e.expireIfDue(ctx, t); err != nil {
+		return err
+	}
 	if t.Status != TaskTaken || t.TakenBy != actor.ID {
 		return &Err{Code: CodeConflict, Message: "task is not taken by this actor",
 			FixHint: "take the task first; expired leases return tasks to the pool"}
@@ -365,18 +369,23 @@ func (e *Engine) finishTask(ctx context.Context, actor eventstore.Actor, taskID 
 	return nil
 }
 
-// expireIfDue lazily expires an overdue lease (also swept in Tick).
-func (e *Engine) expireIfDue(ctx context.Context, t *Task) {
+// expireIfDue lazily expires an overdue lease (also swept in Tick). The task
+// returns to the pool only once task.expired is journaled: on an Append
+// failure memory keeps the old lease, so the live node and a replay agree.
+func (e *Engine) expireIfDue(ctx context.Context, t *Task) error {
 	if t.Status != TaskTaken || e.now().Before(t.LeaseUntil) {
-		return
+		return nil
 	}
-	_, _ = e.store.Append(ctx, eventstore.AppendInput{
+	if _, err := e.store.Append(ctx, eventstore.AppendInput{
 		Actor: autoActor, Kind: eventstore.TaskExpired,
 		Subject:    eventstore.Subject{TaskID: t.ID},
 		DefVersion: e.defVersion,
 		Basis:      &eventstore.Basis{Type: "rule", ID: "lease-ttl"},
-	})
+	}); err != nil {
+		return err
+	}
 	t.Status, t.TakenBy = TaskOpen, "" // expired lease returns the task to the pool
+	return nil
 }
 
 // countActorEvents counts journal events by the actor on a record.

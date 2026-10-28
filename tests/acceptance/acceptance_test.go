@@ -695,6 +695,10 @@ func TestReleaseAcceptance(t *testing.T) {
 	if h.y.keyFor(inv2) != key2 || h.y.effects() != 2 {
 		t.Fatalf("step 13: want 2 business effects (one per invoice), got %d", h.y.effects())
 	}
+	waitFor(t, "the recovered delivery leaves the DLQ", 15*time.Second, func() bool { return h.dlqFor(inv2) == nil })
+	if h.metric("kalita_egress_dead_lettered") != 0 {
+		t.Fatal("step 13: a recovered delivery is still counted as dead-lettered")
+	}
 
 	// ---- 14. allowlist fail-closed: zero requests leave the node
 	h.killNode()

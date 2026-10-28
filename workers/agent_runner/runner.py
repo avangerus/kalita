@@ -448,6 +448,11 @@ def _work(token, task):
 
 
 def run_once(token):
+    """One poll cycle. Returns [(task_id, outcome)] where outcome is "done" or
+    "failed" only when the NODE accepted complete_task / fail_task — a local
+    handler result is not a settled task (I-3: no silent failures). A refused
+    settle (lost lease, node error) is reported as "rejected"."""
+    outcomes = []
     tasks, _ = mcp(token, "wait_for_task", {"timeout_sec": 25})
     for t in tasks.get("tasks", []):
         _, err = mcp(token, "take_task", {"task_id": t["id"],
@@ -459,14 +464,24 @@ def run_once(token):
         except Exception as ex:  # never silently hang on the lease
             ok, msg = False, "handler crashed: " + str(ex)
         if ok:
-            mcp(token, "report_progress", {"task_id": t["id"], "note": msg,
-                                           "idempotency_key": idem_key(t["id"], "progress")})
-            mcp(token, "complete_task", {"task_id": t["id"], "result": msg,
-                                         "idempotency_key": idem_key(t["id"], "complete")})
+            res, err = mcp(token, "report_progress", {"task_id": t["id"], "note": msg,
+                                                      "idempotency_key": idem_key(t["id"], "progress")})
+            if err:
+                print("progress note refused for " + t["id"] + ": " + json.dumps(res))
+            res, err = mcp(token, "complete_task", {"task_id": t["id"], "result": msg,
+                                                    "idempotency_key": idem_key(t["id"], "complete")})
         else:
-            mcp(token, "fail_task", {"task_id": t["id"], "reason": msg,
-                                     "idempotency_key": idem_key(t["id"], "fail")})
-        print(("done " if ok else "failed ") + t["id"] + ": " + msg)
+            res, err = mcp(token, "fail_task", {"task_id": t["id"], "reason": msg,
+                                                "idempotency_key": idem_key(t["id"], "fail")})
+        if err:
+            outcome = "rejected"
+            print("rejected " + t["id"] + ": node refused to settle the task (" + json.dumps(res) +
+                  "); local result: " + msg)
+        else:
+            outcome = "done" if ok else "failed"
+            print(outcome + " " + t["id"] + ": " + msg)
+        outcomes.append((t["id"], outcome))
+    return outcomes
 
 
 def main():

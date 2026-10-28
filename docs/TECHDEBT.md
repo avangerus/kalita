@@ -126,10 +126,6 @@ severity: **P0** блокирует прод · **P1** мешает заявле
   обязан: (a) уплощить payload (error_code/error_message строками) или
   (b) завести core-kind для subscription.failed. НЕ подключать как есть —
   упадёт валидацией на первом же ядовитом факте. (2026-07-06, ревью Fable PR-1)
-- **P3 `workers/knowvault_indexer` — 41 фейл при прогоне ВСЕГО workers/ разом.**
-  Тесты полагаются на порядок импорта (подмена bootstrap до import indexer);
-  по одному — зелёные. Preexisting, воспроизводится на чистом дереве. →
-  изолировать через conftest/fixture. (2026-07-06, вскрыто PR-1 LLD-21)
 
 ## Ядро: journal read / outbox (LLD-08)
 

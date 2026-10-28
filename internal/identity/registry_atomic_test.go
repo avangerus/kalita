@@ -237,3 +237,54 @@ func TestRedeemSingleUse(t *testing.T) {
 		t.Fatalf("want exactly 1 invite.redeemed, got %d", redeemed)
 	}
 }
+
+// TestRotateAndDisableSerialized (PR-6): concurrent key rotations and a
+// Disable of the same actor run under r.mu — every call returns, the journal
+// holds exactly the appended events, and the actor ends disabled.
+func TestRotateAndDisableSerialized(t *testing.T) {
+	ctx := context.Background()
+	store := eventstore.NewMemStore(nil)
+	r := NewRegistry(store)
+	if _, err := r.RegisterWithToken(ctx, a4Registrar, "bot", eventstore.ActorAgent, "Worker", nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	const rotations = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, rotations+1)
+	for i := 0; i < rotations; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- r.RotateKey(ctx, a4Registrar, "bot", nil, nil)
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		errs <- r.Disable(ctx, a4Registrar, "bot", nil)
+	}()
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, _ := store.All(ctx)
+	rotated, disabled := 0, 0
+	for _, e := range events {
+		switch e.Kind {
+		case eventstore.ActorKeyRotated:
+			rotated++
+		case eventstore.ActorDisabled:
+			disabled++
+		}
+	}
+	if rotated != rotations || disabled != 1 {
+		t.Fatalf("journal: %d rotations, %d disables; want %d, 1", rotated, disabled, rotations)
+	}
+	info, err := r.Get(ctx, "bot")
+	if err != nil || !info.Disabled {
+		t.Fatalf("actor must end disabled: %+v %v", info, err)
+	}
+}

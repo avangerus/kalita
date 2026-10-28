@@ -120,8 +120,7 @@ sig + verifier; (4) `requireSig`) → **Cycle-003: ре-оценка guard на 
 reject-путь освобождён — D-009)** → applyTransitionAndEmit:456 (emits-планы
 строятся ДО append; ошибка payload = атомарный откат; op-скобка) →
 runAutoTransitions:505. Edge: findTransition==nil (переход удалён из DSL) —
-legacy synthetic-переход без guard, логируется + метрика DecideFallbackSynthetic
-(D-013). **Definition-решения (Round-1, P0): тот же церемониал** — DecideProposal
+grant отклоняется CONFLICT до журнала, аппрувал остаётся pending (D-020). **Definition-решения (Round-1, P0): тот же церемониал** — DecideProposal
 (proposals.go) с сигнатурной лестницей (humanSig pre-verified / requireHumanSig
 → SIGNATURE_REQUIRED / raw sig над DefinitionMessage / requireSig), human_signature
 журналируется; REST: GET /api/proposals/{id}/challenge (гейт human+defApprover) →

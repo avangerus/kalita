@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -191,7 +192,7 @@ func (e *Engine) createCore(ctx context.Context, actor eventstore.Actor, entity 
 	e.dropIndex(entity)
 	e.setStateSince(entity, rec.ID, ev.TS)
 	e.runAutoTransitions(ctx, entity, rec.ID)
-	e.runEventTriggers(ctx, "create", entity, rec.ID)
+	e.runEventTriggers(ctx, "create", entity, rec.ID, nil)
 	// return the same enriched shape as Get/Query: computed fields evaluated,
 	// unreadable fields masked — so a caller sees its serial number and any
 	// computed values immediately, not a bare echo of what it sent.
@@ -274,7 +275,7 @@ func (e *Engine) createLocked(ctx context.Context, entity string, values map[str
 	e.setStateSince(entity, rec.ID, ev.TS)
 	// the created record's own cascade runs in the SAME op (LLD-01 §4b):
 	e.runAutoTransitions(ctx, entity, rec.ID)
-	e.runEventTriggers(ctx, "create", entity, rec.ID)
+	e.runEventTriggers(ctx, "create", entity, rec.ID, nil)
 	return rec, nil
 }
 
@@ -333,12 +334,13 @@ func (e *Engine) updateLocked(ctx context.Context, entity, id string, values map
 	}); err != nil {
 		return err
 	}
+	prev := maps.Clone(rec.Values)
 	for _, ch := range changes {
 		rec.Values[ch.Field] = ch.New
 	}
 	e.dropIndex(entity)
 	e.runAutoTransitions(ctx, entity, id)
-	e.runEventTriggers(ctx, "update", entity, id)
+	e.runEventTriggers(ctx, "update", entity, id, prev)
 	return nil
 }
 
@@ -509,12 +511,13 @@ func (e *Engine) updateCore(ctx context.Context, actor eventstore.Actor, entity,
 	}); err != nil {
 		return nil, err
 	}
+	prev := maps.Clone(rec.Values)
 	for _, ch := range changes {
 		rec.Values[ch.Field] = ch.New
 	}
 	e.dropIndex(entity)
 	e.runAutoTransitions(ctx, entity, id)
-	e.runEventTriggers(ctx, "update", entity, id)
+	e.runEventTriggers(ctx, "update", entity, id, prev)
 	return rec, nil
 }
 

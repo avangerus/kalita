@@ -363,13 +363,11 @@ workflow Job on status:
 	}
 }
 
-// TestDecideFallbackWhenTransitionRemoved: pins the legacy fail-open edge
-// (Cycle-003 architect note, point G): if the transition was removed from the
-// DSL between park and decide (a governed definition change), the synthetic
-// fallback decl carries no guard and the decision applies — the removal is
-// logged (workflow.go). Changing this edge to fail-closed is a separate,
-// gated decision (D-013).
-func TestDecideFallbackWhenTransitionRemoved(t *testing.T) {
+// TestDecideRefusedWhenTransitionRemoved (LIM-7 / D-020): if the transition
+// was removed from the DSL between park and decide, a grant is refused before
+// anything is journaled — no guard-less synthetic move — the approval stays
+// pending and can still be rejected.
+func TestDecideRefusedWhenTransitionRemoved(t *testing.T) {
 	const parkPack = `
 entity Job:
     score: int
@@ -439,18 +437,29 @@ workflow Job on status:
 		t.Fatal(err)
 	}
 
-	// the approval survives replay; the synthetic fallback applies without a guard
-	before := DecideFallbackSynthetic.Load()
-	rec, err := e2.Decide(ctx, dgMgr, res.ApprovalID, true, nil, basis)
+	// the approval survives replay; a grant is refused and nothing is journaled
+	head := len(mustAll(t, store))
+	_, err = e2.Decide(ctx, dgMgr, res.ApprovalID, true, nil, basis)
+	wantCode(t, err, CodeConflict)
+	if got := len(mustAll(t, store)); got != head {
+		t.Fatalf("a refused grant must journal nothing, journal grew %d -> %d", head, got)
+	}
+	if rec, _ := e2.Get(ctx, dgOwner, "Job", job.ID); rec.Values["status"] != "New" {
+		t.Fatalf("the record must not move, got status=%v", rec.Values["status"])
+	}
+	// reject stays possible (D-009)
+	if _, err := e2.Decide(ctx, dgMgr, res.ApprovalID, false, nil, basis); err != nil {
+		t.Fatalf("reject must still apply: %v", err)
+	}
+}
+
+func mustAll(t *testing.T, s eventstore.Store) []*eventstore.Event {
+	t.Helper()
+	evs, err := s.All(ctx)
 	if err != nil {
-		t.Fatalf("legacy fallback must apply the decision: %v", err)
+		t.Fatal(err)
 	}
-	if rec.Values["status"] != "Done" {
-		t.Fatalf("synthetic transition must move the record, got status=%v", rec.Values["status"])
-	}
-	if got := DecideFallbackSynthetic.Load() - before; got != 1 {
-		t.Fatalf("the fail-open edge must bump DecideFallbackSynthetic by 1, got delta %d", got)
-	}
+	return evs
 }
 
 // TestDecideGuardFailureReplays: a failed decide journals nothing, so replaying

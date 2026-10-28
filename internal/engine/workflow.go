@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"sync/atomic"
+	"maps"
 
 	"github.com/google/uuid"
 
@@ -88,14 +88,6 @@ type ActResult struct {
 }
 
 const approvalDomain = "kalita-approval-v1"
-
-// DecideFallbackSynthetic counts Decide calls that applied the legacy synthetic
-// transition because the declared transition no longer exists in the current
-// model (D-010/Cycle-003 fail-open edge: definitions changed between park and
-// decide). Structured operator signal, mirroring AutomationJournalFailures —
-// a metrics exporter outside this package can read it. A journaled audit event
-// for this edge is a candidate for a future cycle (skeptic note Cycle-003).
-var DecideFallbackSynthetic atomic.Int64
 
 // ApprovalMessage is the byte string a human signs when deciding an approval.
 // It is reproducible offline: domain || id || decision.
@@ -195,10 +187,13 @@ func (e *Engine) actCore(ctx context.Context, actor eventstore.Actor, entity, id
 		return &ActResult{Status: "pending_approval", ApprovalID: aid.String()}, nil
 	}
 
+	prev := maps.Clone(rec.Values)
 	if err := e.applyTransitionAndEmit(ctx, actor, entity, id, tr, current, basis, idemKey); err != nil {
 		return nil, err
 	}
 	e.runAutoTransitions(ctx, entity, id)
+	// a workflow move is an update of the record: `on update` rules see it (LIM-1)
+	e.runEventTriggers(ctx, "update", entity, id, prev)
 	return &ActResult{Status: "applied", Record: e.records[entity][id]}, nil
 }
 
@@ -341,12 +336,16 @@ func (e *Engine) Decide(ctx context.Context, actor eventstore.Actor, approvalID 
 	// — a "no" applies nothing and must never be blocked by a stale guard
 	// (D-009, reject stays unconditional).
 	if grant {
+		// LIM-7 / D-020: the definition changed between park and decide and
+		// the transition is no longer declared. Nothing is journaled; the
+		// approval stays pending and can still be rejected.
+		if wf, ok := e.model.Workflows[a.Entity]; !ok || findTransition(wf, a.Action, a.From) == nil {
+			return nil, &Err{Code: CodeConflict,
+				Message: fmt.Sprintf("transition %s from %s is no longer declared for %s", a.Action, a.From, a.Entity),
+				FixHint: "reject this approval and request the transition again under the current definition"}
+		}
 		if rec, ok := e.records[a.Entity][a.RecordID]; ok {
 			if wf, ok := e.model.Workflows[a.Entity]; ok {
-				// tr==nil (transition removed from the DSL between park and
-				// decide) has no guard text to re-evaluate — the legacy
-				// synthetic fallback below applies; the removal itself is
-				// logged there (governed definition change, audit edge).
 				if tr := findTransition(wf, a.Action, a.From); tr != nil && tr.When != "" {
 					if decl, ok := e.model.Entities[a.Entity]; ok {
 						full := e.withComputed(decl, a.RecordID, rec.Values)
@@ -395,22 +394,15 @@ func (e *Engine) Decide(ctx context.Context, actor eventstore.Actor, approvalID 
 	}
 	// resolve the real transition decl so its `emits` clauses fire (the approval
 	// path reconstructs from/to/action but must carry the declared emits).
+	// declared: checked before the decision was journaled, under the same lock
 	tr := findTransition(e.model.Workflows[a.Entity], a.Action, current)
-	if tr == nil {
-		// D-010/Cycle-003 edge: the model changed between park and decide and
-		// the transition is no longer declared (a governed definition change).
-		// The legacy synthetic transition carries no guard; log it so the
-		// fail-open edge is visible to operators (architect review note).
-		log.Printf("engine: decide %s on %s %s: transition %s no longer declared — applying synthetic %s->%s (no guard)",
-			approvalID, a.Entity, a.RecordID, a.Action, a.From, a.To)
-		DecideFallbackSynthetic.Add(1)
-		tr = &dsl.TransitionDecl{From: a.From, To: a.To, Action: a.Action}
-	}
+	prev := maps.Clone(rec.Values)
 	if err := e.applyTransitionAndEmit(ctx, actor, a.Entity, a.RecordID,
 		tr, current, &eventstore.Basis{Type: "approval", ID: approvalID}, ""); err != nil {
 		return nil, err
 	}
 	e.runAutoTransitions(ctx, a.Entity, a.RecordID)
+	e.runEventTriggers(ctx, "update", a.Entity, a.RecordID, prev)
 	return e.records[a.Entity][a.RecordID], nil
 }
 

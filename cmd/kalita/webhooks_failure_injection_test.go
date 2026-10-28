@@ -263,8 +263,17 @@ func TestFailInjectF_DLQRecovery(t *testing.T) {
 	if got := y.distinctEffects(); got != 1 {
 		t.Fatalf("F: want exactly ONE business effect after recovery, got %d", got)
 	}
-	if len(e.FailedWebhookTasks()) != 1 {
-		t.Fatal("F: the ORIGINAL dead-letter stays in the DLQ history; the retry is a new task")
+	// the DLQ lists what still needs a decision: the recovered delivery leaves
+	// it (its history stays in the journal and the attempt receipts), and the
+	// superseded original cannot be retried a second time
+	if got := len(e.FailedWebhookTasks()); got != 0 {
+		t.Fatalf("F: a recovered delivery must leave the DLQ, %d entries remain", got)
+	}
+	if e.EgressMetrics(time.Now()).DeadLettered != 0 {
+		t.Fatal("F: kalita_egress_dead_lettered must not count a recovered delivery")
+	}
+	if _, err := e.RetryWebhookTask(context.Background(), owner, dlq[0].ID, &eventstore.Basis{Type: "human", ID: "o"}); err == nil {
+		t.Fatal("F: retrying the superseded original must be refused")
 	}
 }
 

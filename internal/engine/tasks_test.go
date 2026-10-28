@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"testing"
+	"time"
 
 	"github.com/avangerus/kalita/internal/dsl"
 	"github.com/avangerus/kalita/internal/eventstore"
@@ -146,5 +147,74 @@ func TestEnsureWorkflowTasksIdempotentRepeatIsQuiet(t *testing.T) {
 	}
 	if tasks := e.Tasks("Reviewer", ""); len(tasks) != 1 {
 		t.Fatalf("idempotent repeat must not create a second task, got %d", len(tasks))
+	}
+}
+
+// failExpireStore makes task.expired Appends fail while armed.
+type failExpireStore struct {
+	eventstore.Store
+	armed bool
+}
+
+func (s *failExpireStore) Append(ctx context.Context, in eventstore.AppendInput) (*eventstore.Event, error) {
+	if s.armed && in.Kind == eventstore.TaskExpired {
+		return nil, errSimulatedStoreFailure
+	}
+	return s.Store.Append(ctx, in)
+}
+
+// A lease expiry that cannot be journaled must not reopen the task in memory
+// (AS_IS defect 2): the take fails with the store error, the lease stays with
+// its holder, Tick counts the failure, and once the store recovers the expiry
+// is journaled and the task is takeable again.
+func TestExpireIfDueKeepsLeaseWhenJournalFails(t *testing.T) {
+	store := &failExpireStore{Store: eventstore.NewMemStore(nil)}
+	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	model, errs := dsl.Compile(map[string]string{"t.dsl": workflowAssigneeSrc})
+	if len(errs) > 0 {
+		t.Fatalf("compile: %v", errs[0])
+	}
+	e, err := New(ctx, model, store, WithClock(func() time.Time { return now }), WithTaskTTL(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
+	if _, err := e.Create(ctx, owner, "Doc", map[string]any{"title": "x"}, &eventstore.Basis{Type: "human", ID: "o"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	tasks := e.Tasks("Reviewer", TaskOpen)
+	if len(tasks) != 1 {
+		t.Fatalf("want one Reviewer task, got %d", len(tasks))
+	}
+	tid := tasks[0].ID
+	r1 := eventstore.Actor{Type: eventstore.ActorHuman, ID: "r1", Role: "Reviewer"}
+	r2 := eventstore.Actor{Type: eventstore.ActorHuman, ID: "r2", Role: "Reviewer"}
+	if _, err := e.TakeTask(ctx, r1, tid, "take-r1-0001"); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(2 * time.Minute) // the lease is overdue
+	store.armed = true
+	if _, err := e.TakeTask(ctx, r2, tid, "take-r2-0001"); !errors.Is(err, errSimulatedStoreFailure) {
+		t.Fatalf("take over an unjournaled expiry must fail with the store error, got %v", err)
+	}
+	before := AutomationJournalFailures.Load()
+	captureLog(t)
+	if err := e.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if AutomationJournalFailures.Load() <= before {
+		t.Fatal("Tick must count the unjournaled expiry")
+	}
+	e.mu.RLock()
+	status, holder := e.tasks[tid].Status, e.tasks[tid].TakenBy
+	e.mu.RUnlock()
+	if status != TaskTaken || holder != "r1" {
+		t.Fatalf("memory moved without the journal: status=%s holder=%s", status, holder)
+	}
+
+	store.armed = false
+	if _, err := e.TakeTask(ctx, r2, tid, "take-r2-0002"); err != nil {
+		t.Fatalf("after recovery the expired task must be takeable: %v", err)
 	}
 }

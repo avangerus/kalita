@@ -84,20 +84,37 @@ func (e *Engine) WebhookReceipts() []WebhookReceipt {
 	return out
 }
 
-// FailedWebhookTasks lists dead-lettered webhook deliveries (settled failed) —
-// the operator's DLQ view. Newest-first by task id (uuid v7 = time order).
+// FailedWebhookTasks lists unresolved dead-lettered webhook deliveries — the
+// operator's DLQ view. A failed task whose delivery identity was retried (a
+// newer task with the same DeliveryID exists, whatever its outcome) is
+// superseded and no longer listed: the DLQ shows what still needs a decision.
+// Newest-first by task id (uuid v7 = time order).
 func (e *Engine) FailedWebhookTasks() []*Task {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	var out []*Task
 	for _, t := range e.tasks {
-		if t.Kind == TaskWebhook && t.Status == TaskFailed {
+		if t.Kind == TaskWebhook && t.Status == TaskFailed && !e.webhookSupersededLocked(t) {
 			cp := *t
 			out = append(out, &cp)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
 	return out
+}
+
+// webhookSupersededLocked reports whether a newer webhook task carries the
+// same delivery identity (a retry of t). Callers hold e.mu.
+func (e *Engine) webhookSupersededLocked(t *Task) bool {
+	if t.DeliveryID == "" {
+		return false
+	}
+	for _, o := range e.tasks {
+		if o.Kind == TaskWebhook && o.DeliveryID == t.DeliveryID && o.ID > t.ID {
+			return true
+		}
+	}
+	return false
 }
 
 // RetryWebhookTask is the operator's manual recovery: it creates a NEW open
@@ -130,6 +147,12 @@ func (e *Engine) RetryWebhookTask(ctx context.Context, actor eventstore.Actor, t
 			FixHint: "re-trigger the business effect instead of retrying the delivery",
 		}
 	}
+	if e.webhookSupersededLocked(t) {
+		e.mu.Unlock()
+		return nil, &Err{Code: CodeConflict,
+			Message: "this delivery was already retried",
+			FixHint: "retry the newest dead-lettered task of this delivery identity (see the DLQ listing)"}
+	}
 	for _, other := range e.tasks {
 		if other.Kind == TaskWebhook && other.Status == TaskOpen && other.DeliveryID == t.DeliveryID {
 			e.mu.Unlock()
@@ -160,7 +183,7 @@ func (e *Engine) RetryWebhookTask(ctx context.Context, actor eventstore.Actor, t
 // deterministic, no runner-side mutable counters required.
 type EgressMetrics struct {
 	Queued           int     `json:"queued"`             // open webhook deliveries
-	DeadLettered     int     `json:"dead_lettered"`      // failed (settled) deliveries
+	DeadLettered     int     `json:"dead_lettered"`      // failed deliveries not yet retried
 	Delivered        int     `json:"delivered"`          // completed deliveries
 	Attempts         int     `json:"attempts"`           // folded webhook.attempt receipts
 	Retries          int     `json:"retries"`            // receipts with attempt > 1
@@ -188,7 +211,9 @@ func (e *Engine) EgressMetrics(now time.Time) EgressMetrics {
 		case TaskCompleted:
 			m.Delivered++
 		case TaskFailed:
-			m.DeadLettered++
+			if !e.webhookSupersededLocked(t) {
+				m.DeadLettered++
+			}
 		}
 	}
 	for _, r := range e.webhookReceipts {

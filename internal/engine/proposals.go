@@ -117,6 +117,9 @@ func (e *Engine) ProposeChange(ctx context.Context, actor eventstore.Actor, file
 	if err := validateAdditive(e.model, next); err != nil {
 		return nil, nil, err
 	}
+	if err := checkAutomationConditions(next); err != nil {
+		return nil, nil, err
+	}
 
 	id, err := uuid.NewV7()
 	if err != nil {

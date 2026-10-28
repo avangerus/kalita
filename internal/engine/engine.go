@@ -251,6 +251,9 @@ func New(ctx context.Context, model *dsl.Model, store eventstore.Store, opts ...
 	for _, opt := range opts {
 		opt(e)
 	}
+	if err := checkAutomationConditions(model); err != nil {
+		return nil, err
+	}
 	events, err := store.All(ctx)
 	if err != nil {
 		return nil, err
@@ -547,6 +550,9 @@ func (e *Engine) ApplyAdditive(ctx context.Context, actor eventstore.Actor, next
 	defer e.mu.Unlock()
 
 	if err := validateAdditive(e.model, next); err != nil {
+		return err
+	}
+	if err := checkAutomationConditions(next); err != nil {
 		return err
 	}
 
