@@ -1,4 +1,5 @@
-FROM golang:1.26-alpine AS build
+# the Go build runs natively and cross-compiles; only the runtime stage is per-platform
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -8,7 +9,9 @@ COPY . .
 # `kalita upgrade`'s journal version guard (upgrade.go) compares against a lie.
 # Build with: docker build --build-arg VERSION=v1.0.0 ...
 ARG VERSION=0.1.0-dev
-RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o /kalita ./cmd/kalita
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w -X main.version=${VERSION}" -o /kalita ./cmd/kalita
 
 FROM alpine:3.22
 RUN apk add --no-cache openssl ca-certificates \

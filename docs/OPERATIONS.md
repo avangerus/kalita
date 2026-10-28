@@ -4,6 +4,19 @@
 Узел = один бинарь `kalita` + PostgreSQL (журнал). Все команды читают
 `KALITA_PG_DSN` через цепочку секретов (см. «Секреты» ниже).
 
+## Установка выпущенной версии
+
+Выпуски — на GitHub Releases (архивы linux/windows/darwin, UI встроен) и образ
+`ghcr.io/avangerus/kalita:<версия>`. Всё подписано keyless (cosign + GitHub OIDC)
+workflow `release.yml` по тегу версии (D-022). Проверка архива перед установкой:
+```
+cosign verify-blob --bundle SHA256SUMS.bundle \
+  --certificate-identity-regexp '^https://github\.com/avangerus/kalita/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
+```
+Образ: `cosign verify` с теми же двумя флагами и `ghcr.io/avangerus/kalita:<версия>`.
+
 ## Ежедневно: ничего
 
 Узел живёт сам. Смотрите дашборд/отчёты по потребности:
@@ -33,9 +46,12 @@ pg_dump "$KALITA_PG_DSN" > backups/$(date +%F).sql
 ## Upgrade (новая версия)
 
 ```
-kalita upgrade --to <версия> --image <registry/kalita> --dry-run   # репетиция: шаги 1-3
-kalita upgrade --to <версия> --image <registry/kalita>             # боевой прогон
+kalita upgrade --to <версия> --dry-run   # репетиция: шаги 1-3
+kalita upgrade --to <версия>             # боевой прогон
 ```
+Нужен `cosign` в PATH. По умолчанию образ — `ghcr.io/avangerus/kalita`, подпись
+проверяется keyless по идентичности release-workflow; свой образ — `--image`,
+подписанный ключом — `--cosign-key cosign.pub`.
 7 шагов печатаются на экран (preflight → backup → pull+подпись → stop →
 start → smoke → запись в журнал). Провал на шагах 5-6 — **автоматический
 откат**, старая версия уже поднята, журнал не тронут. Старый бинарь на

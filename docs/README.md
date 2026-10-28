@@ -67,7 +67,7 @@
 |---|---|---|
 | [01](lld/LLD-01-journal-mechanics.md) | Журнальная механика: schema_v, op-скобки, ошибка-событие | реализовано |
 | [02](lld/LLD-02-webauthn.md) | WebAuthn/passkey-подпись | реализовано |
-| [03](lld/LLD-03-upgrade-eras.md) | Upgrade, эры, golden replay, защита от downgrade | реализовано (без cosign) |
+| [03](lld/LLD-03-upgrade-eras.md) | Upgrade, эры, golden replay, защита от downgrade | реализовано (cosign keyless, D-022) |
 | [05](lld/LLD-05-product-kit-ui.md) | Product Kit: atoms→faces (`packages/kalita-ui`) | реализовано |
 | [06](lld/LLD-06-product-mcp-chat.md) | Продуктовый MCP-façade + чат | реализовано |
 | [07](lld/LLD-07-federation-bridge.md) | Федерация через bridge-воркер | реализовано на уровне воркера |

@@ -7,7 +7,7 @@
 
 | | |
 |---|---|
-| Последний тег | `v1.0.0-rc.6` (этап S4 пути к 1.0); последний пилотный — `v1.0.0-rc.2` (`12fb6f7`, 2026-08-18, staff-only) |
+| Последний тег | `v1.0.0-rc.7` (этап S5 пути к 1.0, первый опубликованный выпуск); последний пилотный — `v1.0.0-rc.2` (`12fb6f7`, 2026-08-18, staff-only) |
 | Текущая версия | ветка `main`. `make build` / `kalita version` берут версию из `git describe`; сборка без версии — `0.1.0-dev` |
 | Что добавлено после rc.2 | self-building продукт (Ask Kalita: builder-воркер, `packs/builder`, бизнес-фреймворки, web-оболочка Home/Ask/Company Model/Changes/Integrations), English-first UI/фреймворки/отчёты, долговечная доставка webhook (D-011: DeliveryID, retry, DLQ, receipts, секреты получателей), hardening egress, фиксы по ревью |
 | Последняя приёмка | автоматическая `tests/acceptance` (реальный узел + PG) — PASS на каждом rc-теге, в CI на каждом push; ручная часть (браузер, passkey) — [ACCEPTANCE.md](ACCEPTANCE.md) |
@@ -23,8 +23,8 @@
 | S2 | Корректность рантайма: ошибки журнала не теряются (expire, runner), мьютекс в RotateKey/Disable, DLQ без восстановленных доставок (D-019), LIM-1 и LIM-7 (D-020) | готово, `v1.0.0-rc.4` |
 | S3 | Egress: IDN/punycode, IPv6-канонизация и DNS-rebinding (LIM-9, D-021), плоский payload dead-letter подписок | готово, `v1.0.0-rc.5` |
 | S4 | События записи через индекс, а не проход по журналу (LIM-3: история, rewind/diff, revert, проверка фактов задачи); неписуемые kind-ы помечены как зарезервированные | готово, `v1.0.0-rc.6` |
-| S5 | Release-пайплайн: бинарники linux/windows/darwin, sha256, образ GHCR, подпись cosign (OPS-3) | в работе |
-| S6 | G14 закрыт в документах, CHANGELOG, тег `v1.0.0` | — |
+| S5 | Release-пайплайн `release.yml`: архивы linux/windows/darwin со встроенным UI, SHA256SUMS, образ GHCR amd64+arm64, подпись cosign keyless; `kalita upgrade` проверяет её (D-022) | готово, `v1.0.0-rc.7` |
+| S6 | G14 закрыт в документах, CHANGELOG, тег `v1.0.0` | в работе |
 
 ## Что работает
 
@@ -65,7 +65,6 @@ race, python workers, ночной passport. Включён 2026-10-28; прог
 | LIM-2 | UI без браузерных тестов |
 | LIM-6 | Федерация — уровень воркеров (bridge), демо end-to-end не прогнано |
 | LIM-8 | Анти-prompt-injection — трипвайр (детектор + `flag_ingest`), не блокирует; бэкстоп — ABAC |
-| OPS-3 | `kalita upgrade` без публикации образа/cosign; апгрейд = пересборка `docker compose up --build` |
 | — | Один узел, проекции в памяти, один мьютекс: вертикальный масштаб |
 
 Отложено после релиза: эпохи ключа узла (LLD-18 §2); двойной UI-стек

@@ -64,13 +64,11 @@ kalita agent revoke --id eng-1                   # токен и подписи 
 ## 5. Upgrade и миграция эр
 
 ```bash
-# upgrade требует --image (registry, где публикуется образ) и --to (тег).
-# NOTE: registry-publish/cosign ещё не настроены (OPS-3, post-release) — до этого
-# апгрейд = пересборка образа: docker compose up --build (VERSION инжектится compose).
-kalita upgrade --image ghcr.io/<org>/kalita --to v1.0.1 --dry-run   # preflight+backup+pull-verify
-kalita upgrade --image ghcr.io/<org>/kalita --to v1.0.1             # реально, с rollback
+# образ по умолчанию — ghcr.io/avangerus/kalita, подпись keyless (D-022); нужен cosign.
+kalita upgrade --to v1.0.1 --dry-run   # preflight+backup+pull-verify
+kalita upgrade --to v1.0.1             # реально, с rollback
 # self-signed TLS (дефолтный деплой) → проверка smoke требует явный флаг (SEC-3):
-kalita upgrade --image ghcr.io/<org>/kalita --to v1.0.1 --insecure-skip-tls-verify
+kalita upgrade --to v1.0.1 --insecure-skip-tls-verify
 # смена эры (ручная миграция): 
 kalita export --pack <dir> --out era.jsonl        # снапшот журнала
 kalita import --pack <new> --in era.jsonl         # НОВАЯ эра (журнал должен быть пуст)

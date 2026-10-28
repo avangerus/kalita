@@ -1,0 +1,105 @@
+name: release
+
+# Publishes a tagged version (D-022). A tag is pushed only after CI is green
+# on that commit — this workflow builds and signs, it does not re-test.
+#   binaries: linux/windows/darwin archives with the UI embedded, SHA256SUMS
+#             signed keyless (cosign + GitHub OIDC), a GitHub Release
+#   image:    ghcr.io/avangerus/kalita:<tag> (amd64 + arm64), signed by digest;
+#             `latest` moves only on a final (non-prerelease) tag
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/avangerus/kalita
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: sigstore/cosign-installer@v3
+      - name: Build archives
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          rm -rf internal/webui/embedded dist stage
+          cp -r web internal/webui/embedded
+          mkdir -p internal/webui/embedded/packages dist stage
+          cp -r packages/kalita-ui internal/webui/embedded/packages/kalita-ui
+          for target in linux/amd64 linux/arm64 windows/amd64 darwin/amd64 darwin/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            name="kalita_${TAG}_${os}_${arch}"
+            ext=""; [ "$os" = windows ] && ext=".exe"
+            mkdir -p "stage/$name"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -tags embedui \
+              -ldflags "-s -w -X main.version=${TAG}" -o "stage/$name/kalita$ext" ./cmd/kalita
+            cp -r packs examples LICENSE README.md "stage/$name/"
+            if [ "$os" = windows ]; then
+              (cd stage && zip -qr "../dist/$name.zip" "$name")
+            else
+              tar -C stage -czf "dist/$name.tar.gz" "$name"
+            fi
+          done
+          (cd dist && sha256sum * > SHA256SUMS)
+          cat dist/SHA256SUMS
+      - name: Sign checksums
+        run: cosign sign-blob --yes --bundle dist/SHA256SUMS.bundle dist/SHA256SUMS
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          pre=""
+          case "$TAG" in *-*) pre="--prerelease" ;; esac
+          gh release create "$TAG" --title "$TAG" --generate-notes $pre dist/*
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tags
+        id: tags
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          tags="${IMAGE}:${TAG}"
+          case "$TAG" in *-*) ;; *) tags="${tags},${IMAGE}:latest" ;; esac
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: VERSION=${{ github.ref_name }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign image
+        run: cosign sign --yes "${IMAGE}@${{ steps.build.outputs.digest }}"

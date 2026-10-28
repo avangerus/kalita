@@ -84,6 +84,24 @@ func (r *upgradeReport) print(ok bool, summary string) {
 // pins this default so it can never silently drift back to true.
 const upgradeInsecureSkipTLSVerifyDefault = false
 
+// The published release (D-022): images on GHCR, signed keyless by the
+// release workflow on a version tag.
+const (
+	releaseImage    = "ghcr.io/avangerus/kalita"
+	releaseIdentity = `^https://github\.com/avangerus/kalita/\.github/workflows/release\.yml@refs/tags/v`
+	releaseIssuer   = "https://token.actions.githubusercontent.com"
+)
+
+// cosignVerifyArgs builds the `cosign verify` invocation: against a public key
+// when one is given, else keyless against the release workflow's identity.
+func cosignVerifyArgs(imageRef, key, identityRegexp, issuer string) []string {
+	if key != "" {
+		return []string{"verify", "--key", key, imageRef}
+	}
+	return []string{"verify", "--certificate-identity-regexp", identityRegexp,
+		"--certificate-oidc-issuer", issuer, imageRef}
+}
+
 // upgradeCmd is `kalita upgrade` (LLD-03 §2), the docker-compose-first
 // orchestrator: preflight -> backup -> pull+verify -> stop -> start new ->
 // smoke -> node.upgraded, with an automatic rollback to the old image on a
@@ -94,15 +112,17 @@ func upgradeCmd(args []string) {
 	fs := flag.NewFlagSet("upgrade", flag.ExitOnError)
 	to := fs.String("to", "", "target version tag to upgrade to (required)")
 	dryRun := fs.Bool("dry-run", false, "run preflight + backup + pull/verify only (steps 1-3), then report — no stop/start/journal")
-	image := fs.String("image", "", "full image repository to pull, WITHOUT a tag (e.g. ghcr.io/avangerus/kalita) — required, no registry is assumed")
+	image := fs.String("image", releaseImage, "full image repository to pull, WITHOUT a tag")
 	composeFile := fs.String("compose-file", "docker-compose.yml", "compose file for the deployment")
 	service := fs.String("service", "kalita", "compose service name of the node")
 	pgService := fs.String("postgres-service", "postgres", "compose service name of postgres")
 	pgUser := fs.String("postgres-user", "postgres", "postgres role used for pg_dump/psql")
 	pgDB := fs.String("postgres-db", "kalita", "postgres database name")
 	backupDir := fs.String("backup-dir", "backups", "host directory (a mounted volume) to write the pg_dump backup into")
-	cosignKey := fs.String("cosign-key", "cosign.pub", "public key file to verify the release image's cosign signature")
-	skipSigVerify := fs.Bool("skip-signature-verify", false, "proceed even if the image signature cannot be verified (cosign/key missing) — NOT recommended, use only until release signing is set up")
+	cosignKey := fs.String("cosign-key", "", "verify the image against this cosign public key instead of the keyless release identity (self-built, key-signed images)")
+	cosignIdentity := fs.String("cosign-identity-regexp", releaseIdentity, "keyless: the signing certificate identity the image must carry")
+	cosignIssuer := fs.String("cosign-oidc-issuer", releaseIssuer, "keyless: the OIDC issuer of the signing certificate")
+	skipSigVerify := fs.Bool("skip-signature-verify", false, "proceed even if the image signature cannot be verified (cosign missing, unsigned image) — NOT recommended")
 	readyTimeout := fs.Duration("ready-timeout", 10*time.Minute, "how long to wait for /readyz after starting the new version")
 	healthURL := fs.String("health-url", "https://127.0.0.1:8443", "base URL of the node for the smoke checks (/healthz, /readyz)")
 	insecureSkipTLSVerify := fs.Bool("insecure-skip-tls-verify", upgradeInsecureSkipTLSVerifyDefault, "skip TLS certificate verification for smoke checks (a self-signed deployment must pass this EXPLICITLY)")
@@ -112,8 +132,7 @@ func upgradeCmd(args []string) {
 		log.Fatal("--to is required (a version tag, or 'latest')")
 	}
 	if *image == "" {
-		log.Fatal("--image is required: this repository does not yet publish to a registry by default " +
-			"(no CI publish job, no cosign key committed) — set up image publishing first, then pass its repository here")
+		log.Fatal("--image is empty: pass the image repository to pull (default " + releaseImage + ")")
 	}
 
 	ctx := context.Background()
@@ -190,15 +209,7 @@ func upgradeCmd(args []string) {
 	}
 	rep.step("pull: %s", imageRef)
 
-	if _, err := os.Stat(*cosignKey); err != nil {
-		if *skipSigVerify {
-			rep.step("WARNING: signature verification skipped (--skip-signature-verify, no %s in repo)", *cosignKey)
-		} else {
-			rep.print(false, fmt.Sprintf("signature verify FAILED: %s not found — either commit the release cosign key, "+
-				"or pass --skip-signature-verify (not recommended) to proceed without it", *cosignKey))
-			os.Exit(1)
-		}
-	} else if out, err := runCapture("cosign", "verify", "--key", *cosignKey, imageRef); err != nil {
+	if out, err := runCapture("cosign", cosignVerifyArgs(imageRef, *cosignKey, *cosignIdentity, *cosignIssuer)...); err != nil {
 		if *skipSigVerify {
 			rep.step("WARNING: signature verify failed but --skip-signature-verify was given: %v", err)
 		} else {
