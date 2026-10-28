@@ -390,7 +390,7 @@ func (e *Engine) expireIfDue(ctx context.Context, t *Task) error {
 
 // countActorEvents counts journal events by the actor on a record.
 func (e *Engine) countActorEvents(ctx context.Context, actorID, entity, recordID string) int {
-	events, err := e.store.All(ctx)
+	events, err := e.recordEvents(ctx, entity, recordID)
 	if err != nil {
 		return 0
 	}

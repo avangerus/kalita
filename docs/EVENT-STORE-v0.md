@@ -41,7 +41,9 @@ signature       bytea nullable (Ed25519/WebAuthn, see §4)
 | actor | `actor.registered`, `.role_changed`, `.key_rotated`, `.disabled` |
 | system | `node.started`, `projection.rebuilt`, `checkpoint.sealed` |
 
-New kinds are added only additively (like an enum in the DSL).
+New kinds are added only additively (like an enum in the DSL). `definition.validated`,
+`definition.reverted`, `actor.role_changed` and `projection.rebuilt` are reserved: declared, never
+written by the current binary.
 
 ## 3. Integrity: chain and checkpoints
 

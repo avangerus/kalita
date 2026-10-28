@@ -340,6 +340,32 @@ func (s *PGStore) All(ctx context.Context) ([]*Event, error) {
 	return out, rows.Err()
 }
 
+// ForRecord returns one record's events ordered by seq, served by the GIN
+// index on subject.
+func (s *PGStore) ForRecord(ctx context.Context, entity, recordID string) ([]*Event, error) {
+	key, err := json.Marshal(Subject{Entity: entity, RecordID: recordID})
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT `+columns+` FROM events WHERE subject @> $1::jsonb ORDER BY seq`, string(key))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Event
+	for rows.Next() {
+		e, err := scanEvent(rows)
+		if err != nil {
+			return nil, err
+		}
+		// containment also matches a superset subject; keep exact matches only
+		if e.Subject.Entity == entity && e.Subject.RecordID == recordID {
+			out = append(out, e)
+		}
+	}
+	return out, rows.Err()
+}
+
 // Verify re-reads the whole journal and checks the hash chain. This is the
 // round-trip integrity guarantee: what PostgreSQL stored hashes identically
 // to what was appended.

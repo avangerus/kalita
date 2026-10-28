@@ -141,7 +141,7 @@ func (e *Engine) RewindTo(ctx context.Context, actor eventstore.Actor, entity, i
 			FixHint: "rewind restores a past state and can move the workflow backward; it needs `full` on the entity"}
 	}
 
-	events, err := e.store.All(ctx)
+	events, err := e.recordEvents(ctx, entity, id)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +277,7 @@ func (e *Engine) Diff(ctx context.Context, actor eventstore.Actor, entity, id st
 	if d := e.can(actor, "read", entity, "", rec.Values); !d.allowed {
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
-	events, err := e.store.All(ctx)
+	events, err := e.recordEvents(ctx, entity, id)
 	if err != nil {
 		return nil, err
 	}
@@ -383,10 +383,9 @@ func equalVals(a, b any) bool {
 }
 
 // lastMutation returns the most recent create/update/action event for a record,
-// or nil if it has none. Scans the journal — revert is a rare supervisory act,
-// not a hot path.
+// or nil if it has none.
 func (e *Engine) lastMutation(ctx context.Context, entity, id string) (*eventstore.Event, error) {
-	events, err := e.store.All(ctx)
+	events, err := e.recordEvents(ctx, entity, id)
 	if err != nil {
 		return nil, err
 	}

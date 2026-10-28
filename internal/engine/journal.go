@@ -21,6 +21,22 @@ func (e *Engine) Journal(ctx context.Context, actor eventstore.Actor, entity, id
 		return nil, &Err{Code: CodeNotFound, Message: entity + " " + id + " not found"}
 	}
 
+	out, err := e.recordEvents(ctx, entity, id)
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out, nil
+}
+
+// recordEvents returns one record's events ordered by seq — through the
+// store's record index when it has one (LIM-3), else by filtering the journal.
+func (e *Engine) recordEvents(ctx context.Context, entity, id string) ([]*eventstore.Event, error) {
+	if rr, ok := e.store.(eventstore.RecordReader); ok {
+		return rr.ForRecord(ctx, entity, id)
+	}
 	events, err := e.store.All(ctx)
 	if err != nil {
 		return nil, err
@@ -30,9 +46,6 @@ func (e *Engine) Journal(ctx context.Context, actor eventstore.Actor, entity, id
 		if ev.Subject.Entity == entity && ev.Subject.RecordID == id {
 			out = append(out, ev)
 		}
-	}
-	if limit > 0 && len(out) > limit {
-		out = out[len(out)-limit:]
 	}
 	return out, nil
 }

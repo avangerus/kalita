@@ -103,6 +103,19 @@ func (s *MemStore) All(_ context.Context) ([]*Event, error) {
 	return out, nil
 }
 
+// ForRecord returns deep copies of one record's events, ordered by seq.
+func (s *MemStore) ForRecord(_ context.Context, entity, recordID string) ([]*Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*Event
+	for _, e := range s.events {
+		if e.Subject.Entity == entity && e.Subject.RecordID == recordID {
+			out = append(out, cloneEvent(e))
+		}
+	}
+	return out, nil
+}
+
 // ByIdemKey returns a deep copy of the event stored under the key, or nil
 // (§7.13 — same aliasing hazard as All: byIdemKey points at the same *Event
 // as the events slice, so this must not hand out the shared pointer either).

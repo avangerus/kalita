@@ -32,6 +32,9 @@ type Actor struct {
 // New kinds may only ever be added, never removed or renamed.
 type Kind string
 
+// Reserved kinds: definition.validated, definition.reverted, actor.role_changed
+// and projection.rebuilt are part of the taxonomy (AllKinds — DSL `tail`
+// grants may name them) but no code path writes them yet.
 const (
 	RecordCreated Kind = "record.created"
 	RecordUpdated Kind = "record.updated"

@@ -215,3 +215,46 @@ func TestPGRestartReplay(t *testing.T) {
 		t.Fatalf("gapless seq after restart, got %d..%d", events[0].Seq, events[99].Seq)
 	}
 }
+
+// LIM-3: ForRecord returns exactly the events of one record, in order, and
+// matches MemStore (the semantics oracle) and a filter over All.
+func TestPGForRecordMatchesMemStore(t *testing.T) {
+	s := newTestPG(t)
+	ctx := context.Background()
+	pgAppendN(t, s, 30)
+	// extra subject keys still belong to the record, exactly as in a filter over All
+	if _, err := s.Append(ctx, AppendInput{
+		Actor: Actor{Type: ActorAgent, ID: "a", Role: "R"}, Kind: RecordUpdated,
+		Subject: Subject{Entity: "Debtor", RecordID: "d-10", TaskID: "t-1"}, Payload: []byte(`{}`), DefVersion: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mem := NewMemStore(testClock())
+	all, err := s.All(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range all {
+		if _, err := mem.Append(ctx, AppendInput{Actor: ev.Actor, Kind: ev.Kind, Subject: ev.Subject,
+			Payload: ev.Payload, Basis: ev.Basis, DefVersion: ev.DefVersion}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"d-0", "d-3", "d-10", "missing"} {
+		got, err := s.ForRecord(ctx, "Debtor", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, _ := mem.ForRecord(ctx, "Debtor", id)
+		if len(got) != len(want) {
+			t.Fatalf("%s: pg %d events, mem %d", id, len(got), len(want))
+		}
+		var last uint64
+		for i, ev := range got {
+			if ev.Subject.RecordID != id || ev.Seq <= last || ev.Seq != want[i].Seq {
+				t.Fatalf("%s: event %d out of place: %+v", id, i, ev.Subject)
+			}
+			last = ev.Seq
+		}
+	}
+}

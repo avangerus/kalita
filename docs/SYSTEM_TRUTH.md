@@ -209,6 +209,6 @@ TestGoldenReplay (замороженный журнал → точные про�
 | MCP-шлюз, REST | **KALITA CORE** (поверхность) | оба транспорта ведут в ядро |
 | deploy/docker/upgrade/backup/TSA | **EXTERNAL INFRASTRUCTURE** (обвязка ноды) | операции вне семантики предприятия |
 | Business frameworks (frameworks/*.json, packs/builder, workers/builder) | **BUSINESS FRAMEWORK + BUILDER** | продуктовая миссия Round-1: curated-знания + governed design-сессии (см. builder/ARCHITECTURE.md) |
-| definition.validated/reverted, projection.rebuilt, actor.role_changed (мёртвые kinds) | **LEGACY / CANDIDATE FOR REMOVAL** | не пишутся и не фолдятся нигде |
+| definition.validated/reverted, projection.rebuilt, actor.role_changed | **RESERVED** | в таксономии (`AllKinds`, гранты `tail`), но не пишутся; удаление сломало бы модели с такими грантами |
 | core.reference/Department (заявлены, нет) | не классифицируется — отсутствует | см. PLATFORM-STDLIB |
 

@@ -24,3 +24,10 @@ type Store interface {
 	// storage itself) — the readiness probe's journal half (LLD-09 §3).
 	Ping(ctx context.Context) error
 }
+
+// RecordReader is an optional Store capability: the events of one record
+// (Subject.Entity + Subject.RecordID), ordered by seq, read without scanning
+// the whole journal. Callers fall back to All when a store lacks it.
+type RecordReader interface {
+	ForRecord(ctx context.Context, entity, recordID string) ([]*Event, error)
+}
