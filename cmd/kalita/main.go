@@ -678,6 +678,9 @@ func serve(args []string) {
 	webhookDomains := parseEgressDomains(*egressDomains)
 	webhookSecrets, secretsConfigured := loadEgressSecrets()
 	if len(webhookDomains) > 0 {
+		if !secretsConfigured {
+			log.Print("WARNING: webhook egress is enabled without KALITA_EGRESS_SECRETS — deliveries will be UNAUTHENTICATED (fine for an internal mock, not for production destinations)")
+		}
 		go func() {
 			tick := time.NewTicker(10 * time.Second)
 			defer tick.Stop()

@@ -56,6 +56,7 @@ func (e *Engine) RecordWebhookAttempt(ctx context.Context, taskID string, attemp
 		Payload:        payload,
 		Basis:          &eventstore.Basis{Type: "rule", ID: "webhook-runner"},
 		DefVersion:     e.defVersion,
+		SchemaV:        eventstore.CurrentSchemaV,
 		IdempotencyKey: idemKey,
 	})
 	if err != nil {

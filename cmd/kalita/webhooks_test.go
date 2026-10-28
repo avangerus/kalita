@@ -90,6 +90,121 @@ func TestAllowed(t *testing.T) {
 	}
 }
 
+// TestAllowedSSRFEdgeCases pins the fail-closed behavior for host-form edge
+// cases (Security Pro NIT-7): none of these may ever match the allowlist.
+func TestAllowedSSRFEdgeCases(t *testing.T) {
+	domains := []string{"example.com"}
+	cases := []string{
+		"https://user:pass@example.com/hook",  // userinfo
+		"https://127.0.0.1/hook",              // ipv4 literal
+		"https://[::1]/hook",                  // ipv6 literal
+		"https://example.com\\@evil.com/hook", // backslash trick
+		"https://%65xample.com/hook",          // percent-encoded host
+		"https://пример.com/hook",             // IDN unicode form
+	}
+	for _, raw := range cases {
+		if allowed(domains, raw) {
+			t.Fatalf("allowlist must deny %q (fail-closed)", raw)
+		}
+	}
+	// the allowlist is HOST-scoped by design: a different port on an
+	// allowlisted host is still that host (Security Pro MINOR-1 documents
+	// this as an over-grant vs origin pinning, not a bypass)
+	if !allowed(domains, "https://example.com:8443/hook") {
+		t.Fatal("host-only allowlist must match any port on an allowlisted host")
+	}
+}
+
+// TestRunnerRejectsCleartextWithSecret: a credentialed delivery must never
+// ride plain http (Security Pro MINOR-1 cleartext sub-case).
+func TestRunnerRejectsCleartextWithSecret(t *testing.T) {
+	const pack = `
+entity Doc:
+    title: string
+
+roles:
+    Owner
+
+permissions:
+    Owner:
+        full [Doc]
+
+automation:
+    on create Doc:
+        webhook out "http://example.com/hook"
+`
+	model, errs := dsl.Compile(map[string]string{"w.dsl": pack})
+	if len(errs) > 0 {
+		t.Fatalf("pack must compile: %v", errs[0])
+	}
+	e, err := engine.New(context.Background(), model, eventstore.NewMemStore(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
+	if _, err := e.Create(context.Background(), owner, "Doc", map[string]any{"title": "t"}, &eventstore.Basis{Type: "human", ID: "o"}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := 0
+	n := runWebhookDeliveries(context.Background(), e, []string{"example.com"},
+		map[string]string{"example.com": "Bearer sk_x"}, true,
+		func(_ context.Context, _ string, _ []byte, _ string) *webhookDeliveryError { calls++; return nil })
+	if n != 1 || calls != 0 {
+		t.Fatalf("cleartext credentialed delivery must fail closed: processed=%d calls=%d", n, calls)
+	}
+	receipts := e.WebhookReceipts()
+	if len(receipts) != 1 || receipts[0].Category != "insecure_transport" {
+		t.Fatalf("want one insecure_transport receipt, got %+v", receipts)
+	}
+	if len(e.FailedWebhookTasks()) != 1 {
+		t.Fatal("the delivery must dead-letter")
+	}
+}
+
+// TestRunnerRejectsUserinfoURL: a URL smuggling its own credentials must not
+// be delivered (the runtime-secret channel is the only credential path).
+func TestRunnerRejectsUserinfoURL(t *testing.T) {
+	const pack = `
+entity Doc:
+    title: string
+
+roles:
+    Owner
+
+permissions:
+    Owner:
+        full [Doc]
+
+automation:
+    on create Doc:
+        webhook out "https://user:pass@example.com/hook"
+`
+	model, errs := dsl.Compile(map[string]string{"w.dsl": pack})
+	if len(errs) > 0 {
+		t.Fatalf("pack must compile: %v", errs[0])
+	}
+	e, err := engine.New(context.Background(), model, eventstore.NewMemStore(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := eventstore.Actor{Type: eventstore.ActorHuman, ID: "o", Role: "Owner"}
+	if _, err := e.Create(context.Background(), owner, "Doc", map[string]any{"title": "t"}, &eventstore.Basis{Type: "human", ID: "o"}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := 0
+	n := runWebhookDeliveries(context.Background(), e, []string{"example.com"}, nil, false,
+		func(_ context.Context, _ string, _ []byte, _ string) *webhookDeliveryError { calls++; return nil })
+	if n != 1 || calls != 0 {
+		t.Fatalf("userinfo URL must fail closed: processed=%d calls=%d", n, calls)
+	}
+	receipts := e.WebhookReceipts()
+	if len(receipts) != 1 || receipts[0].Category != "url_credentials" {
+		t.Fatalf("want one url_credentials receipt, got %+v", receipts)
+	}
+}
+
 // TestRunnerSettlesDelivery: the runner delivers once with a payload carrying
 // the per-firing delivery identity (DeliveryID) as idempotency_key, journals
 // a receipt, and settles the task completed.

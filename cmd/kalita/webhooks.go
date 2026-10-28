@@ -107,7 +107,8 @@ func normalizeHost(hostport string) string {
 }
 
 // allowed reports whether a webhook URL's host is in the node's allowlist.
-// Fail-closed: an unparseable URL or an empty allowlist denies everything.
+// Fail-closed: an unparseable URL, an empty allowlist, or a URL smuggling its
+// own credentials (userinfo) denies everything.
 func allowed(domains []string, rawURL string) bool {
 	if len(domains) == 0 {
 		return false
@@ -115,6 +116,9 @@ func allowed(domains []string, rawURL string) bool {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return false
+	}
+	if u.User != nil {
+		return false // credentials belong in KALITA_EGRESS_SECRETS, never the URL
 	}
 	host := normalizeHost(u.Hostname())
 	for _, d := range domains {
@@ -195,10 +199,16 @@ func runWebhookDeliveries(ctx context.Context, eng *engine.Engine, domains []str
 		}
 		if !allowed(domains, rawURL) {
 			// fail-closed: the intended domain is outside the node's allowlist
+			// (or the URL smuggles its own credentials — a distinct receipt)
+			cat, reason := "allowlist", "egress domain not in KALITA_EGRESS_DOMAINS"
+			if u, uerr := url.Parse(rawURL); uerr == nil && u.User != nil {
+				cat = "url_credentials"
+				reason = "webhook URLs must not carry credentials (userinfo) — inject them via KALITA_EGRESS_SECRETS"
+			}
 			log.Printf("webhook: %s denied — %q outside KALITA_EGRESS_DOMAINS", t.ID, rawURL)
-			_ = eng.RecordWebhookAttempt(ctx, t.ID, 1, "failed", "allowlist",
+			_ = eng.RecordWebhookAttempt(ctx, t.ID, 1, "failed", cat,
 				webhookHostOf(rawURL), 0, "wh-att:"+t.ID+":1")
-			if err := eng.SettleWebhookTask(ctx, t.ID, false, "egress domain not in KALITA_EGRESS_DOMAINS", "wh-settle:"+t.ID); err != nil {
+			if err := eng.SettleWebhookTask(ctx, t.ID, false, reason, "wh-settle:"+t.ID); err != nil {
 				log.Printf("webhook: settle %s: %v", t.ID, err)
 			}
 			processed++
@@ -214,6 +224,29 @@ func runWebhookDeliveries(ctx context.Context, eng *engine.Engine, domains []str
 			_ = eng.RecordWebhookAttempt(ctx, t.ID, 1, "failed", "auth_missing",
 				host, 0, "wh-att:"+t.ID+":1")
 			if err := eng.SettleWebhookTask(ctx, t.ID, false, "no egress secret configured for domain "+host, "wh-settle:"+t.ID); err != nil {
+				log.Printf("webhook: settle %s: %v", t.ID, err)
+			}
+			processed++
+			continue
+		}
+		// a credential must never ride cleartext, and a URL must not smuggle
+		// its own credentials (userinfo) past the runtime-secret channel
+		// (Security Pro MINOR-1 cleartext sub-case + MINOR-3 hygiene).
+		if bearer != "" && strings.HasPrefix(strings.ToLower(rawURL), "http://") {
+			_ = eng.RecordWebhookAttempt(ctx, t.ID, 1, "failed", "insecure_transport",
+				host, 0, "wh-att:"+t.ID+":1")
+			if err := eng.SettleWebhookTask(ctx, t.ID, false,
+				"refusing to send a credentialed webhook over cleartext http:// — use https", "wh-settle:"+t.ID); err != nil {
+				log.Printf("webhook: settle %s: %v", t.ID, err)
+			}
+			processed++
+			continue
+		}
+		if u, err := url.Parse(rawURL); err == nil && u.User != nil {
+			_ = eng.RecordWebhookAttempt(ctx, t.ID, 1, "failed", "url_credentials",
+				host, 0, "wh-att:"+t.ID+":1")
+			if err := eng.SettleWebhookTask(ctx, t.ID, false,
+				"webhook URLs must not carry credentials (userinfo) — inject them via KALITA_EGRESS_SECRETS", "wh-settle:"+t.ID); err != nil {
 				log.Printf("webhook: settle %s: %v", t.ID, err)
 			}
 			processed++

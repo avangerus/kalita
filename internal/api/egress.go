@@ -2,11 +2,23 @@ package api
 
 import (
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/avangerus/kalita/internal/engine"
 	"github.com/avangerus/kalita/internal/eventstore"
 )
+
+// destinationView strips query/fragment from a webhook URL for DISPLAY only
+// (Security Pro MINOR-3 hygiene): a query component often carries tokens, and
+// the DLQ view has no business showing them. Delivery uses the full URL.
+func destinationView(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		u.RawQuery, u.Fragment = "", ""
+		return u.String()
+	}
+	return raw
+}
 
 // The dead-letter queue for webhook deliveries (D-011 hardening, English-first
 // release): a read-only listing and the approver-gated manual recovery. Both
@@ -59,7 +71,7 @@ func (s *Server) egressDlq(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, egressDlqItem{
 			TaskID: t.ID, DeliveryID: t.DeliveryID, Entity: t.Entity,
-			RecordID: t.RecordID, Destination: t.Args, CreatedAt: created,
+			RecordID: t.RecordID, Destination: destinationView(t.Args), CreatedAt: created,
 			Attempts: attempts[t.ID], LastCategory: lastCategory[t.ID],
 		})
 	}

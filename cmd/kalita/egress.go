@@ -16,6 +16,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 
 	"github.com/avangerus/kalita/internal/engine"
@@ -85,7 +86,8 @@ func egressCmd(args []string) {
 }
 
 // egressDlqCmd prints the dead-letter listing: one line per failed webhook
-// delivery, newest first, with its per-firing identity and destination.
+// delivery, newest first, with its per-firing identity and destination
+// (query/fragment stripped from the display — they can carry tokens).
 func egressDlqCmd(eng *engine.Engine) {
 	tasks := eng.FailedWebhookTasks()
 	if len(tasks) == 0 {
@@ -98,8 +100,13 @@ func egressDlqCmd(eng *engine.Engine) {
 		if !t.CreatedAt.IsZero() {
 			created = t.CreatedAt.UTC().Format("2006-01-02 15:04:05")
 		}
+		dest := t.Args
+		if u, err := url.Parse(dest); err == nil {
+			u.RawQuery, u.Fragment = "", ""
+			dest = u.String()
+		}
 		fmt.Printf("  %s  created %s  %s/%s -> %s  (delivery identity %s)\n",
-			t.ID, created, t.Entity, t.RecordID, t.Args, t.DeliveryID)
+			t.ID, created, t.Entity, t.RecordID, dest, t.DeliveryID)
 		fmt.Printf("    retry: kalita egress retry %s\n", t.ID)
 	}
 }
