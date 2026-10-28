@@ -8,7 +8,7 @@
 package eventstore_test
 
 // Node performance passport — baseline v0, profile P3 "journal growth"
-// (docs/HLD-V1.md §H10, docs/RELEASE-1.0.md N9: "replay при старте замерен
+// (docs/HLD-V1.md §H10, RELEASE-1.0 (git 5447fc5) N9: "replay при старте замерен
 // только на 100k (1.07 с)... replay-бенчмарк 1M/10M синтетики в CI").
 //
 // Gated behind the `passport` build tag — see internal/engine/passport_bench_test.go

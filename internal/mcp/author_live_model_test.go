@@ -61,7 +61,9 @@ func chatLLM(t *testing.T, url, model, content string) string {
 	raw, _ := io.ReadAll(resp.Body)
 	var out struct {
 		Choices []struct {
-			Message struct{ Content string `json:"content"` } `json:"message"`
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil || len(out.Choices) == 0 {
@@ -186,7 +188,7 @@ func TestAuthorLiveModelFullLoop(t *testing.T) {
 	sys, _ := call(t, srv.URL, builderToken, "describe_system", map[string]any{})
 	baseDef := sys["def_version"].(float64)
 	prop, isErr := call(t, srv.URL, builderToken, "propose_change", map[string]any{
-		"files": map[string]string{spec["pack"].(string) + ".dsl": dslText},
+		"files":            map[string]string{spec["pack"].(string) + ".dsl": dslText},
 		"base_def_version": baseDef, "description": "auto-built from a description", "basis": agentBasis,
 	})
 	if isErr || prop["ok"] != true {

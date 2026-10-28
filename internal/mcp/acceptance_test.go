@@ -64,7 +64,7 @@ func TestAcceptanceAgentBuildsItsWorkplace(t *testing.T) {
 	sys, _ := call(t, srv.URL, builderToken, "describe_system", map[string]any{})
 	baseDef := sys["def_version"].(float64)
 	prop, isErr := call(t, srv.URL, builderToken, "propose_change", map[string]any{
-		"files": map[string]string{"ticket.dsl": example},
+		"files":            map[string]string{"ticket.dsl": example},
 		"base_def_version": baseDef, "description": "ticket tracker pack", "basis": agentBasis,
 	})
 	if isErr || prop["ok"] != true {

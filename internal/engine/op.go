@@ -24,7 +24,7 @@ import (
 // actions, which can trigger further on-create automation) — this is the
 // counter PR-4b hooks into. See agent/kalita/QUESTIONS-LLD.md for the
 // discrepancy with runAutoTransitions' separate, pre-existing 10-hop limit.
-// D-012: maxCascadeDepth=8 vs auto-hops<10 — осознанное расхождение, см. docs/forge/DECISIONS.md.
+// D-012: maxCascadeDepth=8 vs auto-hops<10 — осознанное расхождение, см. docs/DECISIONS.md.
 const maxCascadeDepth = 8
 
 type opInfo struct {

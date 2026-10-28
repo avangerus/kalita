@@ -6,7 +6,7 @@
 package eventstore_test
 
 // Shared synthetic-journal generator for the P3 "journal growth" passport
-// profile (docs/RELEASE-1.0.md N9) AND the hard replay-budget gate
+// profile (RELEASE-1.0 (git 5447fc5) N9) AND the hard replay-budget gate
 // (replay_budget_test.go). Deliberately NOT behind the `passport` build tag,
 // unlike replay_bench_test.go's benchmarks: TestReplayBudget1M in
 // replay_budget_test.go must compile and run in the ordinary `go test ./...`

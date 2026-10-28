@@ -13,7 +13,7 @@ import (
 )
 
 // The D-011 failure-injection acceptance harness: scenarios A–H from
-// docs/forge/ENGLISH_RELEASE_PLAN.md, each named exactly as in the plan, each
+// docs/ACCEPTANCE.md, each named exactly as in the plan, each
 // run against a controlled mock destination Y (mockPayment, above in
 // webhooks_integration_test.go). Every scenario asserts the DELIVERY CONTRACT,
 // not implementation details: at-least-once, idempotent business effect,

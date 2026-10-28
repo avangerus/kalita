@@ -77,7 +77,7 @@ func mutate(values map[string]any) map[string]any {
 
 func TestRESTEndToEnd(t *testing.T) {
 	srv := newTestServer(t)
-	anna := &apiClient{t, srv.URL, "anna", "Accountant", }
+	anna := &apiClient{t, srv.URL, "anna", "Accountant"}
 	bot := &apiClient{t, srv.URL, "collector-1", "Collector"}
 
 	// no identity → 401 with hint

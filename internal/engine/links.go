@@ -21,7 +21,7 @@ type linkPayload struct {
 
 // LinkedRecord is one end of a link as seen from a record.
 type LinkedRecord struct {
-	Name     string `json:"name"`   // the name from THIS record's side
+	Name     string `json:"name"` // the name from THIS record's side
 	Entity   string `json:"entity"`
 	RecordID string `json:"record_id"`
 }

@@ -2,7 +2,7 @@
 
 package engine
 
-// Node performance passport — baseline v0 (docs/HLD-V1.md §H10, docs/RELEASE-1.0.md
+// Node performance passport — baseline v0 (docs/HLD-V1.md §H10, RELEASE-1.0 (git 5447fc5)
 // N6 "не переделывать, а измерить" / N9 "измеримые пороги вместо веры").
 //
 // This file holds profiles P1 (pilot mix), P2 (bulk create) and P4 (auth

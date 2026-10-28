@@ -393,4 +393,3 @@ func TestWebauthnProposalSignatureRoundTrip(t *testing.T) {
 		t.Fatalf("def_version must advance after the signed apply: got %d", eng.DefVersion())
 	}
 }
-

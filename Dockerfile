@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -10,7 +10,7 @@ COPY . .
 ARG VERSION=0.1.0-dev
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o /kalita ./cmd/kalita
 
-FROM alpine:3.20
+FROM alpine:3.22
 RUN apk add --no-cache openssl ca-certificates \
     && adduser -D -H kalita \
     && mkdir -p /data/tls && chown -R kalita /data

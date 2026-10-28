@@ -14,7 +14,7 @@ import (
 	"github.com/avangerus/kalita/internal/identity"
 )
 
-// TestSearchPerimeter* — the search_perimeter MCP tool (KNOWVAULT-INTEGRATION.md
+// TestSearchPerimeter* — the search_perimeter MCP tool (packs/knowvault/README.md
 // §1.2/§2) must run through the SAME governance core as the human REST
 // /api/search endpoint (internal/api/ragproxy.go's SearchPerimeter): results
 // filtered by VisibleRecordIDs BEFORE they come back, one SearchQuery

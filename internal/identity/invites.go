@@ -20,7 +20,7 @@ import (
 type Invite struct {
 	CodeHash  []byte           `json:"code_hash"`
 	Role      string           `json:"role"`
-	Entity    string           `json:"entity,omitempty"`    // bound record (optional)
+	Entity    string           `json:"entity,omitempty"` // bound record (optional)
 	RecordID  string           `json:"record_id,omitempty"`
 	BindField string           `json:"bind_field,omitempty"` // field set to the new actor id
 	CreatedBy eventstore.Actor `json:"created_by"`

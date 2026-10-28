@@ -16,16 +16,16 @@ import (
 // event / emit / on-event actually work end to end on a FRESH pack (not just
 // the existing crm/site fixtures):
 //
-//   Level 1 (action/transition): Employee.status Active<->Inactive, with
-//   `deactivate` gated behind HRAdmin's HITL signature.
-//   Level 2 (event): `emit_event` fires people.OutOfOffice; `on event
-//   OutOfOffice` reacts by notifying the manager and creating a Coverage
-//   record; that record's own `on create Coverage` then queues a task for
-//   the CoverageBot agent role (the same two-step bridge packs/crm/crm.dsl
-//   uses for LeadConverted -> Opportunity -> SalesBot).
-//   Level 3 (worker code): simulated here via direct MCP calls under the
-//   CoverageBot token — exactly what workers/coverage_bot/bot.py does — take
-//   the task, read the record, write a comment, complete the task.
+//	Level 1 (action/transition): Employee.status Active<->Inactive, with
+//	`deactivate` gated behind HRAdmin's HITL signature.
+//	Level 2 (event): `emit_event` fires people.OutOfOffice; `on event
+//	OutOfOffice` reacts by notifying the manager and creating a Coverage
+//	record; that record's own `on create Coverage` then queues a task for
+//	the CoverageBot agent role (the same two-step bridge packs/crm/crm.dsl
+//	uses for LeadConverted -> Opportunity -> SalesBot).
+//	Level 3 (worker code): simulated here via direct MCP calls under the
+//	CoverageBot token — exactly what workers/coverage_bot/bot.py does — take
+//	the task, read the record, write a comment, complete the task.
 func TestDogfoodPeopleThreeLevels(t *testing.T) {
 	ctx := context.Background()
 	model, errs := dsl.Compile(packFiles(t, "../../packs/people"))

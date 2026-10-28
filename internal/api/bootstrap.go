@@ -49,7 +49,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ID == "" || !s.boot.roles[req.Role] {
 		writeJSON(w, http.StatusForbidden, map[string]string{"code": "BOOTSTRAP_DENIED",
-			"message": "id required and role must be a worker role",
+			"message":  "id required and role must be a worker role",
 			"fix_hint": "bootstrap only mints the worker roles configured on the node"})
 		return
 	}

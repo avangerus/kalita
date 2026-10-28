@@ -11,7 +11,6 @@ import (
 	"github.com/avangerus/kalita/internal/eventstore"
 )
 
-
 func TestScheduleInterval(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -427,7 +426,6 @@ func (s *replayStore) Verify(context.Context) error {
 
 // Ping reports the replay journal as reachable (memory-resident).
 func (s *replayStore) Ping(context.Context) error { return nil }
-
 
 var _ eventstore.Store = (*replayStore)(nil)
 

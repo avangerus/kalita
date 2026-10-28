@@ -501,7 +501,7 @@ var autoActor = eventstore.Actor{Type: eventstore.ActorSystem, ID: "workflow-eng
 
 // runAutoTransitions fires auto transitions whose guards hold, repeatedly,
 // with a hard bound against cycles. Called after every state-affecting change.
-// D-012: maxCascadeDepth=8 vs auto-hops<10 — осознанное расхождение, см. docs/forge/DECISIONS.md.
+// D-012: maxCascadeDepth=8 vs auto-hops<10 — осознанное расхождение, см. docs/DECISIONS.md.
 func (e *Engine) runAutoTransitions(ctx context.Context, entity, id string) {
 	wf, ok := e.model.Workflows[entity]
 	if !ok {

@@ -21,7 +21,7 @@ import (
 // entityIndex maps an indexed field's stringified value to the set of record ids.
 type entityIndex struct {
 	byField map[string]map[string]map[string]struct{} // field -> value -> id set
-	count   int                                        // record count at build, a staleness backstop
+	count   int                                       // record count at build, a staleness backstop
 }
 
 // reScopeTerm extracts a DIRECT `field = $me` / `field = $me.<attr>` term,

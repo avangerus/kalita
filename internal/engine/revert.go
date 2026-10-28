@@ -40,8 +40,8 @@ func (e *Engine) Revert(ctx context.Context, actor eventstore.Actor, entity, id 
 	}
 	if !e.hasFull(actor.Role, entity) {
 		return nil, &Err{Code: CodePermissionDenied,
-			Message:  "role " + actor.Role + " may not revert " + entity,
-			FixHint:  "revert undoes a change and can move the workflow backward; it needs `full` on the entity"}
+			Message: "role " + actor.Role + " may not revert " + entity,
+			FixHint: "revert undoes a change and can move the workflow backward; it needs `full` on the entity"}
 	}
 
 	last, err := e.lastMutation(ctx, entity, id)

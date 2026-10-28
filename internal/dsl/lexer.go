@@ -107,7 +107,7 @@ func tokenize(file string, num int, s string, errs *Errors) []Tok {
 			toks = append(toks, Tok{TPunct, "-"})
 			i++
 		case strings.ContainsRune("<>!", c) && i+1 < len(s) && s[i+1] == '=':
-			toks = append(toks, Tok{TPunct, s[i:i+2]})
+			toks = append(toks, Tok{TPunct, s[i : i+2]})
 			i += 2
 		case strings.ContainsRune(":,[]()=.*<>+-/", c):
 			toks = append(toks, Tok{TPunct, string(c)})

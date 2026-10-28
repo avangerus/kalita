@@ -29,7 +29,7 @@ import (
 //   --search-scope    entity whose visible records bound the search (Workspace)
 //   --search-log      entity to journal each query into (SearchQuery)
 //
-// KNOWVAULT-INTEGRATION.md §1.2/§2 requires ONE governance core reachable
+// packs/knowvault/README.md §1.2/§2 requires ONE governance core reachable
 // from both the human REST path and the agent MCP path — never two
 // implementations of the permission filter or the audit trail. SearchPerimeter
 // below is that core; the REST handler (search) is a thin HTTP wrapper over
@@ -113,7 +113,7 @@ func writeRAGError(w http.ResponseWriter, errObj any) {
 }
 
 // SearchPerimeter is the ONE governance core for perimeter RAG search
-// (KNOWVAULT-INTEGRATION.md §1.2, §2): filter to the actor's visible scope,
+// (packs/knowvault/README.md §1.2, §2): filter to the actor's visible scope,
 // optionally narrow to one workspace within that scope, proxy the question to
 // the search worker, and journal a SearchQuery record — unless the worker
 // errored (BUG-10: a search error must never produce a spurious SearchQuery,

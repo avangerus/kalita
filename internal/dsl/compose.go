@@ -14,13 +14,13 @@ import (
 
 // PackSpec is the structured form of a pack.
 type PackSpec struct {
-	Pack     string         `json:"pack"`
-	Version  string         `json:"version"`
-	Entities []EntitySpec   `json:"entities"`
+	Pack      string         `json:"pack"`
+	Version   string         `json:"version"`
+	Entities  []EntitySpec   `json:"entities"`
 	Workflows []WorkflowSpec `json:"workflows"`
-	Roles    []RoleSpec     `json:"roles"`
-	Perms    []PermSpec     `json:"permissions"`
-	Links    []LinkSpec     `json:"links"`
+	Roles     []RoleSpec     `json:"roles"`
+	Perms     []PermSpec     `json:"permissions"`
+	Links     []LinkSpec     `json:"links"`
 }
 
 type EntitySpec struct {
@@ -31,14 +31,14 @@ type EntitySpec struct {
 
 type FieldSpec struct {
 	Name     string   `json:"name"`
-	Type     string   `json:"type"`              // string, int, enum, ref, serial, ...
-	Values   []string `json:"values,omitempty"`  // enum/multiselect options
-	Ref      string   `json:"ref,omitempty"`     // ref/array_ref target entity
+	Type     string   `json:"type"`             // string, int, enum, ref, serial, ...
+	Values   []string `json:"values,omitempty"` // enum/multiselect options
+	Ref      string   `json:"ref,omitempty"`    // ref/array_ref target entity
 	Required bool     `json:"required,omitempty"`
 	Unique   bool     `json:"unique,omitempty"`
 	Default  string   `json:"default,omitempty"`
 	Computed string   `json:"computed,omitempty"`
-	Format   string   `json:"format,omitempty"`   // serial format
+	Format   string   `json:"format,omitempty"` // serial format
 	OnDelete string   `json:"on_delete,omitempty"`
 }
 

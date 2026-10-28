@@ -125,8 +125,8 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		if rec := recover(); rec != nil {
 			result = nil
 			terr = map[string]any{
-				"code":    "INTERNAL",
-				"message": fmt.Sprintf("tool %q panicked: %v", name, rec),
+				"code":     "INTERNAL",
+				"message":  fmt.Sprintf("tool %q panicked: %v", name, rec),
 				"fix_hint": "this is a server bug, not a mistake in your call; retrying with the same arguments is unlikely to help — report it",
 			}
 		}
@@ -488,7 +488,7 @@ func (s *Server) dispatch(r *http.Request, actor eventstore.Actor, name string, 
 		if actor.Role != s.eng.DefinitionApprover() {
 			return nil, map[string]any{"code": "PERMISSION_DENIED",
 				"message": "definition sources are visible to the definition approver role only",
-				"rule":     "definition approver"}
+				"rule":    "definition approver"}
 		}
 		files, defVersion := s.eng.DefinitionSources()
 		return map[string]any{"files": files, "def_version": defVersion}, nil

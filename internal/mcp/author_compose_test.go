@@ -79,7 +79,7 @@ func TestAuthorComposePackLoop(t *testing.T) {
 	sys, _ := call(t, srv.URL, authorToken, "describe_system", map[string]any{})
 	baseDef := sys["def_version"].(float64)
 	prop, isErr := call(t, srv.URL, authorToken, "propose_change", map[string]any{
-		"files": map[string]string{"reqhub.dsl": dslText},
+		"files":            map[string]string{"reqhub.dsl": dslText},
 		"base_def_version": baseDef, "description": "request hub", "basis": agentBasis,
 	})
 	if isErr || prop["ok"] != true {

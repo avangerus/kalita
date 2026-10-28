@@ -86,8 +86,8 @@ permissions:
 	}
 	ctx := context.Background()
 	mon := anchorMonday()
-	now := mon.AddDate(0, 0, 7).Add(11 * time.Hour)        // next Monday 11:00
-	opened := mon.AddDate(0, 0, 4).Add(16 * time.Hour)     // Friday 16:00
+	now := mon.AddDate(0, 0, 7).Add(11 * time.Hour)    // next Monday 11:00
+	opened := mon.AddDate(0, 0, 4).Add(16 * time.Hour) // Friday 16:00
 	eng, err := New(ctx, model, eventstore.NewMemStore(nil), WithClock(func() time.Time { return now }))
 	if err != nil {
 		t.Fatal(err)

@@ -21,12 +21,12 @@ import (
 // admin-role invites reserved to the admin role.
 
 type boundaryFixture struct {
-	srv   *httptest.Server
-	store eventstore.Store
-	admin string // Owner token
-	staff string // Manager token
+	srv    *httptest.Server
+	store  eventstore.Store
+	admin  string // Owner token
+	staff  string // Manager token
 	staff2 string
-	agent string
+	agent  string
 }
 
 func boundarySetup(t *testing.T) *boundaryFixture {

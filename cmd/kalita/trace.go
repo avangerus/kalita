@@ -98,18 +98,18 @@ func actorLabel(a eventstore.Actor) string {
 // describeEvent renders one journaled fact as a readable line.
 func describeEvent(ev *eventstore.Event) string {
 	var p struct {
-		Action   string         `json:"action"`
-		From     string         `json:"from"`
-		To       string         `json:"to"`
-		Status   string         `json:"status"`
-		Approved bool           `json:"approved"`
-		Result   string         `json:"result"`
-		Reason   string         `json:"reason"`
-		Note     string         `json:"note"`
-		Subject  string         `json:"subject"`
-		Values   map[string]any `json:"values"`
+		Action   string           `json:"action"`
+		From     string           `json:"from"`
+		To       string           `json:"to"`
+		Status   string           `json:"status"`
+		Approved bool             `json:"approved"`
+		Result   string           `json:"result"`
+		Reason   string           `json:"reason"`
+		Note     string           `json:"note"`
+		Subject  string           `json:"subject"`
+		Values   map[string]any   `json:"values"`
 		Changes  []map[string]any `json:"changes"`
-		Error    map[string]any `json:"error"`
+		Error    map[string]any   `json:"error"`
 	}
 	_ = json.Unmarshal(ev.Payload, &p)
 	subj := ev.Subject.Entity + "/" + shortID(ev.Subject.RecordID)
@@ -188,4 +188,3 @@ func truncate(s string, n int) string {
 func itoa(v uint64) string {
 	return fmt.Sprintf("%d", v)
 }
-

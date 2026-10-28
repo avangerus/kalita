@@ -88,7 +88,7 @@ func lexExpr(s string) ([]exTok, bool) {
 		case c == '(' || c == ')' || c == '[' || c == ']' || c == ',':
 			toks = append(toks, exTok{"punct", string(c)})
 			i++
-		case c == '=' :
+		case c == '=':
 			toks = append(toks, exTok{"punct", "="})
 			i++
 		case c == '!' && i+1 < len(s) && s[i+1] == '=':

@@ -26,7 +26,7 @@ type Server struct {
 	eng *engine.Engine
 	reg *identity.Registry
 
-	// rag configures the search_perimeter node-tool (KNOWVAULT-INTEGRATION.md
+	// rag configures the search_perimeter node-tool (packs/knowvault/README.md
 	// §2). nil means the tool is not enabled on this node — dispatch answers
 	// with NOT_CONFIGURED rather than a nil-pointer panic. Set via
 	// WithRAGSearch, the same four values api.WithRAGSearch takes, so a node
@@ -58,7 +58,7 @@ func WithVersion(v string) Option { return func(s *Server) { s.version = v } }
 
 // WithRAGSearch enables the search_perimeter MCP tool, delegating to the
 // exact same api.SearchPerimeter governance core the REST /api/search
-// endpoint uses (KNOWVAULT-INTEGRATION.md §1.2/§2) — pass the same
+// endpoint uses (packs/knowvault/README.md §1.2/§2) — pass the same
 // backend/scope/logEntity/role a co-located api.WithRAGSearch call uses.
 func WithRAGSearch(backend, scope, logEntity, role string) Option {
 	return func(s *Server) {

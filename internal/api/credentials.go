@@ -413,7 +413,7 @@ func (s *Server) proposalChallenge(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, proposalChallengeResponse{
 		ProposalID: proposalID, Description: p.Description, Plan: p.Plan,
 		Decision: decision, HeadSeq: headSeq, NodeID: s.nodeID,
-		RPID: rpIDFromHost(r.Host),
+		RPID:      rpIDFromHost(r.Host),
 		Challenge: base64.RawURLEncoding.EncodeToString(challenge[:]),
 	})
 }
