@@ -4,8 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    - cron: '0 3 * * *' # nightly — see the `passport` job below
   workflow_dispatch:
 
 jobs:
